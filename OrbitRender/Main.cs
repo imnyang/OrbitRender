@@ -173,7 +173,7 @@ namespace OrbitRender
         {
             GUILayout.Label(Localization.Text(
                 "Configure the defaults used when exporting a video. Per-export settings can be changed from the Export Video window.",
-                "비디오 내보내기에 사용할 기본값입니다. 개별 내보내기 설정은 비디오 내보내기 창에서 바꿀 수 있습니다."));
+                "영상 내보내기에 사용할 기본값입니다. 개별 내보내기 설정은 영상 내보내기 창에서 바꿀 수 있습니다."));
             GUILayout.Space(4f);
 
             DrawRenderSettings();

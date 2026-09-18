@@ -57,7 +57,7 @@ namespace OrbitRender.UI
             }
 
             windowRect = GUI.Window(WindowId, windowRect, id => DrawWindow(id, renderer),
-                Localization.Text("Export Video", "비디오 내보내기"));
+                Localization.Text("Export Video", "영상 내보내기"));
             if (Event.current.type != EventType.Layout && Event.current.type != EventType.Repaint)
                 Event.current.Use();
         }
@@ -66,7 +66,7 @@ namespace OrbitRender.UI
         {
             GUILayout.BeginVertical();
             GUILayout.Label(Localization.Text("Choose the settings for this video export.",
-                "비디오 내보내기 설정을 선택하세요."));
+                "영상 내보내기 설정을 선택하세요."));
             GUILayout.Space(6f);
 
             GUILayout.Label(Localization.Text("Preset", "프리셋"));
@@ -148,7 +148,7 @@ namespace OrbitRender.UI
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             if (GUILayout.Button(Localization.Text("Cancel", "취소"), GUILayout.Width(120f))) Close();
-            if (GUILayout.Button(Localization.Text("Export Video", "비디오 내보내기"), GUILayout.Width(150f)))
+            if (GUILayout.Button(Localization.Text("Export Video", "영상 내보내기"), GUILayout.Width(150f)))
                 Confirm(renderer);
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();

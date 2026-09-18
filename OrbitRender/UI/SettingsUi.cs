@@ -42,7 +42,7 @@ namespace OrbitRender.UI
 
         internal static VideoEncoder DrawEncoder(VideoEncoder value)
         {
-            GUILayout.Label(Localization.Text("Video encoder", "비디오 인코더"));
+            GUILayout.Label(Localization.Text("Video encoder", "영상 인코더"));
             var selected = value == VideoEncoder.Auto ? 0
                 : value == VideoEncoder.NvidiaNvenc ? 1
                 : value == VideoEncoder.IntelQsv ? 2
@@ -64,7 +64,7 @@ namespace OrbitRender.UI
 
         internal static VideoCodec DrawCodec(VideoCodec value)
         {
-            GUILayout.Label(Localization.Text("Video codec", "비디오 코덱"));
+            GUILayout.Label(Localization.Text("Video codec", "영상 코덱"));
             return (VideoCodec)GUILayout.Toolbar((int)value,
                 new[] { "H.264", "H.265", "VP9", "AV1" });
         }

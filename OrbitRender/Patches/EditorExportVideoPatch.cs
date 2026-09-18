@@ -65,7 +65,7 @@ namespace OrbitRender.Patches
             button.onClick = new Button.ButtonClickedEvent();
             button.onClick.AddListener(() => ExportVideo(editor));
             SetButtonLabel(button.gameObject,
-                Localization.Text(ButtonLabel, "비디오 내보내기"));
+                Localization.Text(ButtonLabel, "영상 내보내기"));
             button.gameObject.SetActive(true);
         }
 
