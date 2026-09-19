@@ -60,7 +60,7 @@ namespace OrbitRender.UI
             }
 
             windowRect = GUI.Window(WindowId, windowRect, id => DrawWindow(id, renderer),
-                Localization.Text("Export Video", "영상 내보내기"));
+                Localization.Get("export-video"));
             if (Event.current.type != EventType.Layout && Event.current.type != EventType.Repaint)
                 Event.current.Use();
         }
@@ -69,11 +69,10 @@ namespace OrbitRender.UI
         {
             GUILayout.BeginVertical();
             scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.ExpandHeight(true));
-            GUILayout.Label(Localization.Text("Choose the settings for this video export.",
-                "영상 내보내기 설정을 선택하세요."));
+            GUILayout.Label(Localization.Get("choose-the-settings-for-this-video-export"));
             GUILayout.Space(6f);
 
-            GUILayout.Label(Localization.Text("Preset", "프리셋"));
+            GUILayout.Label(Localization.Get("preset"));
             var preset = SettingsUi.DrawPreset(draft.Preset);
             if (preset != draft.Preset)
             {
@@ -84,61 +83,55 @@ namespace OrbitRender.UI
             if (draft.Preset == RendererPreset.Custom)
             {
                 GUILayout.BeginHorizontal();
-                draft.WidthText = SettingsUi.LabeledField(Localization.Text("Width", "너비"), draft.WidthText, 90f);
-                draft.HeightText = SettingsUi.LabeledField(Localization.Text("Height", "높이"), draft.HeightText, 90f);
-                draft.BitrateText = SettingsUi.LabeledField(Localization.Text("Bitrate", "비트레이트"), draft.BitrateText, 80f);
+                draft.WidthText = SettingsUi.LabeledField(Localization.Get("width"), draft.WidthText, 90f);
+                draft.HeightText = SettingsUi.LabeledField(Localization.Get("height"), draft.HeightText, 90f);
+                draft.BitrateText = SettingsUi.LabeledField(Localization.Get("bitrate"), draft.BitrateText, 80f);
                 GUILayout.Label("Mbps", GUILayout.Width(44f));
                 GUILayout.EndHorizontal();
             }
             else
             {
-                GUILayout.Label(Localization.Format(
-                    "Preset output: {0} × {1} | target {2} FPS | video {3} FPS | {4} Mbps",
-                    "프리셋 출력: {0} × {1} | 게임 {2} FPS | 영상 {3} FPS | {4} Mbps",
-                    draft.WidthText, draft.HeightText, draft.FpsText, draft.VideoFpsText, draft.BitrateText));
+                GUILayout.Label(Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText, draft.VideoFpsText, draft.BitrateText));
             }
 
             GUILayout.BeginHorizontal();
-            draft.FpsText = SettingsUi.LabeledField(Localization.Text("Target FPS", "Target FPS"), draft.FpsText, 80f);
-            draft.VideoFpsText = SettingsUi.LabeledField(Localization.Text("Video FPS", "Video FPS"), draft.VideoFpsText, 80f);
+            draft.FpsText = SettingsUi.LabeledField(Localization.Get("ingame-fps"), draft.FpsText, 80f);
+            draft.VideoFpsText = SettingsUi.LabeledField(Localization.Get("video-fps"), draft.VideoFpsText, 80f);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(6f);
-            if (SettingsUi.DrawSectionHeader(Localization.Text("Render options", "렌더 옵션"),
+            if (SettingsUi.DrawSectionHeader(Localization.Get("render-options"),
                 ref renderOptionsExpanded))
             {
-                draft.EndDelayText = SettingsUi.LabeledField(Localization.Text("End delay (seconds)", "종료 지연(초)"),
+                draft.EndDelayText = SettingsUi.LabeledField(Localization.Get("end-delay-seconds"),
                     draft.EndDelayText, 90f);
                 draft.CaptureAudio = GUILayout.Toggle(draft.CaptureAudio,
-                    Localization.Text("Capture audio", "오디오 캡처"));
+                    Localization.Get("capture-audio"));
                 draft.BgaMode = GUILayout.Toggle(draft.BgaMode,
-                    Localization.Text("BGA mode (hide tiles, planets & hit sounds)",
-                        "BGA 모드 (타일, 행성 및 타격음 숨기기)"));
+                    Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"));
                 draft.OpenOutputFolder = GUILayout.Toggle(draft.OpenOutputFolder,
-                    Localization.Text("Open output folder after render", "렌더 후 출력 폴더 열기"));
+                    Localization.Get("open-output-folder-after-render"));
                 draft.SaveAsDefault = GUILayout.Toggle(draft.SaveAsDefault,
-                    Localization.Text("Save these values as the default renderer settings",
-                        "이 값을 렌더러 기본 설정으로 저장"));
+                    Localization.Get("save-these-values-as-the-default-renderer-settings"));
             }
 
-            if (SettingsUi.DrawSectionHeader(Localization.Text("Visible components", "표시할 구성 요소"),
+            if (SettingsUi.DrawSectionHeader(Localization.Get("visible-components"),
                 ref visibleComponentsExpanded))
             {
                 draft.ShowPlanetRings = GUILayout.Toggle(draft.ShowPlanetRings,
-                    Localization.Text("Show planet rings", "행성 고리 표시"));
+                    Localization.Get("show-planet-rings"));
                 draft.ShowSongTitle = GUILayout.Toggle(draft.ShowSongTitle,
-                    Localization.Text("Show song title", "곡 제목 표시"));
+                    Localization.Get("show-song-title"));
                 draft.ShowCountdown = GUILayout.Toggle(draft.ShowCountdown,
-                    Localization.Text("Show countdown", "카운트다운 표시"));
+                    Localization.Get("show-countdown"));
                 draft.ShowResultText = GUILayout.Toggle(draft.ShowResultText,
-                    Localization.Text("Show result text (hit judgments stay hidden)",
-                        "결과 텍스트 표시 (판정은 숨김)"));
+                    Localization.Get("show-result-text-hit-judgments-stay-hidden"));
                 draft.ShowHitJudgments = GUILayout.Toggle(draft.ShowHitJudgments,
-                    Localization.Text("Show hit judgments", "판정 표시"));
+                    Localization.Get("show-hit-judgments"));
             }
 
             GUILayout.Space(6f);
-            if (SettingsUi.DrawSectionHeader(Localization.Text("Encoding", "인코딩"), ref encodingExpanded))
+            if (SettingsUi.DrawSectionHeader(Localization.Get("encoding"), ref encodingExpanded))
             {
                 draft.Encoding = SettingsUi.DrawEncoding(draft.Encoding);
                 draft.Encoder = SettingsUi.DrawEncoder(draft.Encoder);
@@ -157,8 +150,8 @@ namespace OrbitRender.UI
 
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(Localization.Text("Cancel", "취소"), GUILayout.Width(120f))) Close();
-            if (GUILayout.Button(Localization.Text("Export Video", "영상 내보내기"), GUILayout.Width(150f)))
+            if (GUILayout.Button(Localization.Get("cancel"), GUILayout.Width(120f))) Close();
+            if (GUILayout.Button(Localization.Get("export-video"), GUILayout.Width(150f)))
                 Confirm(renderer);
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
@@ -169,7 +162,7 @@ namespace OrbitRender.UI
         {
             if (renderer == null || renderer.Busy)
             {
-                error = Localization.Text("A render is already in progress.", "렌더가 이미 진행 중입니다.");
+                error = Localization.Get("a-render-is-already-in-progress");
                 return;
             }
 
@@ -267,14 +260,12 @@ namespace OrbitRender.UI
                 float endDelay;
                 if (!int.TryParse(FpsText, out targetFps) || targetFps < 15 || targetFps > 1024)
                 {
-                    message = Localization.Text("Target FPS must be between 15 and 1024.",
-                        "Target FPS는 15~1024 사이여야 합니다.");
+                    message = Localization.Get("ingame-fps-must-be-between-15-and-1024");
                     return false;
                 }
                 if (!int.TryParse(VideoFpsText, out videoFps) || videoFps < 15 || videoFps > 240)
                 {
-                    message = Localization.Text("Video FPS must be between 15 and 240.",
-                        "Video FPS는 15~240 사이여야 합니다.");
+                    message = Localization.Get("video-fps-must-be-between-15-and-240");
                     return false;
                 }
                 if (Preset == RendererPreset.Custom)
@@ -282,29 +273,24 @@ namespace OrbitRender.UI
                     if (!int.TryParse(WidthText, out width) || !int.TryParse(HeightText, out height)
                         || !int.TryParse(BitrateText, out bitrate))
                     {
-                        message = Localization.Text(
-                            "Width, height and bitrate must be valid numbers.",
-                            "너비, 높이 및 비트레이트는 유효한 숫자여야 합니다.");
+                        message = Localization.Get("width-height-and-bitrate-must-be-valid-numbers");
                         return false;
                     }
                     if (width < 320 || width > 3840 || height < 180 || height > 2160
                         || bitrate < 1 || bitrate > 200)
                     {
-                        message = Localization.Text("Custom values are outside the supported ranges.",
-                            "사용자 지정 값이 지원 범위를 벗어났습니다.");
+                        message = Localization.Get("custom-values-are-outside-the-supported-ranges");
                         return false;
                     }
                     if ((width & 1) != 0 || (height & 1) != 0)
                     {
-                        message = Localization.Text("Width and height must be even numbers.",
-                            "너비와 높이는 짝수여야 합니다.");
+                        message = Localization.Get("width-and-height-must-be-even-numbers");
                         return false;
                     }
                 }
                 if (!TryParseFloat(EndDelayText, out endDelay) || endDelay < 0f || endDelay > 30f)
                 {
-                    message = Localization.Text("End delay must be between 0 and 30 seconds.",
-                        "종료 지연은 0~30초 사이여야 합니다.");
+                    message = Localization.Get("end-delay-must-be-between-0-and-30-seconds");
                     return false;
                 }
 

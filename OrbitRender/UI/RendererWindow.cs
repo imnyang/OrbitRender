@@ -93,22 +93,22 @@ namespace OrbitRender.UI
                 }
 
                 var metrics = new Rect(content.x, content.y + 141f, content.width, 43f);
-                DrawMetric(metrics, 0, Localization.Text("FRAMES", "프레임"),
+                DrawMetric(metrics, 0, Localization.Get("frames"),
                     renderer.ProgressText ?? string.Empty);
-                DrawMetric(metrics, 1, Localization.Text("SPEED", "속도"),
+                DrawMetric(metrics, 1, Localization.Get("speed"),
                     renderer.State == RenderState.Completed
-                        ? Localization.Text("Complete", "완료")
+                        ? Localization.Get("complete")
                         : renderer.SpeedText ?? string.Empty);
-                DrawMetric(metrics, 2, Localization.Text("ETA", "예상 시간"),
+                DrawMetric(metrics, 2, Localization.Get("eta"),
                     renderer.State == RenderState.Completed
-                        ? Localization.Text("Done", "완료")
+                        ? Localization.Get("done")
                         : renderer.EtaText ?? string.Empty);
 
             }
             else if (showCompleted)
             {
                 GUI.Label(new Rect(content.x, content.y + 83f, content.width, 16f),
-                    Localization.Text("TIME SPENT", "걸린 시간"), metricLabel);
+                    Localization.Get("time-spent"), metricLabel);
                 GUI.Label(new Rect(content.x, content.y + 99f, content.width, 36f),
                     FormatElapsed(renderer.ElapsedSeconds), percent);
                 if (showPath)
@@ -119,24 +119,23 @@ namespace OrbitRender.UI
                     GUI.Label(new Rect(content.x, content.y + 155f, content.width - 118f, 22f),
                         CompactPath(renderer.OutputPath), path);
                     if (GUI.Button(new Rect(content.x + content.width - 110f, content.y + 152f, 110f, 28f),
-                        Localization.Text("Copy path", "경로 복사")))
+                        Localization.Get("copy-path")))
                         GUIUtility.systemCopyBuffer = renderer.OutputPath;
                 }
             }
             else
             {
                 GUI.Label(new Rect(content.x, content.y + 83f, content.width, 42f),
-                    Localization.Text("The render window will update when the next stage is ready.",
-                        "다음 단계가 준비되면 렌더 상태가 업데이트됩니다."), hint);
+                    Localization.Get("the-render-window-will-update-when-the-next-stage-is-re"), hint);
             }
 
             if (showProgress)
             {
                 GUI.Label(new Rect(content.x, content.y + 201f, content.width - 132f, 22f),
-                    Localization.Text("Hold Esc for 1 second to cancel", "취소하려면 Esc를 1초간 누르세요"), hint);
+                    Localization.Get("hold-esc-for-1-second-to-cancel"), hint);
                 if (renderer.State == RenderState.Rendering
                     && GUI.Button(new Rect(content.x + content.width - 118f, content.y + 198f, 118f, 28f),
-                        Localization.Text("Cancel render", "렌더 취소")))
+                        Localization.Get("cancel-render")))
                     renderer.Cancel();
             }
         }
@@ -153,13 +152,13 @@ namespace OrbitRender.UI
         {
             switch (value)
             {
-                case RenderState.Preparing: return Localization.Text("PREPARING", "준비 중");
-                case RenderState.Rendering: return Localization.Text("RENDERING", "렌더링 중");
-                case RenderState.Finishing: return Localization.Text("FINALIZING", "마무리 중");
-                case RenderState.Completed: return Localization.Text("COMPLETED", "완료");
-                case RenderState.Cancelled: return Localization.Text("CANCELLED", "취소됨");
-                case RenderState.Failed: return Localization.Text("FAILED", "실패");
-                default: return Localization.Text("STATUS", "상태");
+                case RenderState.Preparing: return Localization.Get("preparing");
+                case RenderState.Rendering: return Localization.Get("rendering");
+                case RenderState.Finishing: return Localization.Get("finalizing");
+                case RenderState.Completed: return Localization.Get("completed");
+                case RenderState.Cancelled: return Localization.Get("cancelled");
+                case RenderState.Failed: return Localization.Get("failed");
+                default: return Localization.Get("status");
             }
         }
 
@@ -167,13 +166,13 @@ namespace OrbitRender.UI
         {
             switch (value)
             {
-                case RenderState.Preparing: return Localization.Text("Preparing your export", "영상 내보내기 준비 중");
-                case RenderState.Rendering: return Localization.Text("Rendering video", "영상 렌더링 중");
-                case RenderState.Finishing: return Localization.Text("Finishing video", "영상 마무리 중");
-                case RenderState.Completed: return Localization.Text("Export complete", "영상 내보내기 완료");
-                case RenderState.Cancelled: return Localization.Text("Render cancelled", "렌더 취소됨");
-                case RenderState.Failed: return Localization.Text("Render failed", "렌더 실패");
-                default: return Localization.Text("Render status", "렌더 상태");
+                case RenderState.Preparing: return Localization.Get("preparing-your-export");
+                case RenderState.Rendering: return Localization.Get("rendering-video");
+                case RenderState.Finishing: return Localization.Get("finishing-video");
+                case RenderState.Completed: return Localization.Get("export-complete");
+                case RenderState.Cancelled: return Localization.Get("render-cancelled-status");
+                case RenderState.Failed: return Localization.Get("render-failed-status");
+                default: return Localization.Get("render-status");
             }
         }
 
@@ -188,7 +187,7 @@ namespace OrbitRender.UI
         {
             if (string.IsNullOrEmpty(value)) return string.Empty;
             var fileName = Path.GetFileName(value);
-            return Localization.Format("Output: {0}", "출력: {0}", fileName);
+            return Localization.Format("output-file", fileName);
         }
 
         private static string FormatElapsed(double seconds)
@@ -196,9 +195,8 @@ namespace OrbitRender.UI
             if (double.IsNaN(seconds) || double.IsInfinity(seconds)) return "—";
             var duration = System.TimeSpan.FromSeconds(System.Math.Max(0d, seconds));
             if (duration.TotalHours >= 1d)
-                return Localization.Format("{0}:{1:D2}:{2:D2}", "{0}:{1:D2}:{2:D2}",
-                    (int)duration.TotalHours, duration.Minutes, duration.Seconds);
-            return Localization.Format("{0}:{1:D2}", "{0}:{1:D2}", duration.Minutes, duration.Seconds);
+                return Localization.Format("duration-hours", (int)duration.TotalHours, duration.Minutes, duration.Seconds);
+            return Localization.Format("duration-minutes", duration.Minutes, duration.Seconds);
         }
 
         internal static void DrawEncoderFallbackPrompt(RendererController renderer)
@@ -212,21 +210,18 @@ namespace OrbitRender.UI
             GUI.Box(rect, GUIContent.none, panel);
             var content = new Rect(rect.x + 24f, rect.y + 18f, rect.width - 48f, rect.height - 36f);
             GUI.Label(new Rect(content.x, content.y, content.width, 24f),
-                Localization.Text("ENCODER CONFIRMATION", "인코더 확인"), title);
+                Localization.Get("encoder-confirmation"), title);
             GUI.Label(new Rect(content.x, content.y + 34f, content.width, 38f),
-                Localization.Text("The selected hardware encoder could not be initialized.",
-                    "선택한 하드웨어 인코더를 초기화할 수 없습니다."), message);
+                Localization.Get("the-selected-hardware-encoder-could-not-be-initialized"), message);
             GUI.Label(new Rect(content.x, content.y + 76f, content.width, 54f),
                 renderer.EncoderFallbackReason ?? string.Empty, detail);
             GUI.Label(new Rect(content.x, content.y + 132f, content.width, 28f),
-                Localization.Text(
-                    "Use Software encoder for this render? Your saved encoder setting will not be changed.",
-                    "이번 렌더에 소프트웨어 인코더를 사용할까요? 저장된 인코더 설정은 변경되지 않습니다."), detail);
+                Localization.Get("use-software-encoder-for-this-render-your-saved-encoder"), detail);
             if (GUI.Button(new Rect(content.x, content.y + 170f, 310f, 34f),
-                Localization.Text("Use Software and continue", "소프트웨어로 계속")))
+                Localization.Get("use-software-and-continue")))
                 renderer.ConfirmEncoderFallback();
             if (GUI.Button(new Rect(content.x + 326f, content.y + 170f, 160f, 34f),
-                Localization.Text("Cancel render", "렌더 취소")))
+                Localization.Get("cancel-render")))
                 renderer.RejectEncoderFallback();
         }
 
@@ -244,32 +239,26 @@ namespace OrbitRender.UI
             var waiting = FfmpegInstaller.IsAwaitingConsent;
             GUI.Label(new Rect(content.x, content.y, content.width, 24f),
                 waiting
-                    ? Localization.Text("FFMPEG INSTALLATION", "FFMPEG 설치")
-                    : Localization.Text("INSTALLING FFMPEG", "FFMPEG 설치 중"), title);
+                    ? Localization.Get("ffmpeg-installation")
+                    : Localization.Get("installing-ffmpeg"), title);
             GUI.Label(new Rect(content.x, content.y + 34f, content.width, 40f),
                 waiting
-                    ? Localization.Text(
-                        "OrbitRender needs FFmpeg to export videos. Download the platform-compatible binary now?",
-                        "OrbitRender가 동영상을 내보내려면 FFmpeg가 필요합니다. 현재 플랫폼용 파일을 지금 다운로드할까요?")
-                    : Localization.Text(
-                        "Downloading FFmpeg for this platform. The renderer will be ready when the download finishes.",
-                        "현재 플랫폼용 FFmpeg를 다운로드하고 있습니다. 다운로드가 끝나면 렌더러를 사용할 수 있습니다."),
+                    ? Localization.Get("orbitrender-needs-ffmpeg-to-export-videos-download-the")
+                    : Localization.Get("downloading-ffmpeg-for-this-platform-the-renderer-will"),
                 message);
             GUI.Label(new Rect(content.x, content.y + 82f, content.width, 52f),
                 waiting
-                    ? Localization.Text(
-                        "The download comes from the FFmpeg build provider and is saved inside the mod folder. An internet connection is required.",
-                        "다운로드는 FFmpeg 빌드 제공처에서 진행되며 모드 폴더에 저장됩니다. 인터넷 연결이 필요합니다.")
+                    ? Localization.Get("the-download-comes-from-the-ffmpeg-build-provider-and-i")
                     : FfmpegInstaller.StatusMessage,
                 detail);
 
             if (waiting)
             {
                 if (GUI.Button(new Rect(content.x, content.y + 158f, 310f, 34f),
-                    Localization.Text("Install FFmpeg", "FFmpeg 설치")))
+                    Localization.Get("install-ffmpeg")))
                     FfmpegInstaller.ConfirmInstall();
                 if (GUI.Button(new Rect(content.x + 326f, content.y + 158f, 160f, 34f),
-                    Localization.Text("Not now", "나중에")))
+                    Localization.Get("not-now")))
                     FfmpegInstaller.DeclineInstall();
             }
         }

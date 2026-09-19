@@ -20,11 +20,8 @@ namespace OrbitRender
         internal static RendererSettings Settings;
         private static Harmony harmony;
         private static GameObject host;
-        private static string diagnosticsSummary = Localization.Text(
-            "Diagnostics have not been run.", "진단을 아직 실행하지 않았습니다.");
-        private static string diagnosticsReport = Localization.Text(
-            "Click Run diagnostics to check FFmpeg, the output folder, the encoder, and game audio.",
-            "진단 실행을 눌러 FFmpeg, 출력 폴더, 인코더 및 게임 오디오를 확인하세요.");
+        private static string diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
+        private static string diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
         private static string localizedWidthText;
         private static string localizedHeightText;
         private static string localizedFpsText;
@@ -46,6 +43,7 @@ namespace OrbitRender
         public static bool Load(UnityModManager.ModEntry entry)
         {
             Entry = entry;
+            Localization.Initialize(entry.Path);
             try
             {
                 ReadCommandLineOptions();
@@ -78,11 +76,8 @@ namespace OrbitRender
                     if (Settings == null) return;
                     if (!diagnosticsHaveRun)
                     {
-                        diagnosticsSummary = Localization.Text(
-                            "Diagnostics have not been run.", "진단을 아직 실행하지 않았습니다.");
-                        diagnosticsReport = Localization.Text(
-                            "Click Run diagnostics to check FFmpeg, the output folder, the encoder, and game audio.",
-                            "진단 실행을 눌러 FFmpeg, 출력 폴더, 인코더 및 게임 오디오를 확인하세요.");
+                        diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
+                        diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
                     }
                     DrawSettings();
                 };
@@ -173,41 +168,39 @@ namespace OrbitRender
 
         private static void DrawSettings()
         {
-            GUILayout.Label(Localization.Text(
-                "Configure the defaults used when exporting a video. Per-export settings can be changed from the Export Video window.",
-                "영상 내보내기에 사용할 기본값입니다. 개별 내보내기 설정은 영상 내보내기 창에서 바꿀 수 있습니다."));
+            GUILayout.Label(Localization.Get("configure-the-defaults-used-when-exporting-a-video-per"));
             GUILayout.Space(4f);
 
             DrawRenderSettings();
 
-            if (SettingsUi.DrawSectionHeader(Localization.Text("Render options", "렌더 옵션"),
+            if (SettingsUi.DrawSectionHeader(Localization.Get("render-options"),
                 ref renderOptionsExpanded))
             {
                 DrawRenderOptions();
             }
 
-            if (SettingsUi.DrawSectionHeader(Localization.Text("Visible components", "표시할 구성 요소"),
+            if (SettingsUi.DrawSectionHeader(Localization.Get("visible-components"),
                 ref visibleComponentsExpanded))
             {
                 DrawVisibleComponents();
             }
 
             GUILayout.Space(6f);
-            if (SettingsUi.DrawSectionHeader(Localization.Text("Encoding", "인코딩"),
+            if (SettingsUi.DrawSectionHeader(Localization.Get("encoding"),
                 ref encodingExpanded))
             {
                 DrawEncodingSettings();
             }
 
             GUILayout.Space(6f);
-            if (SettingsUi.DrawSectionHeader(Localization.Text("Files & troubleshooting", "파일 및 문제 해결"),
+            if (SettingsUi.DrawSectionHeader(Localization.Get("files-troubleshooting"),
                 ref filesExpanded))
             {
                 DrawPathSettings();
                 DrawFfmpegInstallControls();
                 DrawDiagnostics();
                 GUILayout.Space(4f);
-                if (GUILayout.Button(Localization.Text("Reset render settings to defaults", "렌더링 설정을 기본값으로 복원")))
+                if (GUILayout.Button(Localization.Get("reset-render-settings-to-defaults")))
                 {
                     Settings.ResetToDefaults();
                     Settings.OnChange();
@@ -218,7 +211,7 @@ namespace OrbitRender
 
         private static void DrawRenderSettings()
         {
-            GUILayout.Label(Localization.Text("Preset", "프리셋"));
+            GUILayout.Label(Localization.Get("preset"));
             var previousPreset = Settings.Preset;
             Settings.Preset = SettingsUi.DrawPreset(Settings.Preset);
             if (Settings.Preset != previousPreset)
@@ -231,13 +224,13 @@ namespace OrbitRender
             {
                 GUILayout.BeginHorizontal();
                 Settings.Width = DrawLocalizedIntField(
-                    Localization.Text("Width", "너비"), Settings.Width,
+                    Localization.Get("width"), Settings.Width,
                     ref localizedWidthText, ref localizedWidthValue, 90f);
                 Settings.Height = DrawLocalizedIntField(
-                    Localization.Text("Height", "높이"), Settings.Height,
+                    Localization.Get("height"), Settings.Height,
                     ref localizedHeightText, ref localizedHeightValue, 90f);
                 Settings.BitrateMbps = DrawLocalizedIntField(
-                    Localization.Text("Bitrate", "비트레이트"), Settings.BitrateMbps,
+                    Localization.Get("bitrate"), Settings.BitrateMbps,
                     ref localizedBitrateText, ref localizedBitrateValue, 80f);
                 GUILayout.Label("Mbps", GUILayout.Width(44f));
                 GUILayout.EndHorizontal();
@@ -245,18 +238,15 @@ namespace OrbitRender
             else
             {
                 var profile = Settings.ResolveProfile();
-                GUILayout.Label(Localization.Format(
-                    "Preset output: {0} × {1} | target {2} FPS | video {3} FPS | {4} Mbps",
-                    "프리셋 출력: {0} × {1} | 게임 {2} FPS | 영상 {3} FPS | {4} Mbps",
-                    profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps));
+                GUILayout.Label(Localization.Format("preset-output", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps));
             }
 
             GUILayout.BeginHorizontal();
             Settings.Fps = DrawLocalizedIntField(
-                Localization.Text("Target FPS", "Target FPS"), Settings.Fps,
+                Localization.Get("ingame-fps"), Settings.Fps,
                 ref localizedFpsText, ref localizedFpsValue, 80f);
             Settings.VideoFps = DrawLocalizedIntField(
-                Localization.Text("Video FPS", "Video FPS"), Settings.VideoFps,
+                Localization.Get("video-fps"), Settings.VideoFps,
                 ref localizedVideoFpsText, ref localizedVideoFpsValue, 80f);
             GUILayout.EndHorizontal();
         }
@@ -264,31 +254,29 @@ namespace OrbitRender
         private static void DrawRenderOptions()
         {
             Settings.EndDelaySeconds = DrawLocalizedFloatField(
-                Localization.Text("End delay (seconds)", "종료 지연(초)"), Settings.EndDelaySeconds,
+                Localization.Get("end-delay-seconds"), Settings.EndDelaySeconds,
                 ref localizedEndDelayText, ref localizedEndDelayValue, 90f);
             Settings.CaptureAudio = DrawLocalizedToggle(
-                Localization.Text("Capture audio", "오디오 캡처"), Settings.CaptureAudio);
+                Localization.Get("capture-audio"), Settings.CaptureAudio);
             Settings.BgaMode = DrawLocalizedToggle(
-                Localization.Text("BGA mode (hide tiles, planets & hit sounds)",
-                    "BGA 모드 (타일, 행성 및 타격음 숨기기)"), Settings.BgaMode);
+                Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), Settings.BgaMode);
             Settings.OpenOutputFolder = DrawLocalizedToggle(
-                Localization.Text("Open output folder after render", "렌더 후 출력 폴더 열기"),
+                Localization.Get("open-output-folder-after-render"),
                 Settings.OpenOutputFolder);
         }
 
         private static void DrawVisibleComponents()
         {
             Settings.ShowPlanetRings = DrawLocalizedToggle(
-                Localization.Text("Show planet rings", "행성 고리 표시"), Settings.ShowPlanetRings);
+                Localization.Get("show-planet-rings"), Settings.ShowPlanetRings);
             Settings.ShowSongTitle = DrawLocalizedToggle(
-                Localization.Text("Show song title", "곡 제목 표시"), Settings.ShowSongTitle);
+                Localization.Get("show-song-title"), Settings.ShowSongTitle);
             Settings.ShowCountdown = DrawLocalizedToggle(
-                Localization.Text("Show countdown", "카운트다운 표시"), Settings.ShowCountdown);
+                Localization.Get("show-countdown"), Settings.ShowCountdown);
             Settings.ShowResultText = DrawLocalizedToggle(
-                Localization.Text("Show result text (hit judgments stay hidden)",
-                    "결과 텍스트 표시 (판정은 숨김)"), Settings.ShowResultText);
+                Localization.Get("show-result-text-hit-judgments-stay-hidden"), Settings.ShowResultText);
             Settings.ShowHitJudgments = DrawLocalizedToggle(
-                Localization.Text("Show hit judgments", "판정 표시"), Settings.ShowHitJudgments);
+                Localization.Get("show-hit-judgments"), Settings.ShowHitJudgments);
         }
 
         private static void DrawEncodingSettings()
@@ -302,12 +290,12 @@ namespace OrbitRender
         private static void DrawPathSettings()
         {
             DrawPathField(
-                Localization.Text("Output folder", "출력 폴더"),
+                Localization.Get("output-folder"),
                 ref Settings.OutputDirectory,
                 () => FileDialogService.PickFolder(GetOutputDialogDirectory()));
 
             DrawPathField(
-                Localization.Text("FFmpeg executable", "FFmpeg 실행 파일"),
+                Localization.Get("ffmpeg-executable"),
                 ref Settings.FfmpegExecutable,
                 () => FileDialogService.PickFile(GetFfmpegDialogDirectory()));
         }
@@ -374,16 +362,16 @@ namespace OrbitRender
             if (!FfmpegInstaller.NeedsInstallation) return;
 
             GUILayout.Space(8f);
-            GUILayout.Label(Localization.Text("FFmpeg setup", "FFmpeg 설정"));
+            GUILayout.Label(Localization.Get("ffmpeg-setup"));
             GUILayout.Label(FfmpegInstaller.StatusMessage);
             if (FfmpegInstaller.IsDownloading) return;
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button(Localization.Text("Install FFmpeg", "FFmpeg 설치"),
+            if (GUILayout.Button(Localization.Get("install-ffmpeg"),
                 GUILayout.ExpandWidth(false)))
                 FfmpegInstaller.ConfirmInstall();
             if (FfmpegInstaller.IsAwaitingConsent
-                && GUILayout.Button(Localization.Text("Not now", "나중에"), GUILayout.ExpandWidth(false)))
+                && GUILayout.Button(Localization.Get("not-now"), GUILayout.ExpandWidth(false)))
                 FfmpegInstaller.DeclineInstall();
             GUILayout.EndHorizontal();
         }
@@ -399,7 +387,7 @@ namespace OrbitRender
                 value = edited;
             }
 
-            if (GUILayout.Button(Localization.Text("Browse...", "찾아보기..."), GUILayout.ExpandWidth(false)))
+            if (GUILayout.Button(Localization.Get("browse"), GUILayout.ExpandWidth(false)))
             {
                 var selected = pick();
                 if (!string.IsNullOrEmpty(selected))
@@ -442,18 +430,16 @@ namespace OrbitRender
         private static void DrawDiagnostics()
         {
             GUILayout.Space(8f);
-            GUILayout.Label(Localization.Text("Diagnostics", "진단"));
+            GUILayout.Label(Localization.Get("diagnostics"));
             if (!diagnosticsHaveRun)
             {
-                GUILayout.Label(Localization.Text(
-                    "Run this before reporting an export problem. It checks FFmpeg, the output folder, the encoder, and game audio.",
-                    "내보내기 문제를 제보하기 전에 실행하세요. FFmpeg, 출력 폴더, 인코더 및 게임 오디오를 확인합니다."));
+                GUILayout.Label(Localization.Get("run-this-before-reporting-an-export-problem-it-checks-f"));
             }
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button(Localization.Text("Run diagnostics", "진단 실행"),
+            if (GUILayout.Button(Localization.Get("run-diagnostics"),
                 GUILayout.ExpandWidth(false))) RunDiagnostics();
             if (diagnosticsHaveRun
-                && GUILayout.Button(Localization.Text("Copy report", "보고서 복사"),
+                && GUILayout.Button(Localization.Get("copy-report"),
                     GUILayout.ExpandWidth(false)))
                 GUIUtility.systemCopyBuffer = diagnosticsSummary + Environment.NewLine + diagnosticsReport;
             GUILayout.EndHorizontal();
@@ -478,8 +464,7 @@ namespace OrbitRender
             catch (Exception ex)
             {
                 diagnosticsHaveRun = true;
-                diagnosticsSummary = Localization.Text("Diagnostics failed unexpectedly.",
-                    "진단 중 예기치 않은 오류가 발생했습니다.");
+                diagnosticsSummary = Localization.Get("diagnostics-failed-unexpectedly");
                 diagnosticsReport = ex.ToString();
                 Entry.Logger.Error("Renderer diagnostics failed: " + ex);
             }

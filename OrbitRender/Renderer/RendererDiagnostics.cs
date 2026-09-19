@@ -19,14 +19,10 @@ namespace OrbitRender.Renderer
             get
             {
                 if (Errors > 0)
-                    return Localization.FormatWithCurrentCulture(
-                        "Diagnostics found {0} error(s) and {1} warning(s).",
-                        "진단에서 오류 {0}개와 경고 {1}개를 발견했습니다.", Errors, Warnings);
+                    return Localization.FormatWithCurrentCulture("diagnostics-found-value-error-s-and-value-warning-s", Errors, Warnings);
                 if (Warnings > 0)
-                    return Localization.FormatWithCurrentCulture(
-                        "Diagnostics passed with {0} warning(s).",
-                        "진단을 통과했지만 경고가 {0}개 있습니다.", Warnings);
-                return Localization.Text("All diagnostics passed.", "모든 진단을 통과했습니다.");
+                    return Localization.FormatWithCurrentCulture("diagnostics-passed-with-value-warning-s", Warnings);
+                return Localization.Get("all-diagnostics-passed");
             }
         }
         internal string Report => string.Join(Environment.NewLine, lines.ToArray());

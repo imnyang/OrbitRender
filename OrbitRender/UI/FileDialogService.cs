@@ -17,7 +17,7 @@ namespace OrbitRender.UI
                     FindExistingDirectory(initialDirectory),
                     string.Empty,
                     NoFilters,
-                    Localization.Text("Select render output folder", "렌더 출력 폴더 선택"));
+                    Localization.Get("select-render-output-folder"));
             }
             catch (Exception ex)
             {
@@ -36,7 +36,7 @@ namespace OrbitRender.UI
                     FindExistingDirectory(initialDirectory),
                     string.Empty,
                     NoFilters,
-                    Localization.Text("Select FFmpeg executable", "FFmpeg 실행 파일 선택"));
+                    Localization.Get("select-ffmpeg-executable"));
             }
             catch (Exception ex)
             {

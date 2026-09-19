@@ -24,33 +24,33 @@ namespace OrbitRender.UI
         internal static RendererPreset DrawPreset(RendererPreset value)
         {
             return (RendererPreset)GUILayout.Toolbar((int)value, new[] {
-                Localization.Text("Custom", "사용자 지정"),
-                Localization.Text("Preview", "미리보기"),
+                Localization.Get("custom"),
+                Localization.Get("preview"),
                 "FullHD", "QHD", "UHD 4K"
             });
         }
 
         internal static EncoderSpeed DrawEncoding(EncoderSpeed value)
         {
-            GUILayout.Label(Localization.Text("Encoding speed", "인코딩 속도"));
+            GUILayout.Label(Localization.Get("encoding-speed"));
             return (EncoderSpeed)GUILayout.Toolbar((int)value, new[] {
-                Localization.Text("Maximum", "최대 속도"),
-                Localization.Text("Balanced", "균형"),
-                Localization.Text("Quality", "품질")
+                Localization.Get("maximum"),
+                Localization.Get("balanced"),
+                Localization.Get("quality")
             });
         }
 
         internal static VideoEncoder DrawEncoder(VideoEncoder value)
         {
-            GUILayout.Label(Localization.Text("Video encoder", "영상 인코더"));
+            GUILayout.Label(Localization.Get("video-encoder"));
             var selected = value == VideoEncoder.Auto ? 0
                 : value == VideoEncoder.NvidiaNvenc ? 1
                 : value == VideoEncoder.IntelQsv ? 2
                 : value == VideoEncoder.AmdAmf ? 3 : 4;
             selected = GUILayout.Toolbar(selected, new[] {
-                Localization.Text("Auto", "자동"),
+                Localization.Get("auto"),
                 "NVIDIA NVENC", "Intel QSV", "AMD AMF",
-                Localization.Text("Software", "소프트웨어")
+                Localization.Get("software")
             });
             switch (selected)
             {
@@ -64,14 +64,14 @@ namespace OrbitRender.UI
 
         internal static VideoCodec DrawCodec(VideoCodec value)
         {
-            GUILayout.Label(Localization.Text("Video codec", "영상 코덱"));
+            GUILayout.Label(Localization.Get("video-codec"));
             return (VideoCodec)GUILayout.Toolbar((int)value,
                 new[] { "H.264", "H.265", "VP9", "AV1" });
         }
 
         internal static VideoBitDepth DrawBitDepth(VideoBitDepth value)
         {
-            GUILayout.Label(Localization.Text("Video bit depth", "비트 깊이"));
+            GUILayout.Label(Localization.Get("video-bit-depth"));
             return (VideoBitDepth)GUILayout.Toolbar((int)value,
                 new[] { "8-bit", "10-bit" });
         }

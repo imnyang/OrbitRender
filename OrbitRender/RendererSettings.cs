@@ -79,7 +79,7 @@ namespace OrbitRender
         // Do not pass Min/Max to UMM for a text field. UMM clamps each parsed
         // keystroke, so typing a value such as 120 would turn the first "1"
         // into 15 before the remaining digits can be entered.
-        [Draw("Target FPS", DrawType.Field, VisibleOn = "Preset|Custom")]
+        [Draw("InGame FPS", DrawType.Field, VisibleOn = "Preset|Custom")]
         public int Fps = 60;
 
         [Draw("Video FPS", DrawType.Field, VisibleOn = "Preset|Custom")]
@@ -146,7 +146,7 @@ namespace OrbitRender
         {
             // Selecting a built-in preset also copies its resolution and
             // bitrate into the fields, so switching to Custom starts from a
-            // useful baseline. Target FPS is deliberately independent from
+            // useful baseline. InGame FPS is deliberately independent from
             // the preset and must not be overwritten here.
             if (Preset != RendererPreset.Custom)
             {
