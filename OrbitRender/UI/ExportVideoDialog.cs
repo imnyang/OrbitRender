@@ -31,6 +31,7 @@ namespace OrbitRender.UI
             draft = Draft.From(Main.Settings);
             error = string.Empty;
             open = true;
+            ModalInputBlocker.Open();
             editor.ShowFileActionsPanel(false);
             windowRect = new Rect(0f, 0f, 720f, 610f);
         }
@@ -184,6 +185,7 @@ namespace OrbitRender.UI
         private static void Close()
         {
             open = false;
+            ModalInputBlocker.Close();
             editor = null;
             draft = null;
             error = string.Empty;

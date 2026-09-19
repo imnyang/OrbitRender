@@ -24,6 +24,7 @@ namespace OrbitRender.Renderer
         public static RendererController Instance { get; private set; }
         public static bool ControlsTime => Instance != null && Instance.saved != null &&
             (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering);
+        internal static bool InputBlocked => ControlsTime || OrbitRender.UI.ExportVideoDialog.IsOpen;
         internal static bool BgaModeActive => Instance != null && Instance.bgaModeForRun
             && (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering
                 || Instance.State == RenderState.Finishing);

@@ -35,7 +35,7 @@ namespace OrbitRender.Patches
     {
         static bool Prefix(ref bool __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = false;
             return false;
         }
@@ -44,7 +44,7 @@ namespace OrbitRender.Patches
     [HarmonyPatch(typeof(scrController), "UpdateInput")]
     internal static class GameplayInputPatch
     {
-        static bool Prefix() => !RendererController.ControlsTime;
+        static bool Prefix() => !RendererController.InputBlocked;
     }
 
     // The editor and a few menu components read these directly instead of
@@ -56,7 +56,7 @@ namespace OrbitRender.Patches
     {
         static bool Prefix(ref int __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = 0;
             return false;
         }
@@ -73,7 +73,7 @@ namespace OrbitRender.Patches
 
         static bool Prefix(ref List<AnyKeyCode> __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = new List<AnyKeyCode>();
             return false;
         }
@@ -90,7 +90,7 @@ namespace OrbitRender.Patches
 
         static bool Prefix(ref bool __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = false;
             return false;
         }
@@ -110,7 +110,7 @@ namespace OrbitRender.Patches
 
         static bool Prefix(ref bool __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = false;
             return false;
         }
@@ -133,7 +133,7 @@ namespace OrbitRender.Patches
 
         static bool Prefix(ref bool __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = false;
             return false;
         }
@@ -142,25 +142,25 @@ namespace OrbitRender.Patches
     [HarmonyPatch(typeof(scrController), "ProcessKeyInputs")]
     internal static class ProcessKeyInputPatch
     {
-        static bool Prefix() => !RendererController.ControlsTime;
+        static bool Prefix() => !RendererController.InputBlocked;
     }
 
     [HarmonyPatch(typeof(scrController), "DebugUpdate")]
     internal static class DebugInputPatch
     {
-        static bool Prefix() => !RendererController.ControlsTime;
+        static bool Prefix() => !RendererController.InputBlocked;
     }
 
     [HarmonyPatch(typeof(scnEditor), "HandleKeyboardActions")]
     internal static class EditorKeyboardInputPatch
     {
-        static bool Prefix() => !RendererController.ControlsTime;
+        static bool Prefix() => !RendererController.InputBlocked;
     }
 
     [HarmonyPatch(typeof(scnEditor), "TryQuitToMenu")]
     internal static class EditorQuitInputPatch
     {
-        static bool Prefix() => !RendererController.ControlsTime;
+        static bool Prefix() => !RendererController.InputBlocked;
     }
 
     [HarmonyPatch(typeof(RDEditorUtils), "CheckForKeyCombo")]
@@ -168,7 +168,7 @@ namespace OrbitRender.Patches
     {
         static bool Prefix(ref bool __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = false;
             return false;
         }
@@ -177,7 +177,7 @@ namespace OrbitRender.Patches
     [HarmonyPatch(typeof(scrTempEscToQuit), "Update")]
     internal static class TemporaryEscapeInputPatch
     {
-        static bool Prefix() => !RendererController.ControlsTime;
+        static bool Prefix() => !RendererController.InputBlocked;
     }
 
     [HarmonyPatch(typeof(scrPlayerManager), "AnyValidInputWasTriggered")]
@@ -185,7 +185,7 @@ namespace OrbitRender.Patches
     {
         static bool Prefix(ref bool __result)
         {
-            if (!RendererController.ControlsTime) return true;
+            if (!RendererController.InputBlocked) return true;
             __result = false;
             return false;
         }
@@ -201,4 +201,5 @@ namespace OrbitRender.Patches
             return false;
         }
     }
+
 }
