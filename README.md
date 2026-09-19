@@ -12,6 +12,7 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 - [Português](README.pt-BR.md)
 - [JavaScript](README.js)
 - [RPC API Specification](docs/RPC_API.md)
+- [릴리즈 노트](CHANGELOG.md)
 
 ## 주요 기능
 
@@ -19,7 +20,7 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 - `Export Video` 실행 전 해상도, FPS, 비트레이트, 오디오, BGA, 코덱, 인코더 등을 확인·변경하는 설정창
 - 중앙 진행창, 렌더 FPS, 실시간 배율, ETA와 완료 예정 시각 표시
 - Preview, FullHD, QHD, UHD 4K, Custom 프로필
-- 해상도, 15–240 FPS, 1–200 Mbps 비트레이트, End delay 설정
+- 해상도, Target FPS 15–1024 / Video FPS 15–240, 1–200 Mbps 비트레이트, End delay 설정
 - H.264/AVC, H.265/HEVC, VP9, AV1 코덱 선택 지원 (VP9은 WebM, 나머지는 MP4)
 - NVIDIA NVENC, Intel Quick Sync, AMD AMF, 소프트웨어 인코더 선택 및 GPU 자동 감지
 - 게임 오디오 캡처와 영상·오디오 mux
@@ -45,7 +46,8 @@ Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mo
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
 | Width / Height | 1920 × 1080 | Custom 해상도, 짝수로 보정 |
-| Target FPS | 60 | 15–240 |
+| Target FPS | 60 | 인게임/게임 시뮬레이션 업데이트 FPS, 15–1024 |
+| Video FPS | 60 | 최종 출력 영상 FPS, 15–240. Target FPS와 독립적으로 설정 |
 | Video bitrate | 18 Mbps | 1–200 Mbps CBR |
 | End delay | 2초 | 음악 또는 마지막 타일 이후 대기 |
 | Capture audio | 켜짐 | 게임 음악/오디오 캡처 |
@@ -54,6 +56,7 @@ Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mo
 | Show song title | 켜짐 | 기본 곡 제목 텍스트 포함 |
 | Show countdown | 켜짐 | 준비, 카운트다운 숫자, 시작 텍스트 포함 |
 | Show result text | 켜짐 | 완료/Pure Perfect 문구만 포함 (세부 판정 결과는 숨김) |
+| Show hit judgments | 꺼짐 | 타일을 밟을 때 판정 텍스트 표시 |
 | Encoding speed | Quality | Maximum / Balanced / Quality |
 | Video encoder | Auto | Auto / NvidiaNvenc / IntelQsv / AmdAmf / Software |
 | Video codec | H264 | H264 / H265 / VP9 / AV1 |
@@ -122,7 +125,7 @@ console.log(job);
 
 GPU readback과 FFmpeg 인코딩을 파이프라인으로 겹치며, raw 프레임을 임시 디스크 파일로 저장하지 않습니다. 완료 로그에는 게임 프레임, readback 대기/복사, encoder backpressure, 오디오 캡처, 최종 mux 시간이 분리되어 기록됩니다.
 
-일반 게임에서 200–500 FPS가 나오더라도 GPU readback, CPU 프레임 복사, 인코더 입력, 오디오 mux가 필요하므로 최종 영상 생성 FPS는 다를 수 있습니다. 비트레이트와 화질은 자동으로 낮추지 않습니다.
+일반 게임에서 200–500 FPS가 나오더라도 GPU readback, CPU 프레임 복사, 인코더 입력, 오디오 mux가 필요하므로 실제 렌더 완료 속도는 Video FPS와 다를 수 있습니다. Target FPS는 게임 시뮬레이션에, Video FPS는 최종 영상 스트림에 각각 적용되며, 비트레이트와 화질은 자동으로 낮추지 않습니다.
 
 ## 개발 및 테스트
 

@@ -23,17 +23,18 @@ namespace OrbitRender.Renderer
         private bool disposed;
 
         internal Canvas CaptureCanvas { get; private set; }
+        internal GameObject HitTextContainer { get; private set; }
 
         private DefaultTextRenderState() { }
 
         internal static DefaultTextRenderState Capture(bool showSongTitle, bool showCountdown,
-            bool showResultText)
+            bool showResultText, bool showHitJudgments)
         {
             var state = new DefaultTextRenderState();
             var controller = ADOBase.controller;
             var ui = scrUIController.instance;
 
-            if (ui != null && (showSongTitle || showCountdown || showResultText))
+            if (ui != null && (showSongTitle || showCountdown || showResultText || showHitJudgments))
                 state.CaptureCanvas = ui.canvas != null ? ui.canvas.rootCanvas : null;
 
             if (showSongTitle)
@@ -56,9 +57,17 @@ namespace OrbitRender.Renderer
             // The gameplay HUD shares one screen-space canvas with pause,
             // autoplay, modifier, and editor controls. Preserve only the text
             // categories explicitly selected for the exported frame.
+            var hitTextContainer = showHitJudgments && ADOBase.playerManager != null
+                && ADOBase.playerManager.hitTextManager != null
+                ? ADOBase.playerManager.hitTextManager.hitTextContainer : null;
+            state.HitTextContainer = hitTextContainer;
             if (state.CaptureCanvas != null)
                 foreach (var graphic in state.CaptureCanvas.GetComponentsInChildren<Graphic>(true))
-                    if (!state.visibleTexts.Contains(graphic)) state.Hide(graphic);
+                    if (!state.visibleTexts.Contains(graphic)
+                        && (hitTextContainer == null
+                            || (graphic.transform != hitTextContainer.transform
+                                && !graphic.transform.IsChildOf(hitTextContainer.transform))))
+                        state.Hide(graphic);
 
             state.Apply();
             return state;
@@ -110,6 +119,7 @@ namespace OrbitRender.Renderer
             seen.Clear();
             visibleTexts.Clear();
             CaptureCanvas = null;
+            HitTextContainer = null;
         }
     }
 }

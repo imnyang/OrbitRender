@@ -8,7 +8,7 @@ input: ADOFAI.CustomLevel,
 
 output: new Video({
 resolution: RendererSettings.resolution,
-fps: RendererSettings.fps,
+fps: RendererSettings.videoFPS,
 codec: RendererSettings.videoCodec
 })
 });
@@ -41,7 +41,12 @@ resolution: {
 configurable: true
 },
 
-fps: {
+targetFPS: {
+  min: 15,
+  max: 1024
+},
+
+videoFPS: {
 min: 15,
 max: 240
 },
@@ -154,6 +159,7 @@ width: 1920,
 height: 1080,
 
 targetFPS: 60,
+videoFPS: 60,
 
 videoBitrateMbps: 18,
 
@@ -207,6 +213,12 @@ settings.height = even(settings.height);
 
 settings.targetFPS = clamp(
 settings.targetFPS,
+15,
+240
+);
+
+settings.videoFPS = clamp(
+settings.videoFPS,
 15,
 240
 );
@@ -309,7 +321,8 @@ const video = await OrbitRender.render(level, {
   width: settings.width,
   height: settings.height,
 
-  fps: settings.targetFPS,
+  targetFps: settings.targetFPS,
+  videoFps: settings.videoFPS,
 
   bitrateMbps:
     settings.videoBitrateMbps,

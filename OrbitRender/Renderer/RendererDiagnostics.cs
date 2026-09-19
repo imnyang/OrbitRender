@@ -74,8 +74,8 @@ namespace OrbitRender.Renderer
             try
             {
                 profile = settings.ResolveProfile();
-                result.Info(string.Format("Profile: {0}x{1} @ {2} fps, {3} Mbps, {4}, {5}, {6}",
-                    profile.Width, profile.Height, profile.Fps, profile.BitrateMbps, profile.FfmpegCodec,
+                result.Info(string.Format("Profile: {0}x{1}, target {2} fps, video {3} fps, {4} Mbps, {5}, {6}, {7}",
+                    profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps, profile.FfmpegCodec,
                     profile.PixelFormat, profile.ContainerExtension));
             }
             catch (Exception ex)
@@ -200,7 +200,7 @@ namespace OrbitRender.Renderer
                         + " samples; real voices=" + audioConfiguration.numRealVoices
                         + ", virtual voices=" + audioConfiguration.numVirtualVoices + ".");
                     if (audioConfiguration.dspBufferSize >= 1024)
-                        result.Warn("The renderer will temporarily use a 512-sample DSP buffer during audio capture for macOS Unity compatibility.");
+                        result.Warn("The renderer may temporarily reduce the DSP buffer during audio capture for Unity AudioRenderer compatibility.");
                     var listeners = UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None);
                     var activeListener = listeners.FirstOrDefault(listener => listener != null && listener.enabled
                         && listener.gameObject != null && listener.gameObject.activeInHierarchy);

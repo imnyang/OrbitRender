@@ -7,7 +7,7 @@ OrbitRender は、ADOFAI のカスタムレベルを指定した解像度とFPS�
 - `F6` で現在開いているカスタムレベルをレンダリング
 - 中央配置の進捗ウィンドウ、FPS、リアルタイム倍率、ETA、完了予定時刻
 - Preview、FullHD、QHD、UHD 4K、Custom プロファイル
-- 解像度、15–240 FPS、1–200 Mbps CBRビットレート、終了後の待機時間、音声、出力先を設定可能
+- 解像度、Target FPS 15–1024 / Video FPS 15–240、1–200 Mbps CBRビットレート、終了後の待機時間、音声、出力先を設定可能
 - H.264/AVC、H.265/HEVC、VP9、AV1を選択可能（VP9はWebM、それ以外はMP4）
 - NVIDIA NVENC、Intel Quick Sync、AMD AMF、ソフトウェアエンコーダを選択可能。GPUも自動検出
 - ゲーム音声のキャプチャと動画・音声のmux
@@ -38,7 +38,7 @@ A Dance of Fire and Ice/Mods/OrbitRender/
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
 | Width / Height | 1920 × 1080 | Custom解像度。偶数に補正されます |
-| Target FPS | 60 | 15–240 |
+| Target FPS | 60 | 15–1024 |
 | Video bitrate | 18 Mbps | 1–200 Mbps CBR |
 | End delay | 2秒 | 曲または最後のタイルの後の待機時間 |
 | Capture audio | オン | ゲーム音声をキャプチャ |

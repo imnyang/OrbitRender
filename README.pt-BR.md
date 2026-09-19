@@ -7,7 +7,7 @@ O OrbitRender é um mod para Unity Mod Manager que renderiza fases personalizada
 - Pressione `F6` para renderizar a fase personalizada aberta.
 - Janela de progresso centralizada com FPS, multiplicador em tempo real, ETA e horário previsto de conclusão.
 - Perfis Preview, FullHD, QHD, UHD 4K e Custom.
-- Resolução, 15–240 FPS, bitrate CBR de 1–200 Mbps, atraso final, áudio e pasta de saída configuráveis.
+- Resolução, Target FPS de 15–1024 / Video FPS de 15–240, bitrate CBR de 1–200 Mbps, atraso final, áudio e pasta de saída configuráveis.
 - Seleção dos codecs H.264/AVC, H.265/HEVC, VP9 e AV1 (VP9 gera WebM; os demais geram MP4).
 - Seleção de NVIDIA NVENC, Intel Quick Sync, AMD AMF e software, com detecção automática da GPU.
 - Captura opcional do áudio do jogo e mux final de áudio/vídeo.
@@ -38,7 +38,7 @@ Ao iniciar, o mod verifica o lançamento estável mais recente no GitHub. O endp
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
 | Width / Height | 1920 × 1080 | Resolução Custom, ajustada para valores pares |
-| Target FPS | 60 | 15–240 |
+| Target FPS | 60 | 15–1024 |
 | Video bitrate | 18 Mbps | CBR de 1–200 Mbps |
 | End delay | 2 segundos | Espera após a música ou o último tile |
 | Capture audio | Ativado | Captura o áudio do jogo |

@@ -21,7 +21,7 @@ namespace OrbitRender.Patches
             if (legacy != null) yield return legacy;
         }
 
-        static bool Prefix() => !RendererController.ControlsTime;
+        static bool Prefix() => !RendererController.ControlsTime || RendererController.ShowHitJudgments;
     }
 
     [HarmonyPatch(typeof(scnLevelSelect), "CheckAudioBreak")]

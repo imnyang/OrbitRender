@@ -7,7 +7,8 @@ namespace OrbitRender.Renderer
         internal RendererPreset? Preset;
         internal int? Width;
         internal int? Height;
-        internal int? Fps;
+        internal int? TargetFps;
+        internal int? VideoFps;
         internal int? BitrateMbps;
         internal float? EndDelaySeconds;
         internal bool? CaptureAudio;
@@ -16,6 +17,7 @@ namespace OrbitRender.Renderer
         internal bool? ShowSongTitle;
         internal bool? ShowCountdown;
         internal bool? ShowResultText;
+        internal bool? ShowHitJudgments;
         internal EncoderSpeed? Encoding;
         internal VideoEncoder? Encoder;
         internal VideoCodec? VideoCodec;

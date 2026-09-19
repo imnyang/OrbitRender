@@ -8,7 +8,7 @@ OrbitRender is a Unity Mod Manager mod that renders ADOFAI custom levels to vide
 - Configure resolution, FPS, bitrate, audio, BGA, codec, and encoder in a dialog before each export.
 - Centered progress window with FPS, realtime multiplier, ETA, and finish time.
 - Preview, FullHD, QHD, UHD 4K, and Custom profiles.
-- Configurable resolution, 15–240 FPS, 1–200 Mbps CBR bitrate, end delay, audio, and output directory.
+- Configurable resolution, Target FPS 15–1024 / Video FPS 15–240, 1–200 Mbps CBR bitrate, end delay, audio, and output directory.
 - Selectable H.264/AVC, H.265/HEVC, VP9, and AV1 codecs (VP9 outputs WebM; the others output MP4).
 - Selectable NVIDIA NVENC, Intel Quick Sync, AMD AMF, and software backends with GPU auto-detection.
 - Optional game-audio capture and final audio/video mux.
@@ -39,7 +39,8 @@ On startup, the mod checks GitHub's latest stable release. Drafts and pre-releas
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
 | Width / Height | 1920 × 1080 | Custom resolution, normalized to even values |
-| Target FPS | 60 | 15–240 |
+| Target FPS | 60 | In-game/game-simulation update FPS, 15–1024 |
+| Video FPS | 60 | Final output video FPS, 15–240; independent of Target FPS |
 | Video bitrate | 18 Mbps | 1–200 Mbps CBR |
 | End delay | 2 seconds | Delay after the later of music or final tile |
 | Capture audio | On | Capture game audio |
@@ -48,6 +49,7 @@ On startup, the mod checks GitHub's latest stable release. Drafts and pre-releas
 | Show song title | On | Include the level's default title text |
 | Show countdown | On | Include Get Ready, countdown numbers, and Go |
 | Show result text | On | Include only the completion/Pure Perfect message; judgment details stay hidden |
+| Show hit judgments | Off | Include hit judgment text when tiles are hit |
 | Encoding speed | Quality | Maximum / Balanced / Quality |
 | Video encoder | Auto | Auto / NvidiaNvenc / IntelQsv / AmdAmf / Software |
 | Video codec | H264 | H264 / H265 / VP9 / AV1 |
@@ -106,7 +108,7 @@ console.log(job);
 
 GPU readback and FFmpeg encoding are pipelined without spooling raw frames to temporary disk files. Completion logs separate game-frame time, readback wait/copy time, encoder backpressure, audio capture, and final mux time. Bitrate and quality are not silently reduced.
 
-Normal gameplay FPS and final render FPS are different measurements because every output frame still needs GPU readback, CPU copying, encoding input, and optional audio muxing.
+Normal gameplay FPS and render completion speed are different measurements because every output frame still needs GPU readback, CPU copying, encoding input, and optional audio muxing. Target FPS drives the game simulation; Video FPS drives the final video stream.
 
 ## Build and test
 

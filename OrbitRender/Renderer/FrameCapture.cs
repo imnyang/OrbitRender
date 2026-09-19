@@ -11,6 +11,7 @@ namespace OrbitRender.Renderer
         {
             public Camera Camera;
             public RenderTexture Target;
+            public int CullingMask;
             public float Aspect;
             public bool Enabled;
             public bool Orthographic;
@@ -83,6 +84,13 @@ namespace OrbitRender.Renderer
         private readonly PositionState originalPositionState;
         private readonly bool overlayActive, quadActive;
         private readonly int mainMask;
+        private Camera hudOverlayCamera;
+        private GameObject hudOverlayObject;
+        private int hudLayer;
+        private int hudMask;
+        private float hudOverlayDepth;
+        private readonly List<LayerState> hudLayers = new List<LayerState>();
+        private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
         private Texture2D fallback;
         private bool disposed;
         private long readbackWaitTicks;
@@ -90,13 +98,21 @@ namespace OrbitRender.Renderer
         private long readbackLatencyTicks;
         private int peakPending;
         public double BackpressureSeconds { get; private set; }
+        internal Texture PreviewTexture => target;
         public double ReadbackWaitSeconds => readbackWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackCopySeconds => readbackCopyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackLatencySeconds => readbackLatencyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public int PendingReadbacks => pending.Count;
         public int PeakPendingReadbacks => peakPending;
 
-        public FrameCapture(FFmpegEncoder encoder, int width, int height, Canvas defaultTextCanvas = null)
+        private sealed class LayerState
+        {
+            public GameObject Object;
+            public int Layer;
+        }
+
+        public FrameCapture(FFmpegEncoder encoder, int width, int height, Canvas defaultTextCanvas = null,
+            GameObject hitTextContainer = null)
         {
             this.encoder = encoder;
             this.width = width;
@@ -125,13 +141,14 @@ namespace OrbitRender.Renderer
                 // it again would feed our own output back into itself.
                 if (gameCamera.Overlaycam != null) gameCamera.Overlaycam.gameObject.SetActive(false);
                 if (gameCamera.quad != null) gameCamera.quad.SetActive(false);
+                if (defaultTextCanvas != null)
+                    CreateHudOverlay(defaultTextCanvas, hitTextContainer);
                 foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
                 {
                     // Keep world-space level decorations; exclude editor/game HUD
                     // and third-party screen-space overlays from the three cameras.
-                    // The selected default text is the one exception: its canvas
-                    // is converted to camera space so it is composited into the
-                    // same render target after the gameplay scene.
+                    // The selected default text is rendered by the separate
+                    // overlay camera so filters cannot affect it.
                     if (!canvas.isRootCanvas || canvas.renderMode == RenderMode.WorldSpace) continue;
                     var captureCanvas = canvas == defaultTextCanvas;
                     canvases.Add(new CanvasState {
@@ -142,7 +159,7 @@ namespace OrbitRender.Renderer
                         WorldCamera = canvas.worldCamera,
                         PlaneDistance = canvas.planeDistance
                     });
-                    if (captureCanvas) ConfigureCaptureCanvas(canvas);
+                    if (captureCanvas) ConfigureCaptureCanvas(canvas, hudOverlayCamera ?? gameCamera.camobj);
                     else canvas.enabled = false;
                 }
                 if (!SystemInfo.supportsAsyncGPUReadback)
@@ -157,6 +174,7 @@ namespace OrbitRender.Renderer
             cameras.Add(new CameraState {
                 Camera = camera,
                 Target = camera.targetTexture,
+                CullingMask = camera.cullingMask,
                 Aspect = camera.aspect,
                 Enabled = camera.enabled,
                 Orthographic = camera.orthographic,
@@ -166,13 +184,86 @@ namespace OrbitRender.Renderer
             });
         }
 
-        private void ConfigureCaptureCanvas(Canvas canvas)
+        private void ConfigureCaptureCanvas(Canvas canvas, Camera renderCamera)
         {
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
-            canvas.worldCamera = gameCamera.camobj;
-            canvas.planeDistance = Mathf.Max(gameCamera.camobj.nearClipPlane + 0.01f, 1f);
-            gameCamera.camobj.cullingMask |= 1 << canvas.gameObject.layer;
+            canvas.worldCamera = renderCamera;
+            canvas.planeDistance = Mathf.Max(renderCamera.nearClipPlane + 0.01f, 1f);
+            renderCamera.cullingMask |= 1 << canvas.gameObject.layer;
             canvas.enabled = true;
+        }
+
+        private void CreateHudOverlay(Canvas defaultTextCanvas, GameObject hitTextContainer)
+        {
+            hudLayer = FindUnusedLayer();
+            hudMask = 1 << hudLayer;
+            AssignLayerRecursively(defaultTextCanvas.gameObject, hitTextContainer);
+
+            // Keep selected default text out of the source that level filters
+            // process. The hit-judgment container is deliberately excluded so
+            // the normal gameplay cameras still apply zoom/distortion filters.
+            foreach (var state in cameras)
+                if (state.Camera != null) state.Camera.cullingMask &= ~hudMask;
+
+            hudOverlayObject = new GameObject("OrbitRender HUD Overlay Camera");
+            hudOverlayObject.hideFlags = HideFlags.HideAndDontSave;
+            hudOverlayCamera = hudOverlayObject.AddComponent<Camera>();
+            hudOverlayCamera.CopyFrom(gameCamera.camobj);
+            hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
+            hudOverlayCamera.cullingMask = hudMask;
+            hudOverlayDepth = MaxCameraDepth() + 1f;
+            hudOverlayCamera.depth = hudOverlayDepth;
+            hudOverlayCamera.targetTexture = target;
+            hudOverlayCamera.enabled = true;
+            Add(hudOverlayCamera);
+            SyncHudOverlayCamera();
+        }
+
+        private float MaxCameraDepth()
+        {
+            var max = float.MinValue;
+            foreach (var state in cameras)
+                if (state.Camera != null && state.Camera != hudOverlayCamera)
+                    max = Mathf.Max(max, state.Camera.depth);
+            return max == float.MinValue ? 0f : max;
+        }
+
+        private static int FindUnusedLayer()
+        {
+            var used = new bool[32];
+            foreach (var transform in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                used[transform.gameObject.layer] = true;
+            for (var layer = 31; layer >= 0; layer--)
+                if (!used[layer]) return layer;
+            throw new InvalidOperationException("No unused Unity layer is available for the HUD overlay.");
+        }
+
+        private void AssignLayerRecursively(GameObject root, GameObject excludedSubtree)
+        {
+            if (root == null) return;
+            foreach (var child in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (excludedSubtree != null
+                    && (child == excludedSubtree.transform || child.IsChildOf(excludedSubtree.transform)))
+                    continue;
+                var gameObject = child.gameObject;
+                if (!hudLayerObjects.Add(gameObject)) continue;
+                hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
+                gameObject.layer = hudLayer;
+            }
+        }
+
+        private void SyncHudOverlayCamera()
+        {
+            if (hudOverlayCamera == null || gameCamera == null || gameCamera.camobj == null) return;
+            var source = gameCamera.camobj;
+            hudOverlayCamera.CopyFrom(source);
+            hudOverlayCamera.transform.SetPositionAndRotation(source.transform.position, source.transform.rotation);
+            hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
+            hudOverlayCamera.cullingMask = hudMask;
+            hudOverlayCamera.depth = hudOverlayDepth;
+            hudOverlayCamera.targetTexture = target;
+            hudOverlayCamera.enabled = true;
         }
 
         public void Bind()
@@ -184,7 +275,7 @@ namespace OrbitRender.Renderer
             foreach (var state in canvases)
             {
                 if (state.Canvas == null) continue;
-                if (state.Capture) ConfigureCaptureCanvas(state.Canvas);
+                if (state.Capture) ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
                 else if (state.Canvas.enabled) state.Canvas.enabled = false;
             }
             foreach (var state in cameras)
@@ -203,6 +294,7 @@ namespace OrbitRender.Renderer
                 // manual path; keep that behavior while using the automatic pass.
                 if (!state.Camera.enabled) state.Camera.enabled = true;
             }
+            SyncHudOverlayCamera();
         }
         public void Capture(long index)
         {
@@ -269,6 +361,7 @@ namespace OrbitRender.Renderer
             pending.Clear();
             foreach (var state in cameras) if (state.Camera != null) {
                 state.Camera.targetTexture = state.Target;
+                state.Camera.cullingMask = state.CullingMask;
                 state.Camera.aspect = state.Aspect;
                 state.Camera.enabled = state.Enabled;
                 state.Camera.orthographic = state.Orthographic;
@@ -290,11 +383,19 @@ namespace OrbitRender.Renderer
                 state.Canvas.planeDistance = state.PlaneDistance;
                 state.Canvas.enabled = state.Enabled;
             }
+            for (var i = 0; i < hudLayers.Count; i++)
+            {
+                var state = hudLayers[i];
+                if (state.Object != null) state.Object.layer = state.Layer;
+            }
             if (gameCamera != null) {
                 if (gameCamera.camobj != null) gameCamera.camobj.cullingMask = mainMask;
                 if (gameCamera.Overlaycam != null) gameCamera.Overlaycam.gameObject.SetActive(overlayActive);
                 if (gameCamera.quad != null) gameCamera.quad.SetActive(quadActive);
             }
+            if (hudOverlayObject != null) UnityEngine.Object.Destroy(hudOverlayObject);
+            hudLayers.Clear();
+            hudLayerObjects.Clear();
             if (fallback != null) UnityEngine.Object.Destroy(fallback);
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
         }

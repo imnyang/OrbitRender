@@ -34,7 +34,7 @@ namespace OrbitRender.Renderer
         public int ZeroSampleReads => zeroSampleReads;
         public bool UsedSilenceFallback => rendererUnavailable || zeroSampleReads > 0;
         public bool UsedFilterFallback => useFilterFallback;
-        public bool NeedsRealtimePacing => zeroSampleReads > 0;
+        public bool NeedsRealtimePacing => useListenerOutputFallback;
         public double CaptureSeconds => System.Threading.Interlocked.Read(ref captureTicks)
             / (double)System.Diagnostics.Stopwatch.Frequency;
 
@@ -74,12 +74,12 @@ namespace OrbitRender.Renderer
             catch { Dispose(); throw; }
         }
 
-        public void CaptureFrame(long videoFrameIndex, int fps)
+        public void CaptureFrame(long simulationFrameIndex, int fps)
         {
             var captureStart = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-                long expectedSamples = checked((videoFrameIndex + 1) * (long)SampleRate / fps);
+                long expectedSamples = checked((simulationFrameIndex + 1) * (long)SampleRate / fps);
                 if (useListenerOutputFallback)
                 {
                     CaptureListenerOutput(expectedSamples - SampleFrames);
@@ -102,7 +102,8 @@ namespace OrbitRender.Renderer
                 {
                     zeroSampleReads++;
                     if (TryUseFilterFallback()) CaptureFilterSamples(expectedSamples - SampleFrames);
-                    else if (TryUseListenerOutputFallback()) CaptureListenerOutput(expectedSamples - SampleFrames);
+                    else if (!started && TryUseListenerOutputFallback())
+                        CaptureListenerOutput(expectedSamples - SampleFrames);
                     return;
                 }
                 if (count < 0) throw new InvalidOperationException("Unity AudioRenderer returned an invalid sample count: " + count + ".");
@@ -127,7 +128,8 @@ namespace OrbitRender.Renderer
                     rendererUnavailable = true;
                     zeroSampleReads++;
                     if (TryUseFilterFallback()) CaptureFilterSamples(expectedSamples - SampleFrames);
-                    else if (TryUseListenerOutputFallback()) CaptureListenerOutput(expectedSamples - SampleFrames);
+                    else if (!started && TryUseListenerOutputFallback())
+                        CaptureListenerOutput(expectedSamples - SampleFrames);
                     return;
                 }
                 samples.CopyTo(managed);
@@ -141,9 +143,9 @@ namespace OrbitRender.Renderer
             }
         }
 
-        public void Complete(long videoFrames, int fps)
+        public void Complete(long simulationFrames, int fps)
         {
-            long targetSamples = checked(videoFrames * (long)SampleRate / fps);
+            long targetSamples = checked(simulationFrames * (long)SampleRate / fps);
             if (useListenerOutputFallback)
             {
                 CaptureListenerOutput(targetSamples - SampleFrames);
@@ -223,7 +225,11 @@ namespace OrbitRender.Renderer
 
         private bool TryUseListenerOutputFallback()
         {
-            if (!listenerOutputAvailable) return false;
+            // Never stop a working AudioRenderer just to expose the live
+            // listener mix: that would leak map effects into the render and
+            // make the fallback realtime-dependent. This fallback is only for
+            // platforms where AudioRenderer could not start at all.
+            if (started || !listenerOutputAvailable) return false;
             useListenerOutputFallback = true;
             return true;
         }

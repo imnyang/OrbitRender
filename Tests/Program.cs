@@ -34,20 +34,30 @@ internal static class Program
                 "10-bit encoder preflight failed: " + preflightError);
             var fast = Path.Combine(args[1], "fast.mp4");
             var slow = Path.Combine(args[1], "slow.mp4");
-            Encode(args[0], fast, false);
-            Encode(args[0], slow, true);
+            const int targetFps = 60;
+            Encode(args[0], fast, false, targetFps);
+            Encode(args[0], slow, true, targetFps);
             var fastHash = Probe(args[0], "-v error -i \"" + fast + "\" -f framemd5 -");
             var slowHash = Probe(args[0], "-v error -i \"" + slow + "\" -f framemd5 -");
             Assert(fastHash == slowHash, "Different wall-clock delays changed decoded frames.");
-            Assert(fastHash.Contains("#tb 0: 1/60") && fastHash.Contains("#dimensions 0: 1920x1080"), "Wrong frame rate or resolution.");
+            Assert(fastHash.Contains("#tb 0: 1/" + targetFps) && fastHash.Contains("#dimensions 0: 1920x1080"), "Wrong frame rate or resolution.");
             var decoded = fastHash.Split(new[] {'\n'}, StringSplitOptions.RemoveEmptyEntries).Where(line => !line.StartsWith("#")).ToArray();
-            Assert(decoded.Length == 60, "Decoded frame count mismatch.");
-            Assert(decoded.Select(line => line.Split(',').Last().Trim()).Distinct().Count() == 60, "Duplicate decoded frames.");
+            Assert(decoded.Length == targetFps, "Decoded frame count mismatch.");
+            Assert(decoded.Select(line => line.Split(',').Last().Trim()).Distinct().Count() == targetFps, "Duplicate decoded frames.");
             for (int i = 0; i < decoded.Length; i++)
             {
                 var columns = decoded[i].Split(',');
                 Assert(long.Parse(columns[2]) == i && int.Parse(columns[3]) == 1, "Frame timestamp or duration mismatch.");
             }
+            var customFpsVideo = Path.Combine(args[1], "video-24.mp4");
+            const int customVideoFps = 24;
+            Encode(args[0], customFpsVideo, false, customVideoFps);
+            var customMetadata = Probe(ResolveProbe(args[0]),
+                "-v error -select_streams v:0 -show_entries stream=r_frame_rate,avg_frame_rate,nb_frames -of default=noprint_wrappers=1 \""
+                + customFpsVideo + "\"");
+            Assert(customMetadata.Contains("r_frame_rate=24/1")
+                && customMetadata.Contains("avg_frame_rate=24/1")
+                && customMetadata.Contains("nb_frames=24"), "Custom Video FPS was not preserved in the output stream.");
             using (var encoder = new FFmpegEncoder(args[0], Path.Combine(args[1], "bad-order.mp4")))
             {
                 var frame = encoder.Rent(); frame.Index = 1; encoder.Submit(frame);
@@ -79,11 +89,14 @@ internal static class Program
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
     }
-    private static void Encode(string ffmpeg, string output, bool slow)
+    private static void Encode(string ffmpeg, string output, bool slow, int fps)
     {
-        using (var encoder = new FFmpegEncoder(ffmpeg, output))
+        var encoder = fps == 60
+            ? new FFmpegEncoder(ffmpeg, output)
+            : new FFmpegEncoder(ffmpeg, output, 1920, 1080, fps, 18, "veryfast");
+        using (encoder)
         {
-            for (int i = 0; i < 60; i++)
+            for (int i = 0; i < fps; i++)
             {
                 var frame = encoder.Rent(); frame.Index = i;
                 for (int j = 0; j < frame.Bytes.Length; j += 4) {
@@ -93,7 +106,7 @@ internal static class Program
                 if (slow && i % 10 == 0) Thread.Sleep(100);
                 encoder.Submit(frame);
             }
-            encoder.Finish(60);
+            encoder.Finish(fps);
         }
     }
 

@@ -7,7 +7,7 @@ OrbitRender 是一个 Unity Mod Manager 模组，可以将 ADOFAI 自定义关�
 - 按 `F6` 渲染当前打开的自定义关卡
 - 居中的进度窗口，显示 FPS、实时倍率、ETA 和预计完成时间
 - Preview、FullHD、QHD、UHD 4K 和 Custom 配置
-- 可设置分辨率、15–240 FPS、1–200 Mbps CBR 码率、结束延迟、音频和输出目录
+- 可设置分辨率、Target FPS 15–1024 / Video FPS 15–240、1–200 Mbps CBR 码率、结束延迟、音频和输出目录
 - 支持选择 H.264/AVC、H.265/HEVC、VP9 和 AV1（VP9 输出 WebM，其余输出 MP4）
 - 支持选择 NVIDIA NVENC、Intel Quick Sync、AMD AMF 和软件编码器，并自动检测 GPU
 - 可选的游戏音频捕获和最终音视频 mux
@@ -38,7 +38,7 @@ A Dance of Fire and Ice/Mods/OrbitRender/
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
 | Width / Height | 1920 × 1080 | Custom 分辨率，会自动调整为偶数 |
-| Target FPS | 60 | 15–240 |
+| Target FPS | 60 | 15–1024 |
 | Video bitrate | 18 Mbps | 1–200 Mbps CBR |
 | End delay | 2 秒 | 音乐或最后一块瓦片结束后的等待时间 |
 | Capture audio | 开启 | 捕获游戏音频 |

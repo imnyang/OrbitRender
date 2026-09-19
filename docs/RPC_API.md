@@ -1,6 +1,6 @@
 # OrbitRender RPC API Specification
 
-Version: `1.2.0`
+Version: `1.3.2`
 
 This document defines the localhost RPC API provided by OrbitRender. The server is disabled by default. Enable it by adding the following argument when launching ADOFAI:
 
@@ -74,7 +74,8 @@ Content-Type: application/json
 {
   "levelPath": "C:/Levels/MyLevel.adofai",
   "preset": "FullHD",
-  "fps": 60,
+  "targetFps": 120,
+  "videoFps": 60,
   "bitrateMbps": 30,
   "captureAudio": true,
   "bgaMode": true,
@@ -82,6 +83,7 @@ Content-Type: application/json
   "showSongTitle": true,
   "showCountdown": true,
   "showResultText": true,
+  "showHitJudgments": false,
   "endDelaySeconds": 2
 }
 ```
@@ -97,8 +99,9 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `preset` | string | No | `Custom`, `Preview`, `FullHD`, `QHD`, `UHD4K` | Video preset |
 | `width` | integer | No | `320..3840` | Video width; normalized to an even value |
 | `height` | integer | No | `180..2160` | Video height; normalized to an even value |
-| `fps` | integer | No | `15..240` | Output FPS |
-| `targetFps` | integer | No | `15..240` | Alias for `fps` |
+| `fps` | integer | No | `15..240` | Compatibility alias for `videoFps` |
+| `targetFps` | integer | No | `15..1024` | In-game/game-simulation update FPS |
+| `videoFps` | integer | No | `15..240` | Final output video FPS |
 | `bitrateMbps` | integer | No | `1..200` | CBR video bitrate in Mbps |
 | `bitrate` | integer | No | `1..200` | Alias for `bitrateMbps` |
 | `videoCodec` | string | No | `H264`, `H265`, `VP9`, `AV1` | Video codec; VP9 produces WebM and the others produce MP4 |
@@ -112,10 +115,11 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `showSongTitle` | boolean | No | `true` / `false` | Include the default song-title text |
 | `showCountdown` | boolean | No | `true` / `false` | Include Get Ready, countdown numbers, and Go text |
 | `showResultText` | boolean | No | `true` / `false` | Include only the completion/Pure Perfect message; judgment details remain hidden |
+| `showHitJudgments` | boolean | No | `true` / `false` | Include hit judgment text when tiles are hit |
 
 Omitted options use the Unity Mod Manager settings, including BGA mode and all visible-component options.
 
-If both `fps` and `targetFps` are supplied, they must match. The same applies to `bitrateMbps` and `bitrate`. When both audio fields are supplied, `captureAudio` takes precedence. Supplying video overrides without `preset` uses the Custom profile.
+If both `fps` and `videoFps` are supplied, they must match. `targetFps` and `videoFps` are intentionally independent. The same applies to `bitrateMbps` and `bitrate`. When both audio fields are supplied, `captureAudio` takes precedence. Width/height/bitrate overrides without `preset` use the Custom profile.
 
 H.264, H.265, and AV1 outputs use MP4 with AAC audio. VP9 outputs WebM with Opus audio. The selected codec must be present in the configured FFmpeg build. Software AV1 uses `libaom-av1`; it uses target-bitrate VBR when audio is included and constant-quality mode for video-only renders.
 
@@ -154,7 +158,8 @@ Host: 127.0.0.1:1108
     "preset": "FullHD",
     "width": null,
     "height": null,
-    "fps": 60,
+    "targetFps": 120,
+    "videoFps": 60,
     "bitrateMbps": 30,
     "endDelaySeconds": 2,
     "bgaMode": true
@@ -296,7 +301,8 @@ async function renderBga(levelPath) {
     body: JSON.stringify({
       levelPath,
       preset: 'FullHD',
-      fps: 60,
+      targetFps: 120,
+      videoFps: 60,
       bitrateMbps: 30,
       captureAudio: true,
       bgaMode: true,

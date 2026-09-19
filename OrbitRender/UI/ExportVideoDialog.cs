@@ -13,6 +13,7 @@ namespace OrbitRender.UI
         private static Draft draft;
         private static string error;
         private static Rect windowRect;
+        private static Vector2 scrollPosition;
         private static bool renderOptionsExpanded = true;
         private static bool visibleComponentsExpanded = true;
         private static bool encodingExpanded;
@@ -30,6 +31,7 @@ namespace OrbitRender.UI
             editor = owner;
             draft = Draft.From(Main.Settings);
             error = string.Empty;
+            scrollPosition = Vector2.zero;
             open = true;
             ModalInputBlocker.Open();
             editor.ShowFileActionsPanel(false);
@@ -66,6 +68,7 @@ namespace OrbitRender.UI
         private static void DrawWindow(int id, RendererController renderer)
         {
             GUILayout.BeginVertical();
+            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.ExpandHeight(true));
             GUILayout.Label(Localization.Text("Choose the settings for this video export.",
                 "영상 내보내기 설정을 선택하세요."));
             GUILayout.Space(6f);
@@ -83,7 +86,6 @@ namespace OrbitRender.UI
                 GUILayout.BeginHorizontal();
                 draft.WidthText = SettingsUi.LabeledField(Localization.Text("Width", "너비"), draft.WidthText, 90f);
                 draft.HeightText = SettingsUi.LabeledField(Localization.Text("Height", "높이"), draft.HeightText, 90f);
-                draft.FpsText = SettingsUi.LabeledField("FPS", draft.FpsText, 80f);
                 draft.BitrateText = SettingsUi.LabeledField(Localization.Text("Bitrate", "비트레이트"), draft.BitrateText, 80f);
                 GUILayout.Label("Mbps", GUILayout.Width(44f));
                 GUILayout.EndHorizontal();
@@ -91,10 +93,15 @@ namespace OrbitRender.UI
             else
             {
                 GUILayout.Label(Localization.Format(
-                    "Preset output: {0} × {1} @ {2} FPS, {3} Mbps",
-                    "프리셋 출력: {0} × {1} @ {2} FPS, {3} Mbps",
-                    draft.WidthText, draft.HeightText, draft.FpsText, draft.BitrateText));
+                    "Preset output: {0} × {1} | target {2} FPS | video {3} FPS | {4} Mbps",
+                    "프리셋 출력: {0} × {1} | 게임 {2} FPS | 영상 {3} FPS | {4} Mbps",
+                    draft.WidthText, draft.HeightText, draft.FpsText, draft.VideoFpsText, draft.BitrateText));
             }
+
+            GUILayout.BeginHorizontal();
+            draft.FpsText = SettingsUi.LabeledField(Localization.Text("Target FPS", "Target FPS"), draft.FpsText, 80f);
+            draft.VideoFpsText = SettingsUi.LabeledField(Localization.Text("Video FPS", "Video FPS"), draft.VideoFpsText, 80f);
+            GUILayout.EndHorizontal();
 
             GUILayout.Space(6f);
             if (SettingsUi.DrawSectionHeader(Localization.Text("Render options", "렌더 옵션"),
@@ -126,6 +133,8 @@ namespace OrbitRender.UI
                 draft.ShowResultText = GUILayout.Toggle(draft.ShowResultText,
                     Localization.Text("Show result text (hit judgments stay hidden)",
                         "결과 텍스트 표시 (판정은 숨김)"));
+                draft.ShowHitJudgments = GUILayout.Toggle(draft.ShowHitJudgments,
+                    Localization.Text("Show hit judgments", "판정 표시"));
             }
 
             GUILayout.Space(6f);
@@ -137,7 +146,7 @@ namespace OrbitRender.UI
                 draft.BitDepth = SettingsUi.DrawBitDepth(draft.BitDepth);
             }
 
-            GUILayout.FlexibleSpace();
+            GUILayout.EndScrollView();
             if (!string.IsNullOrEmpty(error))
             {
                 var previous = GUI.color;
@@ -197,6 +206,7 @@ namespace OrbitRender.UI
             internal string WidthText;
             internal string HeightText;
             internal string FpsText;
+            internal string VideoFpsText;
             internal string BitrateText;
             internal string EndDelayText;
             internal bool CaptureAudio;
@@ -205,6 +215,7 @@ namespace OrbitRender.UI
             internal bool ShowSongTitle;
             internal bool ShowCountdown;
             internal bool ShowResultText;
+            internal bool ShowHitJudgments;
             internal bool OpenOutputFolder;
             internal bool SaveAsDefault;
             internal EncoderSpeed Encoding;
@@ -219,6 +230,7 @@ namespace OrbitRender.UI
                     WidthText = settings.Width.ToString(CultureInfo.InvariantCulture),
                     HeightText = settings.Height.ToString(CultureInfo.InvariantCulture),
                     FpsText = settings.Fps.ToString(CultureInfo.InvariantCulture),
+                    VideoFpsText = settings.VideoFps.ToString(CultureInfo.InvariantCulture),
                     BitrateText = settings.BitrateMbps.ToString(CultureInfo.InvariantCulture),
                     EndDelayText = settings.EndDelaySeconds.ToString("0.##", CultureInfo.InvariantCulture),
                     CaptureAudio = settings.CaptureAudio,
@@ -227,6 +239,7 @@ namespace OrbitRender.UI
                     ShowSongTitle = settings.ShowSongTitle,
                     ShowCountdown = settings.ShowCountdown,
                     ShowResultText = settings.ShowResultText,
+                    ShowHitJudgments = settings.ShowHitJudgments,
                     OpenOutputFolder = settings.OpenOutputFolder,
                     Encoding = settings.Encoding,
                     Encoder = settings.Encoder,
@@ -239,10 +252,10 @@ namespace OrbitRender.UI
             {
                 switch (Preset)
                 {
-                    case RendererPreset.Preview: SetVideoValues(1280, 720, 30, 8); break;
-                    case RendererPreset.QHD: SetVideoValues(2560, 1440, 60, 30); break;
-                    case RendererPreset.UHD4K: SetVideoValues(3840, 2160, 60, 50); break;
-                    case RendererPreset.FullHD: SetVideoValues(1920, 1080, 60, 18); break;
+                    case RendererPreset.Preview: SetVideoValues(1280, 720, 30, 30, 8); break;
+                    case RendererPreset.QHD: SetVideoValues(2560, 1440, 60, 60, 30); break;
+                    case RendererPreset.UHD4K: SetVideoValues(3840, 2160, 60, 60, 50); break;
+                    case RendererPreset.FullHD: SetVideoValues(1920, 1080, 60, 60, 18); break;
                 }
             }
 
@@ -250,20 +263,32 @@ namespace OrbitRender.UI
             {
                 options = null;
                 message = string.Empty;
-                int width = 0, height = 0, fps = 0, bitrate = 0;
+                int width = 0, height = 0, targetFps = 0, videoFps = 0, bitrate = 0;
                 float endDelay;
+                if (!int.TryParse(FpsText, out targetFps) || targetFps < 15 || targetFps > 1024)
+                {
+                    message = Localization.Text("Target FPS must be between 15 and 1024.",
+                        "Target FPS는 15~1024 사이여야 합니다.");
+                    return false;
+                }
+                if (!int.TryParse(VideoFpsText, out videoFps) || videoFps < 15 || videoFps > 240)
+                {
+                    message = Localization.Text("Video FPS must be between 15 and 240.",
+                        "Video FPS는 15~240 사이여야 합니다.");
+                    return false;
+                }
                 if (Preset == RendererPreset.Custom)
                 {
                     if (!int.TryParse(WidthText, out width) || !int.TryParse(HeightText, out height)
-                        || !int.TryParse(FpsText, out fps) || !int.TryParse(BitrateText, out bitrate))
+                        || !int.TryParse(BitrateText, out bitrate))
                     {
                         message = Localization.Text(
-                            "Width, height, FPS and bitrate must be valid numbers.",
-                            "너비, 높이, FPS 및 비트레이트는 유효한 숫자여야 합니다.");
+                            "Width, height and bitrate must be valid numbers.",
+                            "너비, 높이 및 비트레이트는 유효한 숫자여야 합니다.");
                         return false;
                     }
                     if (width < 320 || width > 3840 || height < 180 || height > 2160
-                        || fps < 15 || fps > 240 || bitrate < 1 || bitrate > 200)
+                        || bitrate < 1 || bitrate > 200)
                     {
                         message = Localization.Text("Custom values are outside the supported ranges.",
                             "사용자 지정 값이 지원 범위를 벗어났습니다.");
@@ -292,17 +317,19 @@ namespace OrbitRender.UI
                     ShowSongTitle = ShowSongTitle,
                     ShowCountdown = ShowCountdown,
                     ShowResultText = ShowResultText,
+                    ShowHitJudgments = ShowHitJudgments,
                     Encoding = Encoding,
                     Encoder = Encoder,
                     VideoCodec = Codec,
                     BitDepth = BitDepth,
                     OpenOutputFolder = OpenOutputFolder
                 };
+                options.TargetFps = targetFps;
+                options.VideoFps = videoFps;
                 if (Preset == RendererPreset.Custom)
                 {
                     options.Width = width;
                     options.Height = height;
-                    options.Fps = fps;
                     options.BitrateMbps = bitrate;
                 }
                 return true;
@@ -311,11 +338,12 @@ namespace OrbitRender.UI
             internal void ApplyTo(RendererSettings settings, RenderRequestOptions options)
             {
                 settings.Preset = Preset;
+                settings.Fps = options.TargetFps.Value;
+                settings.VideoFps = options.VideoFps.Value;
                 if (Preset == RendererPreset.Custom)
                 {
                     settings.Width = options.Width.Value;
                     settings.Height = options.Height.Value;
-                    settings.Fps = options.Fps.Value;
                     settings.BitrateMbps = options.BitrateMbps.Value;
                 }
                 settings.EndDelaySeconds = options.EndDelaySeconds.Value;
@@ -325,6 +353,7 @@ namespace OrbitRender.UI
                 settings.ShowSongTitle = ShowSongTitle;
                 settings.ShowCountdown = ShowCountdown;
                 settings.ShowResultText = ShowResultText;
+                settings.ShowHitJudgments = ShowHitJudgments;
                 settings.Encoding = Encoding;
                 settings.Encoder = Encoder;
                 settings.Codec = Codec;
@@ -333,11 +362,12 @@ namespace OrbitRender.UI
                 settings.OnChange();
             }
 
-            private void SetVideoValues(int width, int height, int fps, int bitrate)
+            private void SetVideoValues(int width, int height, int targetFps, int videoFps, int bitrate)
             {
                 WidthText = width.ToString(CultureInfo.InvariantCulture);
                 HeightText = height.ToString(CultureInfo.InvariantCulture);
-                FpsText = fps.ToString(CultureInfo.InvariantCulture);
+                FpsText = targetFps.ToString(CultureInfo.InvariantCulture);
+                VideoFpsText = videoFps.ToString(CultureInfo.InvariantCulture);
                 BitrateText = bitrate.ToString(CultureInfo.InvariantCulture);
             }
 

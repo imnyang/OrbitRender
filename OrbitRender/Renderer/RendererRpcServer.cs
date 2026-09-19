@@ -21,7 +21,8 @@ namespace OrbitRender.Renderer
         public RendererPreset? Preset;
         public int? Width;
         public int? Height;
-        public int? Fps;
+        public int? TargetFps;
+        public int? VideoFps;
         public int? BitrateMbps;
         public float? EndDelaySeconds;
         public bool? BgaMode;
@@ -29,15 +30,17 @@ namespace OrbitRender.Renderer
         public bool? ShowSongTitle;
         public bool? ShowCountdown;
         public bool? ShowResultText;
+        public bool? ShowHitJudgments;
         public VideoCodec? VideoCodec;
         public VideoBitDepth? BitDepth;
 
         public bool HasValues
         {
-            get { return Preset.HasValue || Width.HasValue || Height.HasValue || Fps.HasValue
+            get { return Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
                 || BitrateMbps.HasValue || EndDelaySeconds.HasValue || BgaMode.HasValue
                 || ShowPlanetRings.HasValue
                 || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
+                || ShowHitJudgments.HasValue
                 || VideoCodec.HasValue || BitDepth.HasValue; }
         }
 
@@ -48,7 +51,9 @@ namespace OrbitRender.Renderer
                 preset = Preset.HasValue ? Preset.Value.ToString() : null,
                 width = Width,
                 height = Height,
-                fps = Fps,
+                targetFps = TargetFps,
+                videoFps = VideoFps,
+                fps = VideoFps,
                 bitrateMbps = BitrateMbps,
                 endDelaySeconds = EndDelaySeconds,
                 bgaMode = BgaMode,
@@ -56,6 +61,7 @@ namespace OrbitRender.Renderer
                 showSongTitle = ShowSongTitle,
                 showCountdown = ShowCountdown,
                 showResultText = ShowResultText,
+                showHitJudgments = ShowHitJudgments,
                 videoCodec = VideoCodec.HasValue ? VideoCodec.Value.ToString() : null,
                 bitDepth = BitDepth.HasValue ? (int)(BitDepth.Value == VideoBitDepth.Ten ? 10 : 8) : (int?)null
             };
@@ -362,15 +368,21 @@ namespace OrbitRender.Renderer
                 error = InvalidOption("height", "180..2160");
                 return null;
             }
-            var fps = payload.Fps ?? payload.TargetFps;
-            if (payload.Fps.HasValue && payload.TargetFps.HasValue && payload.Fps.Value != payload.TargetFps.Value)
+            var targetFps = payload.TargetFps;
+            var videoFps = payload.VideoFps ?? payload.Fps;
+            if (payload.VideoFps.HasValue && payload.Fps.HasValue && payload.VideoFps.Value != payload.Fps.Value)
             {
-                error = "Use either 'fps' or 'targetFps'; both values must match.";
+                error = "Use either 'videoFps' or 'fps'; both values must match.";
                 return null;
             }
-            if (fps.HasValue && (fps.Value < 15 || fps.Value > 240))
+            if (targetFps.HasValue && (targetFps.Value < 15 || targetFps.Value > 1024))
             {
-                error = InvalidOption("fps", "15..240");
+                error = InvalidOption("targetFps", "15..1024");
+                return null;
+            }
+            if (videoFps.HasValue && (videoFps.Value < 15 || videoFps.Value > 240))
+            {
+                error = InvalidOption("videoFps", "15..240");
                 return null;
             }
             var bitrate = payload.BitrateMbps ?? payload.Bitrate;
@@ -432,7 +444,8 @@ namespace OrbitRender.Renderer
                 Preset = preset,
                 Width = payload.Width,
                 Height = payload.Height,
-                Fps = fps,
+                TargetFps = targetFps,
+                VideoFps = videoFps,
                 BitrateMbps = bitrate,
                 EndDelaySeconds = payload.EndDelaySeconds,
                 BgaMode = payload.BgaMode,
@@ -440,6 +453,7 @@ namespace OrbitRender.Renderer
                 ShowSongTitle = payload.ShowSongTitle,
                 ShowCountdown = payload.ShowCountdown,
                 ShowResultText = payload.ShowResultText,
+                ShowHitJudgments = payload.ShowHitJudgments,
                 VideoCodec = videoCodec,
                 BitDepth = bitDepth
             };
@@ -518,6 +532,7 @@ namespace OrbitRender.Renderer
             [JsonProperty("height")] public int? Height { get; set; }
             [JsonProperty("fps")] public int? Fps { get; set; }
             [JsonProperty("targetFps")] public int? TargetFps { get; set; }
+            [JsonProperty("videoFps")] public int? VideoFps { get; set; }
             [JsonProperty("bitrateMbps")] public int? BitrateMbps { get; set; }
             [JsonProperty("bitrate")] public int? Bitrate { get; set; }
             [JsonProperty("endDelaySeconds")] public float? EndDelaySeconds { get; set; }
@@ -526,6 +541,7 @@ namespace OrbitRender.Renderer
             [JsonProperty("showSongTitle")] public bool? ShowSongTitle { get; set; }
             [JsonProperty("showCountdown")] public bool? ShowCountdown { get; set; }
             [JsonProperty("showResultText")] public bool? ShowResultText { get; set; }
+            [JsonProperty("showHitJudgments")] public bool? ShowHitJudgments { get; set; }
             [JsonProperty("videoCodec")] public string VideoCodec { get; set; }
             [JsonProperty("codec")] public string Codec { get; set; }
             [JsonProperty("bitDepth")] public int? BitDepth { get; set; }

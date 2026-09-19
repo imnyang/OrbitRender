@@ -28,11 +28,13 @@ namespace OrbitRender
         private static string localizedWidthText;
         private static string localizedHeightText;
         private static string localizedFpsText;
+        private static string localizedVideoFpsText;
         private static string localizedBitrateText;
         private static string localizedEndDelayText;
         private static int localizedWidthValue = int.MinValue;
         private static int localizedHeightValue = int.MinValue;
         private static int localizedFpsValue = int.MinValue;
+        private static int localizedVideoFpsValue = int.MinValue;
         private static int localizedBitrateValue = int.MinValue;
         private static float localizedEndDelayValue = float.NaN;
         private static bool diagnosticsHaveRun;
@@ -234,9 +236,6 @@ namespace OrbitRender
                 Settings.Height = DrawLocalizedIntField(
                     Localization.Text("Height", "높이"), Settings.Height,
                     ref localizedHeightText, ref localizedHeightValue, 90f);
-                Settings.Fps = DrawLocalizedIntField(
-                    "FPS", Settings.Fps,
-                    ref localizedFpsText, ref localizedFpsValue, 80f);
                 Settings.BitrateMbps = DrawLocalizedIntField(
                     Localization.Text("Bitrate", "비트레이트"), Settings.BitrateMbps,
                     ref localizedBitrateText, ref localizedBitrateValue, 80f);
@@ -247,10 +246,19 @@ namespace OrbitRender
             {
                 var profile = Settings.ResolveProfile();
                 GUILayout.Label(Localization.Format(
-                    "Preset output: {0} × {1} @ {2} FPS, {3} Mbps",
-                    "프리셋 출력: {0} × {1} @ {2} FPS, {3} Mbps",
-                    profile.Width, profile.Height, profile.Fps, profile.BitrateMbps));
+                    "Preset output: {0} × {1} | target {2} FPS | video {3} FPS | {4} Mbps",
+                    "프리셋 출력: {0} × {1} | 게임 {2} FPS | 영상 {3} FPS | {4} Mbps",
+                    profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps));
             }
+
+            GUILayout.BeginHorizontal();
+            Settings.Fps = DrawLocalizedIntField(
+                Localization.Text("Target FPS", "Target FPS"), Settings.Fps,
+                ref localizedFpsText, ref localizedFpsValue, 80f);
+            Settings.VideoFps = DrawLocalizedIntField(
+                Localization.Text("Video FPS", "Video FPS"), Settings.VideoFps,
+                ref localizedVideoFpsText, ref localizedVideoFpsValue, 80f);
+            GUILayout.EndHorizontal();
         }
 
         private static void DrawRenderOptions()
@@ -279,6 +287,8 @@ namespace OrbitRender
             Settings.ShowResultText = DrawLocalizedToggle(
                 Localization.Text("Show result text (hit judgments stay hidden)",
                     "결과 텍스트 표시 (판정은 숨김)"), Settings.ShowResultText);
+            Settings.ShowHitJudgments = DrawLocalizedToggle(
+                Localization.Text("Show hit judgments", "판정 표시"), Settings.ShowHitJudgments);
         }
 
         private static void DrawEncodingSettings()
@@ -307,11 +317,13 @@ namespace OrbitRender
             localizedWidthText = null;
             localizedHeightText = null;
             localizedFpsText = null;
+            localizedVideoFpsText = null;
             localizedBitrateText = null;
             localizedEndDelayText = null;
             localizedWidthValue = int.MinValue;
             localizedHeightValue = int.MinValue;
             localizedFpsValue = int.MinValue;
+            localizedVideoFpsValue = int.MinValue;
             localizedBitrateValue = int.MinValue;
             localizedEndDelayValue = float.NaN;
         }

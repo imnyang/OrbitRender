@@ -22,13 +22,14 @@ namespace OrbitRender
 
     internal sealed class RenderProfile
     {
-        public RenderProfile(int width, int height, int fps, int bitrateMbps, string ffmpegPreset,
+        public RenderProfile(int width, int height, int targetFps, int videoFps, int bitrateMbps, string ffmpegPreset,
             float endDelaySeconds = 2f, string ffmpegCodec = "libx264", VideoCodec videoCodec = VideoCodec.H264,
             VideoBitDepth bitDepth = VideoBitDepth.Eight)
         {
             Width = width;
             Height = height;
-            Fps = fps;
+            TargetFps = targetFps;
+            VideoFps = videoFps;
             BitrateMbps = bitrateMbps;
             FfmpegPreset = ffmpegPreset;
             EndDelaySeconds = endDelaySeconds;
@@ -39,7 +40,8 @@ namespace OrbitRender
 
         public int Width { get; }
         public int Height { get; }
-        public int Fps { get; }
+        public int TargetFps { get; }
+        public int VideoFps { get; }
         public int BitrateMbps { get; }
         public string FfmpegPreset { get; }
         public float EndDelaySeconds { get; }
@@ -60,7 +62,8 @@ namespace OrbitRender
         private const int MinHeight = 180;
         private const int MaxHeight = 2160;
         private const int MinFps = 15;
-        private const int MaxFps = 240;
+        private const int MaxTargetFps = 1024;
+        private const int MaxVideoFps = 240;
         private const int MinBitrate = 1;
         private const int MaxBitrate = 200;
 
@@ -78,6 +81,9 @@ namespace OrbitRender
         // into 15 before the remaining digits can be entered.
         [Draw("Target FPS", DrawType.Field, VisibleOn = "Preset|Custom")]
         public int Fps = 60;
+
+        [Draw("Video FPS", DrawType.Field, VisibleOn = "Preset|Custom")]
+        public int VideoFps = 60;
 
         [Draw("Video bitrate (Mbps)", DrawType.Field, Min = MinBitrate, Max = MaxBitrate, VisibleOn = "Preset|Custom")]
         public int BitrateMbps = 18;
@@ -102,6 +108,9 @@ namespace OrbitRender
 
         [Draw("Show result text (hit judgments stay hidden)", DrawType.Toggle)]
         public bool ShowResultText = true;
+
+        [Draw("Show hit judgments", DrawType.Toggle)]
+        public bool ShowHitJudgments = false;
 
         [Draw("Encoding speed", DrawType.PopupList)]
         public EncoderSpeed Encoding = EncoderSpeed.Quality;
@@ -135,18 +144,21 @@ namespace OrbitRender
 
         public void OnChange()
         {
-            // Selecting a built-in preset also copies its values into the
-            // fields, so switching to Custom starts from a useful baseline.
+            // Selecting a built-in preset also copies its resolution and
+            // bitrate into the fields, so switching to Custom starts from a
+            // useful baseline. Target FPS is deliberately independent from
+            // the preset and must not be overwritten here.
             if (Preset != RendererPreset.Custom)
             {
                 var profile = GetPresetProfile(Preset);
                 Width = profile.Width;
                 Height = profile.Height;
-                Fps = profile.Fps;
                 BitrateMbps = profile.BitrateMbps;
             }
             Width = EvenClamp(Width, MinWidth, MaxWidth);
             Height = EvenClamp(Height, MinHeight, MaxHeight);
+            Fps = Clamp(Fps, MinFps, MaxTargetFps);
+            VideoFps = Clamp(VideoFps, MinFps, MaxVideoFps);
             BitrateMbps = Clamp(BitrateMbps, MinBitrate, MaxBitrate);
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
             EndDelaySeconds = Math.Max(0f, Math.Min(30f, EndDelaySeconds));
@@ -158,6 +170,7 @@ namespace OrbitRender
             Width = 1920;
             Height = 1080;
             Fps = 60;
+            VideoFps = 60;
             BitrateMbps = 18;
             EndDelaySeconds = 2f;
             CaptureAudio = true;
@@ -166,6 +179,7 @@ namespace OrbitRender
             ShowSongTitle = true;
             ShowCountdown = true;
             ShowResultText = true;
+            ShowHitJudgments = false;
             Encoding = EncoderSpeed.Quality;
             Encoder = VideoEncoder.Auto;
             Codec = VideoCodec.H264;
@@ -177,23 +191,27 @@ namespace OrbitRender
 
         internal RenderProfile ResolveProfile()
         {
-            return ResolveProfile(null, null, null, null, null, null, null, null);
+            return ResolveProfile(null, null, null, null, null, null, null, null, null);
         }
 
         internal RenderProfile ResolveProfile(RendererPreset? presetOverride, int? widthOverride,
-            int? heightOverride, int? fpsOverride, int? bitrateOverride, float? endDelayOverride,
+            int? heightOverride, int? targetFpsOverride, int? videoFpsOverride, int? bitrateOverride, float? endDelayOverride,
             VideoCodec? codecOverride, VideoBitDepth? bitDepthOverride,
             EncoderSpeed? encodingOverride = null, VideoEncoder? encoderOverride = null)
         {
-            var hasVideoOverride = presetOverride.HasValue || widthOverride.HasValue || heightOverride.HasValue
-                || fpsOverride.HasValue || bitrateOverride.HasValue || codecOverride.HasValue
-                || bitDepthOverride.HasValue;
-            var preset = presetOverride ?? (hasVideoOverride ? RendererPreset.Custom : Preset);
-            var baseProfile = preset == RendererPreset.Custom
+            var preset = presetOverride ?? Preset;
+            // A target-FPS override does not turn a built-in resolution preset
+            // into Custom. Width/height/bitrate overrides without an explicit
+            // preset still use the saved Custom values as their base.
+            var useCustomBase = preset == RendererPreset.Custom
+                || (!presetOverride.HasValue
+                    && (widthOverride.HasValue || heightOverride.HasValue || bitrateOverride.HasValue));
+            var baseProfile = useCustomBase
                 ? new RenderProfile(
                     EvenClamp(Width, MinWidth, MaxWidth),
                     EvenClamp(Height, MinHeight, MaxHeight),
-                    Clamp(Fps, MinFps, MaxFps),
+                    Clamp(Fps, MinFps, MaxTargetFps),
+                    Clamp(VideoFps, MinFps, MaxVideoFps),
                     Clamp(BitrateMbps, MinBitrate, MaxBitrate),
                     "fast", EndDelaySeconds)
                 : GetPresetProfile(preset);
@@ -202,10 +220,24 @@ namespace OrbitRender
                 : baseProfile.EndDelaySeconds;
             var encoding = encodingOverride ?? Encoding;
             var encoder = encoderOverride ?? Encoder;
+            // RPC requests naming a preset retain that preset's default rates
+            // unless they explicitly provide target/video FPS. Normal settings
+            // and the export dialog use the independent saved values.
+            var targetFps = targetFpsOverride.HasValue
+                ? Clamp(targetFpsOverride.Value, MinFps, MaxTargetFps)
+                : presetOverride.HasValue && preset != RendererPreset.Custom
+                    ? baseProfile.TargetFps
+                    : Clamp(Fps, MinFps, MaxTargetFps);
+            var videoFps = videoFpsOverride.HasValue
+                ? Clamp(videoFpsOverride.Value, MinFps, MaxVideoFps)
+                : presetOverride.HasValue && preset != RendererPreset.Custom
+                    ? baseProfile.VideoFps
+                    : Clamp(VideoFps, MinFps, MaxVideoFps);
             return new RenderProfile(
                 widthOverride.HasValue ? EvenClamp(widthOverride.Value, MinWidth, MaxWidth) : baseProfile.Width,
                 heightOverride.HasValue ? EvenClamp(heightOverride.Value, MinHeight, MaxHeight) : baseProfile.Height,
-                fpsOverride.HasValue ? Clamp(fpsOverride.Value, MinFps, MaxFps) : baseProfile.Fps,
+                targetFps,
+                videoFps,
                 bitrateOverride.HasValue ? Clamp(bitrateOverride.Value, MinBitrate, MaxBitrate) : baseProfile.BitrateMbps,
                 GetEncoderPreset(encoding), endDelay, GetEncoderCodec(codecOverride ?? Codec, encoder), codecOverride ?? Codec,
                 bitDepthOverride ?? BitDepth);
@@ -257,11 +289,11 @@ namespace OrbitRender
         {
             switch (preset)
             {
-                case RendererPreset.Preview: return new RenderProfile(1280, 720, 30, 8, "veryfast");
-                case RendererPreset.QHD: return new RenderProfile(2560, 1440, 60, 30, "veryfast");
-                case RendererPreset.UHD4K: return new RenderProfile(3840, 2160, 60, 50, "fast");
+                case RendererPreset.Preview: return new RenderProfile(1280, 720, 30, 30, 8, "veryfast");
+                case RendererPreset.QHD: return new RenderProfile(2560, 1440, 60, 60, 30, "veryfast");
+                case RendererPreset.UHD4K: return new RenderProfile(3840, 2160, 60, 60, 50, "fast");
                 case RendererPreset.FullHD:
-                default: return new RenderProfile(1920, 1080, 60, 18, "veryfast");
+                default: return new RenderProfile(1920, 1080, 60, 60, 18, "veryfast");
             }
         }
 
@@ -304,7 +336,8 @@ namespace OrbitRender
             if (!Enum.IsDefined(typeof(EncoderSpeed), Encoding)) Encoding = EncoderSpeed.Quality;
             Width = EvenClamp(Width, MinWidth, MaxWidth);
             Height = EvenClamp(Height, MinHeight, MaxHeight);
-            Fps = Clamp(Fps, MinFps, MaxFps);
+            Fps = Clamp(Fps, MinFps, MaxTargetFps);
+            VideoFps = Clamp(VideoFps, MinFps, MaxVideoFps);
             BitrateMbps = Clamp(BitrateMbps, MinBitrate, MaxBitrate);
             Codec = VideoCodecCatalog.Normalize(Codec);
             BitDepth = VideoCodecCatalog.Normalize(BitDepth);

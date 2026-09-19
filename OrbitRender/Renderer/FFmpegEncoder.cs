@@ -93,6 +93,10 @@ namespace OrbitRender.Renderer
                 Arguments = "-hide_banner -loglevel warning -nostdin -n -f rawvideo -pixel_format rgba -video_size "
                     + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf vflip "
                     + encoderOptions + " -pix_fmt " + pixelFormat
+                    // The raw-video demuxer supplies the same target time base
+                    // used by the render clock, so the encoded stream inherits
+                    // the requested constant frame rate without resampling.
+                    + " -fps_mode cfr"
                     + (fastStart ? " -movflags +faststart" : "") + " \"" + output + "\"",
                 UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardInput = true, RedirectStandardError = true
@@ -312,6 +316,9 @@ namespace OrbitRender.Renderer
             disposed = true;
             work.CompleteAdding();
             AbortProcess();
+            // Killing the child is not synchronous. Wait for it to release the
+            // output file before cleanup attempts to delete a failed partial.
+            try { if (!process.HasExited) process.WaitForExit(5000); } catch { }
             if (writer != null && !writer.Join(5000)) return; // Do not dispose collections still used by a worker.
             process.Dispose(); work.Dispose(); free.Dispose();
         }

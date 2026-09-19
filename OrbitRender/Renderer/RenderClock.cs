@@ -4,6 +4,8 @@ namespace OrbitRender.Renderer
 {
     public sealed class RenderClock
     {
+        // This clock drives the in-game simulation. Output video sampling
+        // uses RenderProfile.VideoFps and must not be conflated with it.
         public int Fps { get; }
         public long FrameIndex { get; private set; }
         public double Time => FrameIndex / (double)Fps;

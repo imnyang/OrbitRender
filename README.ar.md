@@ -9,7 +9,7 @@ OrbitRender هو تعديل يعمل مع Unity Mod Manager لتحويل الم�
 - اضغط `F6` لتسجيل المرحلة المخصصة المفتوحة حالياً.
 - نافذة تقدم في المنتصف تعرض FPS والسرعة النسبية وETA ووقت الانتهاء المتوقع.
 - إعدادات Preview وFullHD وQHD وUHD 4K وCustom.
-- إمكانية ضبط الدقة و15–240 FPS ومعدل البت 1–200 Mbps ووقت الانتظار النهائي والصوت ومجلد الإخراج.
+- إمكانية ضبط الدقة وTarget FPS من 15 إلى 1024 / Video FPS من 15 إلى 240 ومعدل البت 1–200 Mbps ووقت الانتظار النهائي والصوت ومجلد الإخراج.
 - اختيار H.264/AVC وH.265/HEVC وVP9 وAV1 (ينتج VP9 ملف WebM والباقي MP4).
 - إمكانية اختيار NVIDIA NVENC وIntel Quick Sync وAMD AMF والترميز البرمجي مع اكتشاف GPU تلقائياً.
 - تسجيل صوت اللعبة اختيارياً ثم دمجه مع الفيديو.
@@ -40,7 +40,7 @@ A Dance of Fire and Ice/Mods/OrbitRender/
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
 | Width / Height | 1920 × 1080 | دقة مخصصة، ويتم تصحيحها إلى أرقام زوجية |
-| Target FPS | 60 | من 15 إلى 240 |
+| Target FPS | 60 | من 15 إلى 1024 |
 | Video bitrate | 18 Mbps | CBR من 1 إلى 200 Mbps |
 | End delay | ثانيتان | الانتظار بعد الموسيقى أو آخر بلاطة |
 | Capture audio | مفعّل | تسجيل صوت اللعبة |
