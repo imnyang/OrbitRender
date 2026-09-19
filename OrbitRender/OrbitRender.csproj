@@ -39,6 +39,7 @@
  <Content Include="Info.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="LICENSE.md"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="Localization/*.ftl"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+ <EmbeddedResource Include="Localization/*.ftl" />
  </ItemGroup>
  <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets"/>
 </Project>

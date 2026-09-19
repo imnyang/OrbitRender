@@ -82,36 +82,99 @@ namespace OrbitRender
         private static Dictionary<string, string> LoadCatalog(string culture)
         {
             var catalog = new Dictionary<string, string>(StringComparer.Ordinal);
-            var path = Path.Combine(GetCatalogDirectory(), culture + ".ftl");
-            if (!File.Exists(path)) return catalog;
-
             try
             {
-                foreach (var rawLine in File.ReadAllLines(path, new UTF8Encoding(false)))
+                var path = FindExternalCatalog(culture);
+                if (!string.IsNullOrEmpty(path))
                 {
-                    var line = rawLine.Trim();
-                    if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal)) continue;
+                    using (var reader = new StreamReader(path, new UTF8Encoding(false), true))
+                    {
+                        ReadCatalog(catalog, reader);
+                    }
+                    return catalog;
+                }
 
-                    var separator = line.IndexOf('=');
-                    if (separator <= 0) continue;
-
-                    var id = line.Substring(0, separator).Trim();
-                    var value = line.Substring(separator + 1);
-                    // FTL uses the first space after '=' as a separator. Keep
-                    // any additional leading spaces because some UI messages
-                    // intentionally begin with one for string concatenation.
-                    if (value.StartsWith(" ", StringComparison.Ordinal))
-                        value = value.Substring(1);
-                    catalog[id] = value;
+                var resource = FindEmbeddedCatalog(culture);
+                if (resource == null) return catalog;
+                using (resource)
+                using (var reader = new StreamReader(resource, new UTF8Encoding(false), true))
+                {
+                    ReadCatalog(catalog, reader);
                 }
             }
             catch (Exception ex)
             {
-                try { Main.Entry?.Logger.Error("Could not load localization catalog " + path + ": " + ex); }
+                try { Main.Entry?.Logger.Error("Could not load localization catalog for " + culture + ": " + ex); }
                 catch { }
             }
 
             return catalog;
+        }
+
+        private static void ReadCatalog(Dictionary<string, string> catalog, TextReader reader)
+        {
+            string rawLine;
+            while ((rawLine = reader.ReadLine()) != null)
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal)) continue;
+
+                var separator = line.IndexOf('=');
+                if (separator <= 0) continue;
+
+                var id = line.Substring(0, separator).Trim();
+                var value = line.Substring(separator + 1);
+                // FTL uses the first space after '=' as a separator. Keep
+                // any additional leading spaces because some UI messages
+                // intentionally begin with one for string concatenation.
+                if (value.StartsWith(" ", StringComparison.Ordinal))
+                    value = value.Substring(1);
+                catalog[id] = value;
+            }
+        }
+
+        private static string FindExternalCatalog(string culture)
+        {
+            var directories = new List<string>();
+            AddDirectoryCandidate(directories, GetCatalogDirectory());
+
+            try
+            {
+                var assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                AddDirectoryCandidate(directories, Path.Combine(assemblyDirectory ?? string.Empty, "Localization"));
+                AddDirectoryCandidate(directories, assemblyDirectory);
+            }
+            catch { }
+
+            foreach (var directory in directories)
+            {
+                var path = Path.Combine(directory, culture + ".ftl");
+                if (File.Exists(path)) return path;
+            }
+
+            return null;
+        }
+
+        private static void AddDirectoryCandidate(List<string> directories, string directory)
+        {
+            if (string.IsNullOrEmpty(directory)) return;
+            foreach (var existing in directories)
+            {
+                if (string.Equals(existing, directory, StringComparison.OrdinalIgnoreCase)) return;
+            }
+            directories.Add(directory);
+        }
+
+        private static Stream FindEmbeddedCatalog(string culture)
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            foreach (var name in assembly.GetManifestResourceNames())
+            {
+                if (!name.EndsWith(".Localization." + culture + ".ftl", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                return assembly.GetManifestResourceStream(name);
+            }
+            return null;
         }
 
         private static string GetCatalogDirectory()
