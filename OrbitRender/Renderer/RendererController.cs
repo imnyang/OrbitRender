@@ -1629,13 +1629,10 @@ namespace OrbitRender.Renderer
                 return false;
             }
 
-            var background = FindDefaultBackground(targetLevel);
-            if (background == null || !background.activeInHierarchy
-                || background.GetComponentsInChildren<UnityEngine.Renderer>(true).All(item => !item.enabled || !item.gameObject.activeInHierarchy))
-            {
-                reason = "default background has no visible renderer";
-                return false;
-            }
+            // The editor may intentionally keep its default background hidden.
+            // Bgcamstatic clears to SolidColor in that configuration, so the
+            // absence of a visible default-background renderer is not a broken
+            // render state and must not prevent export.
             reason = null;
             return true;
         }
