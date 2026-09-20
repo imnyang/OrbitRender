@@ -1,0 +1,30 @@
+OrbitRender A Dance of Fire and Ice Linking Exception
+Version 1.0
+
+This exception is an additional permission under section 7 of the
+GNU General Public License version 3 ("GPLv3").
+
+As a special exception, the copyright holders of OrbitRender grant
+permission to link, load, or otherwise combine OrbitRender with
+A Dance of Fire and Ice and libraries or assemblies distributed as
+part of, or required for running, A Dance of Fire and Ice, including
+Assembly-CSharp and the Unity Engine/runtime assemblies, regardless
+of the license terms of those components.
+
+You may distribute OrbitRender for use with those components,
+provided that you comply with the GNU GPL version 3 for OrbitRender
+and for any modifications to OrbitRender.
+
+This exception applies only to the interaction between OrbitRender
+and A Dance of Fire and Ice and its associated runtime components.
+It does not exempt OrbitRender itself, or modifications derived from
+OrbitRender, from the requirements of the GNU GPL version 3.
+
+In particular, if you distribute a modified version of OrbitRender
+in object or executable form, you must provide the Corresponding
+Source for that modified version as required by the GNU GPL version 3.
+
+This exception does not grant any permission to copy, modify, or
+distribute A Dance of Fire and Ice, Unity, or any other third-party
+software beyond the permissions granted by their respective
+copyright holders and licenses.
