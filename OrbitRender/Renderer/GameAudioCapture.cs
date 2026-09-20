@@ -35,6 +35,16 @@ namespace OrbitRender.Renderer
         public bool UsedSilenceFallback => rendererUnavailable || zeroSampleReads > 0;
         public bool UsedFilterFallback => useFilterFallback;
         public bool NeedsRealtimePacing => useListenerOutputFallback;
+        // AudioRenderer advances an offline DSP timeline as frames are
+        // rendered. Dynamic Play Sound Effect events can be raised after the
+        // corresponding block has already been consumed when Target FPS is
+        // higher than Video FPS. Expose that boundary so the schedule patch
+        // can move only those late events into the next block.
+        public double RenderedUntilDsp(double dspOrigin)
+        {
+            if (SampleRate <= 0) return dspOrigin;
+            return dspOrigin + SampleFrames / (double)SampleRate;
+        }
         public double CaptureSeconds => System.Threading.Interlocked.Read(ref captureTicks)
             / (double)System.Diagnostics.Stopwatch.Frequency;
 
@@ -74,12 +84,18 @@ namespace OrbitRender.Renderer
             catch { Dispose(); throw; }
         }
 
-        public void CaptureFrame(long simulationFrameIndex, int fps)
+        public void CaptureFrame(long videoFrameIndex, int fps)
         {
             var captureStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            var previousCaptureFramerate = Time.captureFramerate;
             try
             {
-                long expectedSamples = checked((simulationFrameIndex + 1) * (long)SampleRate / fps);
+                // The game clock uses Target FPS, but AudioRenderer's capture
+                // block size must follow the output timeline. Temporarily
+                // expose Video FPS only while querying/rendering this audio
+                // block, then restore Target FPS before the next game update.
+                if (previousCaptureFramerate != fps) Time.captureFramerate = fps;
+                long expectedSamples = checked((videoFrameIndex + 1) * (long)SampleRate / fps);
                 if (useListenerOutputFallback)
                 {
                     CaptureListenerOutput(expectedSamples - SampleFrames);
@@ -138,14 +154,16 @@ namespace OrbitRender.Renderer
             }
             finally
             {
+                if (Time.captureFramerate != previousCaptureFramerate)
+                    Time.captureFramerate = previousCaptureFramerate;
                 System.Threading.Interlocked.Add(ref captureTicks,
                     System.Diagnostics.Stopwatch.GetTimestamp() - captureStart);
             }
         }
 
-        public void Complete(long simulationFrames, int fps)
+        public void Complete(long videoFrames, int fps)
         {
-            long targetSamples = checked(simulationFrames * (long)SampleRate / fps);
+            long targetSamples = checked(videoFrames * (long)SampleRate / fps);
             if (useListenerOutputFallback)
             {
                 CaptureListenerOutput(targetSamples - SampleFrames);

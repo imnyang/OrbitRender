@@ -75,13 +75,16 @@ namespace OrbitRender.Renderer
         public long CapturedFrames { get; private set; }
         public bool Busy => State == RenderState.Preparing || State == RenderState.Rendering || State == RenderState.Finishing
             || State == RenderState.AwaitingConfirmation
-            || rpcLoadRoutine != null;
+            || rpcLoadRoutine != null || editorRecoveryRoutine != null;
         internal bool EncoderFallbackPending => encoderFallbackPending;
         internal string EncoderFallbackReason => encoderFallbackReason ?? string.Empty;
         private FrameCapture capture;
         private FFmpegEncoder encoder;
         private SavedState saved;
         private Coroutine routine;
+        private Coroutine editorRecoveryRoutine;
+        private bool editorStateReady = true;
+        private bool shuttingDown;
         private scnGame level;
         private scnEditor editor;
         private bool cancellation;
@@ -108,6 +111,7 @@ namespace OrbitRender.Renderer
         private bool captureAudioForRun;
         private bool audioRealtimePacing;
         private double audioPacingOrigin;
+        private long latePlaySoundSchedules;
         private bool openOutputFolderForRun;
         private RenderProfile profile;
         private float escapeHeldAt = -1f;
@@ -205,12 +209,14 @@ namespace OrbitRender.Renderer
                 requestOptions?.Encoding,
                 requestOptions?.Encoder);
             Clock = new RenderClock(profile.TargetFps);
+            AudioSchedulePatch.ResetRuntimeState();
             Message = Localization.FormatWithCurrentCulture("preparing-render", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps, profile.FfmpegCodec);
             captureAudioForRun = activeRpcJob != null
                 ? activeRpcJob.CaptureAudio
                 : requestOptions?.CaptureAudio ?? settings.CaptureAudio;
             audioRealtimePacing = false;
             audioPacingOrigin = 0.0;
+            latePlaySoundSchedules = 0;
             openOutputFolderForRun = requestOptions?.OpenOutputFolder ?? settings.OpenOutputFolder;
             FFmpegPath = ResolveFfmpegExecutable(settings);
             activeRpcJob?.SetState(RpcJobState.Preparing);
@@ -390,6 +396,19 @@ namespace OrbitRender.Renderer
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
             ValidateLoadedLevel();
+            LogRenderChain("before render preparation", level);
+            string invalidReason = null;
+            if (editor != null && (!editorStateReady || !IsEditorRenderStateValid(level, out invalidReason)))
+            {
+                Main.Entry.Logger.Log("Rebuilding editor render state before export: "
+                    + (editorStateReady ? invalidReason : "previous recovery has not completed"));
+                RebuildEditorRenderState(editor, level);
+                yield return null;
+                if (!IsEditorRenderStateValid(level, out invalidReason))
+                    throw new InvalidOperationException("Editor render state could not be restored: " + invalidReason);
+                editorStateReady = true;
+                LogRenderChain("after pre-render rebuild", level);
+            }
             if (GCS.d_oldConductor || GCS.d_webglConductor)
                 throw new InvalidOperationException("The installed conductor must use its standard DSP timing mode.");
             var settings = Main.Settings ?? new RendererSettings();
@@ -443,10 +462,17 @@ namespace OrbitRender.Renderer
             // waiting for audio after editor.Play lets camera tweens run before
             // output frame zero and changes their motion in the export.
             yield return PrepareSongClip();
+            // Play Sound Effect events use lazy asynchronous loading. At a
+            // high Target FPS the deterministic game clock can reach an event
+            // before its external clip has finished loading; ffxPlaySound's
+            // ready check then drops the event permanently. Complete the
+            // level's custom-sound preload before starting gameplay timing.
+            yield return PrepareCustomSoundEffects();
             if (editor != null)
             {
                 editor.SelectFloor(editor.floors[0], cameraJump: false);
                 editor.Play();
+                editorStateReady = false;
             }
             else
             {
@@ -481,6 +507,8 @@ namespace OrbitRender.Renderer
             // while the level is reset. Start every export from the same phase
             // so a second render is visually identical to the first one.
             CameraFilterPatch.ResetRuntimeState();
+            FrameRateEventPatch.ResetRuntimeState();
+            LogRenderChain("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun);
             capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvas,
@@ -524,20 +552,6 @@ namespace OrbitRender.Renderer
                     gameFrameTicks += System.Diagnostics.Stopwatch.GetTimestamp() - gameFrameStart;
                     hasRenderedGameFrame = true;
                     sampledCurrentGameFrame = Clock.FrameIndex == desiredSimulationFrame;
-                    if (captureAudioForRun)
-                    {
-                        if (audio == null) throw new InvalidOperationException("The game did not initialize game audio before frame zero.");
-                        audio.CaptureFrame(simulationFrameIndex, profile.TargetFps);
-                        if (audio.NeedsRealtimePacing && !audioRealtimePacing)
-                        {
-                            audioRealtimePacing = true;
-                            // Anchor fallback pacing to the simulation frame;
-                            // duplicate Video FPS samples do not advance audio.
-                            audioPacingOrigin = Time.realtimeSinceStartupAsDouble
-                                - simulationFrameIndex / (double)profile.TargetFps;
-                            Main.Entry.Logger.Log("Unity AudioRenderer returned no samples; pacing the render to realtime for the AudioListener fallback.");
-                        }
-                    }
                     Clock.Advance();
                     if (sampledCurrentGameFrame) break;
                 }
@@ -545,6 +559,22 @@ namespace OrbitRender.Renderer
                 // When Video FPS exceeds InGame FPS, the current render target
                 // is intentionally sampled more than once for a constant-rate
                 // output stream. FrameCapture keeps the sample order intact.
+                // Audio follows the output timeline as well: the game may run
+                // several Target FPS simulation frames between two video
+                // samples, but only one audio capture block belongs to that
+                // output frame.
+                if (captureAudioForRun)
+                {
+                    if (audio == null) throw new InvalidOperationException("The game did not initialize game audio before frame zero.");
+                    audio.CaptureFrame(CapturedFrames, profile.VideoFps);
+                    if (audio.NeedsRealtimePacing && !audioRealtimePacing)
+                    {
+                        audioRealtimePacing = true;
+                        audioPacingOrigin = Time.realtimeSinceStartupAsDouble
+                            - CapturedFrames / (double)profile.VideoFps;
+                        Main.Entry.Logger.Log("Unity AudioRenderer returned no samples; pacing the render to realtime for the AudioListener fallback.");
+                    }
+                }
                 capture.Capture(CapturedFrames);
                 CaptureWaitSeconds = capture.BackpressureSeconds;
                 CapturedFrames++;
@@ -603,7 +633,7 @@ namespace OrbitRender.Renderer
                 encoder.Finish(CapturedFrames);
                 if (audio != null)
                 {
-                    audio.Complete(Clock.FrameIndex, profile.TargetFps);
+                    audio.Complete(CapturedFrames, profile.VideoFps);
                     audio.Dispose();
                     FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath);
                     File.Move(muxPath, OutputPath);
@@ -625,7 +655,39 @@ namespace OrbitRender.Renderer
                 GameFrameSeconds, ReadbackWaitSeconds, ReadbackLatencySeconds, ReadbackCopySeconds,
                 PeakPendingReadbacks, EncoderWriteSeconds, PeakEncoderQueueDepth, WrittenFrames,
                 AudioCaptureSeconds, FinalizationSeconds, OutputPath));
+            if (latePlaySoundSchedules > 0)
+                Main.Entry.Logger.Log("Adjusted " + latePlaySoundSchedules
+                    + " late Play Sound Effect schedule(s) to the next captured audio sample.");
             if (openOutputFolderForRun) OpenOutputFolder();
+        }
+
+        internal void ClampLatePlaySoundSchedule(ref double time)
+        {
+            if (audio == null || profile == null || Clock == null
+                || double.IsNaN(time) || double.IsInfinity(time)) return;
+
+            var renderedUntil = audio.RenderedUntilDsp(Clock.DspOrigin);
+            if (double.IsNaN(renderedUntil) || double.IsInfinity(renderedUntil)
+                || time >= renderedUntil) return;
+
+            // One sample after the consumed boundary is the earliest point
+            // that AudioRenderer can still include in the next block. This
+            // preserves the original timestamp whenever it is still future.
+            var sampleLead = 1.0 / Math.Max(1, audio.SampleRate);
+            time = renderedUntil + sampleLead;
+            latePlaySoundSchedules++;
+        }
+
+        private IEnumerator PrepareCustomSoundEffects()
+        {
+            if (level == null) yield break;
+            Main.Entry.Logger.Log("Preloading Play Sound Effect clips before the Target FPS clock starts.");
+            var reloadMethod = AccessTools.Method(typeof(scnGame), "ReloadCustomSoundsCo");
+            if (reloadMethod == null)
+                throw new MissingMethodException(typeof(scnGame).FullName, "ReloadCustomSoundsCo");
+            var reload = reloadMethod.Invoke(level, new object[] { false }) as IEnumerator;
+            if (reload != null) yield return reload;
+            Main.Entry.Logger.Log("Play Sound Effect clip preload completed.");
         }
 
         private long SimulationFrameForVideoFrame(long videoFrameIndex)
@@ -846,8 +908,11 @@ namespace OrbitRender.Renderer
             }
             conductor.PlayHitTimes();
             if (audio != null)
+            {
                 Main.Entry.Logger.Log("Game audio capture started: "
                     + audio.SampleRate + " Hz, " + audio.Channels + " channels.");
+                AudioSchedulePatch.PreSchedulePlaySoundEffects();
+            }
         }
         internal void MusicScheduled()
         {
@@ -892,6 +957,7 @@ namespace OrbitRender.Renderer
         {
             var camera = scrCamera.instance;
             if (camera == null) return;
+            SyncBackgroundCameras(camera);
             // Do not call MoveCameraToPlayer or Refocus here. Those methods
             // overwrite the camera state/tweens created by the level's Move
             // Camera events. The game has already applied its normal camera
@@ -1056,12 +1122,13 @@ namespace OrbitRender.Renderer
                     + " Hz, DSP buffer=" + configuration.dspBufferSize + " samples, real voices="
                     + configuration.numRealVoices + ", virtual voices=" + configuration.numVirtualVoices + ".");
                 var requestedBuffer = RecommendedAudioDspBufferSize(configuration.sampleRate,
-                    profile != null ? profile.TargetFps : 60);
+                    profile != null ? profile.VideoFps : 60);
                 if (requestedBuffer <= 0 || configuration.dspBufferSize <= requestedBuffer) return;
 
                 // AudioRenderer.GetSampleCountForCaptureFrame() is driven by
-                // Time.captureFramerate. At high InGame FPS a normal 256/512
-                // sample DSP block can be larger than one capture frame, so
+                // Time.captureFramerate. The audio capture temporarily uses
+                // Video FPS, so a normal 256/512 sample DSP block can be
+                // larger than one capture frame, so
                 // Unity reports no samples and the live listener fallback
                 // would introduce map effects and realtime timing. Use the
                 // largest small power-of-two buffer that fits one target
@@ -1394,6 +1461,8 @@ namespace OrbitRender.Renderer
         {
             // Clear patch ownership before calling any normal game reset methods.
             var restore = saved;
+            var recoveryEditor = editor;
+            var recoveryLevel = level;
             saved = null;
             TryCleanup(RestoreInputOffsetAfterRender);
             renderTimer.Stop();
@@ -1421,13 +1490,15 @@ namespace OrbitRender.Renderer
                         conductor.Rewind();
                         conductor.song?.Stop(); conductor.song2?.Stop(); conductor.song3?.Stop();
                     }
-                    if (editor != null) editor.SwitchToEditMode();
-                    else if (level != null && ADOBase.customLevel == level && ADOBase.controller != null) {
-                        level.ResetScene();
-                        level.Play(0); // Return to the game's normal press-to-start preparation.
+                    if (recoveryEditor == null && recoveryLevel != null
+                        && ADOBase.customLevel == recoveryLevel && ADOBase.controller != null) {
+                        recoveryLevel.ResetScene();
+                        recoveryLevel.Play(0); // Return to the game's normal press-to-start preparation.
                     }
                 });
                 TryCleanup(restore.Restore);
+                if (recoveryEditor != null && recoveryLevel != null)
+                    TryCleanup(() => StartEditorRecovery(recoveryEditor, recoveryLevel, restore));
             }
             TryCleanup(DisposePendingSongRequest);
             if (State != RenderState.Completed && !string.IsNullOrEmpty(partialPath))
@@ -1435,6 +1506,203 @@ namespace OrbitRender.Renderer
             foreach (var temporary in new[] { audioPath, muxPath })
                 if (!string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
+        }
+
+        private void StartEditorRecovery(scnEditor targetEditor, scnGame targetLevel, SavedState restore)
+        {
+            if (shuttingDown || targetEditor == null || targetLevel == null) return;
+            if (editorRecoveryRoutine != null) StopCoroutine(editorRecoveryRoutine);
+            editorStateReady = false;
+            editorRecoveryRoutine = StartCoroutine(RecoverEditorAfterRender(targetEditor, targetLevel, restore));
+        }
+
+        private IEnumerator RecoverEditorAfterRender(scnEditor targetEditor, scnGame targetLevel, SavedState restore)
+        {
+            LogRenderChain("before editor recovery", targetLevel);
+            RebuildEditorRenderState(targetEditor, targetLevel);
+            yield return null;
+
+            if (!IsEditorRenderStateValid(targetLevel, out var reason))
+            {
+                Main.Entry.Logger.Log("Editor render state validation failed; rebuilding once: " + reason);
+                RebuildEditorRenderState(targetEditor, targetLevel);
+                yield return null;
+            }
+
+            restore?.RestoreEditorState();
+            editorStateReady = IsEditorRenderStateValid(targetLevel, out reason);
+            LogRenderChain("after editor recovery", targetLevel);
+            if (!editorStateReady)
+                Main.Entry.Logger.Error("Editor render state is still invalid after recovery: " + reason);
+            editorRecoveryRoutine = null;
+        }
+
+        private static void RebuildEditorRenderState(scnEditor targetEditor, scnGame targetLevel)
+        {
+            targetLevel.ResetScene();
+            targetEditor.SwitchToEditMode();
+            targetLevel.ReloadAssets(force: true, reloadDecorations: true);
+            targetEditor.UpdateDecorationObjects();
+            RepairInternalCameraTarget();
+        }
+
+        private static void RepairInternalCameraTarget()
+        {
+            var camera = scrCamera.instance;
+            if (camera == null) return;
+            SyncBackgroundCameras(camera);
+
+            // SetCustomFrameRate(false) releases the texture currently shown by
+            // the camera quad. After a custom-FPS event that texture is camRT,
+            // so a later ResetScene can leave the same object assigned but no
+            // longer created. Recreate it without replacing level/editor data.
+            var field = AccessTools.Field(typeof(scrCamera), "camRT");
+            var target = field?.GetValue(camera) as RenderTexture;
+            if (target == null && field != null)
+            {
+                target = new RenderTexture(Math.Max(1, Screen.width), Math.Max(1, Screen.height), 24) {
+                    name = "ADOFAI Camera RT"
+                };
+                field.SetValue(camera, target);
+            }
+            if (target != null && !target.IsCreated() && !target.Create())
+                throw new InvalidOperationException("The game camera render texture could not be recreated.");
+
+            if (target != null && camera.quad != null)
+            {
+                var renderer = camera.quad.GetComponent<MeshRenderer>();
+                if (renderer != null && renderer.material.mainTexture != target)
+                    renderer.material.mainTexture = target;
+            }
+            camera.SetupRTCam(false);
+        }
+
+        private static void SyncBackgroundCameras(scrCamera camera)
+        {
+            if (camera == null || camera.camobj == null) return;
+            var position = camera.camobj.transform.position;
+            var rotation = camera.camobj.transform.rotation;
+            if (camera.Bgcamstatic != null)
+                camera.Bgcamstatic.transform.SetPositionAndRotation(position, rotation);
+            if (camera.BGcam != null)
+                camera.BGcam.transform.SetPositionAndRotation(position, rotation);
+        }
+
+        private static bool IsEditorRenderStateValid(scnGame targetLevel, out string reason)
+        {
+            var camera = scrCamera.instance;
+            if (camera == null || camera.Bgcamstatic == null || camera.BGcam == null || camera.camobj == null)
+            {
+                reason = "camera chain is missing";
+                return false;
+            }
+            foreach (var item in new[] { camera.Bgcamstatic, camera.BGcam, camera.camobj })
+            {
+                if (!item.enabled || !item.gameObject.activeInHierarchy || item.cullingMask == 0)
+                {
+                    reason = item.name + " is disabled, inactive, or has an empty culling mask";
+                    return false;
+                }
+                if (item.targetTexture != null)
+                {
+                    reason = item.name + " still targets a render texture in edit mode";
+                    return false;
+                }
+            }
+            if ((camera.Bgcamstatic.transform.position - camera.camobj.transform.position).sqrMagnitude > 0.0001f
+                || (camera.BGcam.transform.position - camera.camobj.transform.position).sqrMagnitude > 0.0001f)
+            {
+                reason = "background camera transform does not match the gameplay camera";
+                return false;
+            }
+
+            var target = AccessTools.Field(typeof(scrCamera), "camRT")?.GetValue(camera) as RenderTexture;
+            if (target == null || !target.IsCreated())
+            {
+                reason = "internal camera render texture is released";
+                return false;
+            }
+            if (camera.flashPlusRendererBg == null || camera.flashPlusRendererFg == null
+                || !camera.flashPlusRendererBg.enabled || !camera.flashPlusRendererFg.enabled)
+            {
+                reason = "Flash Plus background/foreground renderer is unavailable";
+                return false;
+            }
+
+            var background = FindDefaultBackground(targetLevel);
+            if (background == null || !background.activeInHierarchy
+                || background.GetComponentsInChildren<UnityEngine.Renderer>(true).All(item => !item.enabled || !item.gameObject.activeInHierarchy))
+            {
+                reason = "default background has no visible renderer";
+                return false;
+            }
+            reason = null;
+            return true;
+        }
+
+        private static GameObject FindDefaultBackground(scnGame targetLevel)
+        {
+            if (targetLevel == null) return null;
+            var custom = AccessTools.Field(typeof(scnGame), "customEditorBG")?.GetValue(targetLevel) as GameObject;
+            if (custom != null) return custom;
+            return AccessTools.Field(typeof(scnGame), "editorBG")?.GetValue(targetLevel) as GameObject;
+        }
+
+        private static void LogRenderChain(string stage, scnGame targetLevel)
+        {
+            var camera = scrCamera.instance;
+            if (camera == null)
+            {
+                Main.Entry.Logger.Log("Render chain [" + stage + "]: <missing>");
+                return;
+            }
+            var target = AccessTools.Field(typeof(scrCamera), "camRT")?.GetValue(camera) as RenderTexture;
+            var background = FindDefaultBackground(targetLevel);
+            var backgroundRenderers = background != null
+                ? background.GetComponentsInChildren<UnityEngine.Renderer>(true)
+                : new UnityEngine.Renderer[0];
+            Main.Entry.Logger.Log("Render chain [" + stage + "]: "
+                + DescribeCamera("Bgcamstatic", camera.Bgcamstatic) + "; "
+                + DescribeCamera("BGcam", camera.BGcam) + "; "
+                + DescribeCamera("camobj", camera.camobj) + "; camRT="
+                + (target == null ? "missing" : target.width + "x" + target.height + "/created=" + target.IsCreated())
+                + "; useRTCam=" + ReadBoolField(camera, "useRTCam")
+                + ", customFPS=" + camera.enableCustomFPS
+                + ", forceRTCam=" + camera.forceRTCam
+                + ", lockCustomFrameUpdate=" + camera.lockCustomFrameUpdate
+                + ", hom=" + (ADOBase.controller != null && ADOBase.controller.homEnabled)
+                + "; " + DescribeRenderer("flashBg", camera.flashPlusRendererBg)
+                + "; " + DescribeRenderer("flashFg", camera.flashPlusRendererFg)
+                + "; defaultBG(active=" + (background != null && background.activeInHierarchy)
+                + ", renderers=" + backgroundRenderers.Length
+                + ", visible=" + backgroundRenderers.Count(item => item.enabled && item.gameObject.activeInHierarchy) + ")");
+        }
+
+        private static bool ReadBoolField(object instance, string name)
+        {
+            var field = instance != null ? AccessTools.Field(instance.GetType(), name) : null;
+            return field != null && (bool)field.GetValue(instance);
+        }
+
+        private static string DescribeCamera(string name, Camera camera)
+        {
+            if (camera == null) return name + "=<missing>";
+            return name + "(active=" + camera.gameObject.activeInHierarchy + ", target="
+                + (camera.targetTexture == null ? "screen" : camera.targetTexture.name)
+                + ", enabled=" + camera.enabled + ", mask=0x" + camera.cullingMask.ToString("X8")
+                + ", clear=" + camera.clearFlags + ", depth=" + camera.depth.ToString("F1")
+                + ", ortho=" + camera.orthographicSize.ToString("F2")
+                + ", pos=" + camera.transform.position
+                + ", rect=" + camera.rect
+                + ", effects=" + string.Join(",", camera.GetComponents<MonoBehaviour>()
+                    .Where(item => item != null && item.enabled).Select(item => item.GetType().Name).ToArray()) + ")";
+        }
+
+        private static string DescribeRenderer(string name, UnityEngine.Renderer renderer)
+        {
+            if (renderer == null) return name + "=<missing>";
+            return name + "(active=" + renderer.gameObject.activeInHierarchy + ", enabled=" + renderer.enabled
+                + ", layer=" + renderer.gameObject.layer + ", color=" + renderer.material.color + ")";
         }
         private static void ClearQueuedInput()
         {
@@ -1452,6 +1720,7 @@ namespace OrbitRender.Renderer
         }
         private void OnDestroy()
         {
+            shuttingDown = true;
             StopAndClean();
             TryCleanup(DisposePendingSongRequest);
             TryCleanup(DisposeSongRequest);
@@ -1459,6 +1728,7 @@ namespace OrbitRender.Renderer
         }
         private void OnApplicationQuit()
         {
+            shuttingDown = true;
             StopAndClean();
             TryCleanup(DisposePendingSongRequest);
             TryCleanup(DisposeSongRequest);
@@ -1508,6 +1778,10 @@ namespace OrbitRender.Renderer
                     ADOBase.controller.paused = wasPaused;
                     ADOBase.controller.enabled = controllerEnabled;
                 }
+                RestoreEditorState();
+            }
+            public void RestoreEditorState()
+            {
                 var editor = ADOBase.editor;
                 if (editor != null)
                 {

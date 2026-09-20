@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using OrbitRender.Patches;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -12,6 +13,9 @@ namespace OrbitRender.Renderer
             public Camera Camera;
             public RenderTexture Target;
             public int CullingMask;
+            public CameraClearFlags ClearFlags;
+            public Color BackgroundColor;
+            public float Depth;
             public float Aspect;
             public bool Enabled;
             public bool Orthographic;
@@ -75,6 +79,10 @@ namespace OrbitRender.Renderer
         private readonly Stack<Pending> reusable = new Stack<Pending>();
         private readonly FFmpegEncoder encoder;
         private readonly RenderTexture target;
+        private RenderTexture customFrameHold;
+        private bool customFrameHoldValid;
+        private int customFrameRateRevision = -1;
+        private double customFrameNextRefreshTime;
         private readonly int width;
         private readonly int height;
         private readonly scrCamera gameCamera;
@@ -175,6 +183,9 @@ namespace OrbitRender.Renderer
                 Camera = camera,
                 Target = camera.targetTexture,
                 CullingMask = camera.cullingMask,
+                ClearFlags = camera.clearFlags,
+                BackgroundColor = camera.backgroundColor,
+                Depth = camera.depth,
                 Aspect = camera.aspect,
                 Enabled = camera.enabled,
                 Orthographic = camera.orthographic,
@@ -299,6 +310,7 @@ namespace OrbitRender.Renderer
         public void Capture(long index)
         {
             Drain(false);
+            var source = SelectCaptureSource();
             if (!encoder.TryRent(out var buffer))
             {
                 long waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -315,7 +327,7 @@ namespace OrbitRender.Renderer
                 var previous = RenderTexture.active;
                 try
                 {
-                    RenderTexture.active = target;
+                    RenderTexture.active = source;
                     fallback.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
                     fallback.GetRawTextureData<byte>().CopyTo(buffer.Bytes);
                 }
@@ -326,9 +338,48 @@ namespace OrbitRender.Renderer
             var frame = reusable.Count > 0 ? reusable.Pop() : new Pending();
             frame.Reset(buffer, System.Diagnostics.Stopwatch.GetTimestamp());
             // Copy in the callback; Unity request data is only valid for one frame.
-            frame.Request = AsyncGPUReadback.Request(target, 0, TextureFormat.RGBA32, frame.Complete);
+            frame.Request = AsyncGPUReadback.Request(source, 0, TextureFormat.RGBA32, frame.Complete);
             pending.Enqueue(frame);
             if (pending.Count > peakPending) peakPending = pending.Count;
+        }
+        private RenderTexture SelectCaptureSource()
+        {
+            if (!FrameRateEventPatch.Enabled || FrameRateEventPatch.FrameRate <= 0f)
+            {
+                customFrameHoldValid = false;
+                customFrameRateRevision = FrameRateEventPatch.Revision;
+                return target;
+            }
+
+            if (customFrameHold == null)
+            {
+                customFrameHold = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32) {
+                    name = "OrbitRender Custom FPS Hold", antiAliasing = 1,
+                    useMipMap = false, autoGenerateMips = false
+                };
+                if (!customFrameHold.Create())
+                    throw new InvalidOperationException("Cannot allocate the custom frame-rate hold target.");
+            }
+
+            var clock = RendererController.Instance != null ? RendererController.Instance.Clock : null;
+            var now = clock != null ? clock.Time : Time.timeAsDouble;
+            if (customFrameRateRevision != FrameRateEventPatch.Revision)
+            {
+                customFrameRateRevision = FrameRateEventPatch.Revision;
+                customFrameHoldValid = false;
+                customFrameNextRefreshTime = now;
+            }
+
+            if (!customFrameHoldValid || now + 0.0000001 >= customFrameNextRefreshTime)
+            {
+                Graphics.Blit(target, customFrameHold);
+                customFrameHoldValid = true;
+                var interval = 1.0 / FrameRateEventPatch.FrameRate;
+                customFrameNextRefreshTime = Math.Max(customFrameNextRefreshTime, now) + interval;
+                while (customFrameNextRefreshTime <= now + 0.0000001)
+                    customFrameNextRefreshTime += interval;
+            }
+            return customFrameHold;
         }
         public void Drain(bool wait)
         {
@@ -362,6 +413,9 @@ namespace OrbitRender.Renderer
             foreach (var state in cameras) if (state.Camera != null) {
                 state.Camera.targetTexture = state.Target;
                 state.Camera.cullingMask = state.CullingMask;
+                state.Camera.clearFlags = state.ClearFlags;
+                state.Camera.backgroundColor = state.BackgroundColor;
+                state.Camera.depth = state.Depth;
                 state.Camera.aspect = state.Aspect;
                 state.Camera.enabled = state.Enabled;
                 state.Camera.orthographic = state.Orthographic;
@@ -397,6 +451,7 @@ namespace OrbitRender.Renderer
             hudLayers.Clear();
             hudLayerObjects.Clear();
             if (fallback != null) UnityEngine.Object.Destroy(fallback);
+            if (customFrameHold != null) { customFrameHold.Release(); UnityEngine.Object.Destroy(customFrameHold); }
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
         }
     }
