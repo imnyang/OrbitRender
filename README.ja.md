@@ -85,6 +85,10 @@ console.log(job);
 
 別のゲームフォルダには `-GameDir`、使用するMSBuildには `-MSBuildPath` を指定します。
 
-## ライセンス
+## License
 
-プロジェクトコードは [OrbitRender/LICENSE.md](OrbitRender/LICENSE.md) のMIT Licenseです。ADOFAI、Unity、Unity Mod Manager、FFmpegにはそれぞれのライセンスが適用されます。
+OrbitRender is licensed under the GNU General Public License v3.0
+(`GPL-3.0-only`) with an additional linking exception for
+A Dance of Fire and Ice and its associated runtime components.
+
+See [LICENSE](./LICENSE) and [LICENSE-EXCEPTION](./LICENSE-EXCEPTION).

@@ -85,6 +85,10 @@ console.log(job);
 
 Use `-GameDir` para uma instalação do jogo fora do caminho padrão e `-MSBuildPath` para escolher o MSBuild.
 
-## Licença
+## License
 
-O código do projeto usa a licença MIT em [OrbitRender/LICENSE.md](OrbitRender/LICENSE.md). ADOFAI, Unity, Unity Mod Manager e FFmpeg permanecem sob suas próprias licenças.
+OrbitRender is licensed under the GNU General Public License v3.0
+(`GPL-3.0-only`) with an additional linking exception for
+A Dance of Fire and Ice and its associated runtime components.
+
+See [LICENSE](./LICENSE) and [LICENSE-EXCEPTION](./LICENSE-EXCEPTION).

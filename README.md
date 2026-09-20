@@ -12,7 +12,6 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 - [Português](README.pt-BR.md)
 - [JavaScript](README.js)
 - [RPC API Specification](docs/RPC_API.md)
-- [릴리즈 노트](CHANGELOG.md)
 
 ## 주요 기능
 
@@ -141,6 +140,10 @@ GAME_DIR="$HOME/.steam/steam/steamapps/common/A Dance of Fire and Ice" bash ./bu
 
 다른 게임 경로는 `-GameDir` 또는 `GAME_DIR`, 특정 MSBuild는 `-MSBuildPath` 또는 `MSBUILD_PATH`로 지정합니다. 테스트는 프레임 수·순서, 인코딩 결과 일치, 실패·취소, AAC mux, A/V 길이 drift를 확인합니다.
 
-## 라이선스
+## License
 
-자체 코드는 [OrbitRender/LICENSE.md](OrbitRender/LICENSE.md)의 MIT License를 따릅니다. ADOFAI, Unity, Unity Mod Manager, FFmpeg는 각각의 라이선스를 따릅니다.
+OrbitRender is licensed under the GNU General Public License v3.0
+(`GPL-3.0-only`) with an additional linking exception for
+A Dance of Fire and Ice and its associated runtime components.
+
+See [LICENSE](./LICENSE) and [LICENSE-EXCEPTION](./LICENSE-EXCEPTION).

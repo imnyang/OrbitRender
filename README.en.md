@@ -126,4 +126,8 @@ Use `-GameDir`/`GAME_DIR` for a non-default installation and `-MSBuildPath`/`MSB
 
 ## License
 
-Project code is MIT licensed in [OrbitRender/LICENSE.md](OrbitRender/LICENSE.md). ADOFAI, Unity, Unity Mod Manager, and FFmpeg remain under their respective licenses.
+OrbitRender is licensed under the GNU General Public License v3.0
+(`GPL-3.0-only`) with an additional linking exception for
+A Dance of Fire and Ice and its associated runtime components.
+
+See [LICENSE](./LICENSE) and [LICENSE-EXCEPTION](./LICENSE-EXCEPTION).

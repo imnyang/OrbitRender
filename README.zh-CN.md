@@ -86,6 +86,10 @@ console.log(job);
 
 非默认游戏目录使用 `-GameDir`，指定 MSBuild 使用 `-MSBuildPath`。
 
-## 许可证
+## License
 
-项目代码使用 [OrbitRender/LICENSE.md](OrbitRender/LICENSE.md) 中的 MIT License。ADOFAI、Unity、Unity Mod Manager 和 FFmpeg 遵循各自的许可证。
+OrbitRender is licensed under the GNU General Public License v3.0
+(`GPL-3.0-only`) with an additional linking exception for
+A Dance of Fire and Ice and its associated runtime components.
+
+See [LICENSE](./LICENSE) and [LICENSE-EXCEPTION](./LICENSE-EXCEPTION).
