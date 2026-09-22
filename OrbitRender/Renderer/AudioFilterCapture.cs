@@ -87,7 +87,11 @@ namespace OrbitRender.Renderer
             if (count <= 0) return 0;
 
             var read = Interlocked.Read(ref readPosition);
-            for (int i = 0; i < count; i++) destination[i] = ring[(read + i) % capacity];
+            var readIndex = (int)(read % capacity);
+            var firstBlock = Math.Min(count, capacity - readIndex);
+            Array.Copy(ring, readIndex, destination, 0, firstBlock);
+            if (firstBlock < count)
+                Array.Copy(ring, 0, destination, firstBlock, count - firstBlock);
             Thread.MemoryBarrier();
             Interlocked.Exchange(ref readPosition, read + count);
             return count;
@@ -121,10 +125,31 @@ namespace OrbitRender.Renderer
                 return;
             }
 
+            var writeIndex = (int)(write % capacity);
+            if (callbackChannels == channels)
+            {
+                // The usual path is already interleaved in the requested channel
+                // layout. Copy the two possible contiguous blocks instead of
+                // doing a remainder operation and assignment for every sample.
+                var firstBlock = Math.Min(outputSamples, capacity - writeIndex);
+                Array.Copy(data, 0, ring, writeIndex, firstBlock);
+                if (firstBlock < outputSamples)
+                    Array.Copy(data, firstBlock, ring, 0, outputSamples - firstBlock);
+            }
+            else
+            {
+                CopyConvertedSamples(data, callbackChannels, callbackFrames, writeIndex);
+            }
+            Thread.MemoryBarrier();
+            Interlocked.Exchange(ref writePosition, write + outputSamples);
+        }
+
+        private void CopyConvertedSamples(float[] data, int callbackChannels, int callbackFrames,
+            int destinationIndex)
+        {
             for (int frame = 0; frame < callbackFrames; frame++)
             {
                 var sourceOffset = frame * callbackChannels;
-                var outputOffset = frame * channels;
                 for (int channel = 0; channel < channels; channel++)
                 {
                     float sample;
@@ -136,11 +161,10 @@ namespace OrbitRender.Renderer
                         sample /= callbackChannels;
                     }
                     else sample = data[sourceOffset + Math.Min(channel, callbackChannels - 1)];
-                    ring[(write + outputOffset + channel) % capacity] = sample;
+                    ring[destinationIndex++] = sample;
+                    if (destinationIndex == capacity) destinationIndex = 0;
                 }
             }
-            Thread.MemoryBarrier();
-            Interlocked.Exchange(ref writePosition, write + outputSamples);
         }
 
         private void OnDestroy()

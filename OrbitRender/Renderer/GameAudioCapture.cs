@@ -137,7 +137,7 @@ namespace OrbitRender.Renderer
                 {
                     if (samples.IsCreated) samples.Dispose();
                     samples = new NativeArray<float>(length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-                    managed = new float[length]; bytes = new byte[length * sizeof(float)];
+                    EnsureManagedBuffers(length);
                 }
                 if (!AudioRenderer.Render(samples))
                 {
@@ -148,7 +148,7 @@ namespace OrbitRender.Renderer
                         CaptureListenerOutput(expectedSamples - SampleFrames);
                     return;
                 }
-                samples.CopyTo(managed);
+                NativeArray<float>.Copy(samples, managed, length);
                 WriteManagedSamples(count * Channels);
                 if (stream.Length > uint.MaxValue - 36L) throw new IOException("WAV exceeded its 4 GB size limit.");
             }
@@ -214,8 +214,8 @@ namespace OrbitRender.Renderer
             if (sampleFrames <= 0) return;
             int chunkFrames = Math.Max(1, Math.Min(16384, SampleRate));
             int chunkBytes = checked(chunkFrames * Channels * sizeof(float));
-            if (bytes == null || bytes.Length != chunkBytes) bytes = new byte[chunkBytes];
-            else Array.Clear(bytes, 0, bytes.Length);
+            if (bytes == null || bytes.Length < chunkBytes) bytes = new byte[chunkBytes];
+            else Array.Clear(bytes, 0, chunkBytes);
             while (sampleFrames > 0)
             {
                 int frames = (int)Math.Min(chunkFrames, sampleFrames);
@@ -315,13 +315,19 @@ namespace OrbitRender.Renderer
 
         private void EnsureManagedBuffers(int length)
         {
-            if (managed == null || managed.Length != length) managed = new float[length];
-            if (bytes == null || bytes.Length != length * sizeof(float)) bytes = new byte[length * sizeof(float)];
+            // Capture block sizes can vary by a few samples as the audio clock
+            // rounds frame boundaries. Keep the largest buffers seen instead of
+            // reallocating both arrays whenever that rounded size changes.
+            if (managed == null || managed.Length < length) managed = new float[length];
+            var byteLength = checked(length * sizeof(float));
+            if (bytes == null || bytes.Length < byteLength) bytes = new byte[byteLength];
         }
 
         private void WriteManagedSamples(int sampleValues)
         {
-            for (int i = 0; i < sampleValues; i++) Peak = Math.Max(Peak, Math.Abs(managed[i]));
+            var peak = Peak;
+            for (int i = 0; i < sampleValues; i++) peak = Math.Max(peak, Math.Abs(managed[i]));
+            Peak = peak;
             Buffer.BlockCopy(managed, 0, bytes, 0, checked(sampleValues * sizeof(float)));
             stream.Write(bytes, 0, checked(sampleValues * sizeof(float)));
             SampleFrames += sampleValues / Channels;
