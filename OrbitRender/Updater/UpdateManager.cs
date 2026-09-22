@@ -22,10 +22,14 @@ namespace OrbitRender
         private const long MaximumDownloadBytes = 1024L * 1024L * 1024L;
         private static int started;
         private static readonly ConcurrentQueue<Action> mainThreadActions = new ConcurrentQueue<Action>();
+        private static string originalDisplayName;
 
         internal static void Start(UnityModManager.ModEntry entry)
         {
             if (entry == null || Interlocked.Exchange(ref started, 1) != 0) return;
+            originalDisplayName = entry.Info == null || string.IsNullOrEmpty(entry.Info.DisplayName)
+                ? entry.Info == null ? "OrbitRender" : entry.Info.Id
+                : entry.Info.DisplayName;
             ThreadPool.QueueUserWorkItem(_ => CheckForUpdate(entry));
         }
 
@@ -51,13 +55,19 @@ namespace OrbitRender
             string tempRoot = null;
             try
             {
+                SetDisplayName(entry, "Checking update...");
                 var release = GetLatestRelease();
-                if (release == null) return;
+                if (release == null)
+                {
+                    RestoreDisplayName(entry);
+                    return;
+                }
 
                 var tag = release.Value<string>("tag_name");
                 Version latestVersion;
                 if (!TryParseVersion(tag, out latestVersion))
                 {
+                    RestoreDisplayName(entry);
                     entry.Logger.Log("Automatic update skipped: GitHub release tag is not a supported version: " + tag);
                     return;
                 }
@@ -65,25 +75,35 @@ namespace OrbitRender
                 Version currentVersion;
                 if (!TryParseVersion(entry.Version == null ? null : entry.Version.ToString(), out currentVersion))
                 {
+                    RestoreDisplayName(entry);
                     entry.Logger.Log("Automatic update skipped: installed version is not a supported version: " + entry.Version);
                     return;
                 }
-                if (latestVersion.CompareTo(currentVersion) <= 0) return;
+                if (latestVersion.CompareTo(currentVersion) <= 0)
+                {
+                    RestoreDisplayName(entry);
+                    return;
+                }
 
                 var asset = FindReleaseAsset(release["assets"] as JArray);
                 if (asset == null)
                 {
+                    RestoreDisplayName(entry);
                     entry.Logger.Log("Automatic update skipped: release " + tag + " has no OrbitRender ZIP asset.");
                     return;
                 }
 
+                SetDisplayName(entry, "Updating... 0%");
                 tempRoot = Path.Combine(Path.GetTempPath(), "OrbitRender-update-" + Guid.NewGuid().ToString("N"));
                 var archivePath = Path.Combine(tempRoot, "release.zip");
                 var extractionPath = Path.Combine(tempRoot, "extracted");
                 Directory.CreateDirectory(tempRoot);
-                DownloadAsset((string)asset["browser_download_url"], archivePath, asset);
+                DownloadAsset((string)asset["browser_download_url"], archivePath, asset,
+                    percent => SetDisplayName(entry, "Updating... " + percent + "%"));
+                SetDisplayName(entry, "Updating... unpacking");
                 var packageRoot = ExtractPackage(archivePath, extractionPath, latestVersion);
                 if (!IsWindows()) EnsureUnixExecutables(packageRoot);
+                SetDisplayName(entry, "Updating... applying");
                 QueueHotApply(packageRoot, entry.Path, tempRoot, entry, latestVersion);
                 tempRoot = null;
                 entry.Logger.Log("Update " + FormatVersion(latestVersion) + " downloaded. It will be applied while ADOFAI is running.");
@@ -91,6 +111,7 @@ namespace OrbitRender
             catch (Exception ex)
             {
                 if (tempRoot != null) TryDelete(tempRoot);
+                RestoreDisplayName(entry);
                 entry.Logger.Log("Automatic update check failed: " + ex.Message);
             }
         }
@@ -113,6 +134,7 @@ namespace OrbitRender
                 }
                 catch (Exception ex)
                 {
+                    SetDisplayName(entry, "Update pending restart");
                     entry.Logger.Log("Hot update could not replace the loaded files: " + ex.Message);
                     // Keep the staged package and fall back to the old safe
                     // path if UMM or the OS still has the DLL locked.
@@ -124,6 +146,7 @@ namespace OrbitRender
                     catch (Exception fallbackException)
                     {
                         TryDelete(tempRoot);
+                        RestoreDisplayName(entry);
                         entry.Logger.Error("Could not schedule the update installer: " + fallbackException);
                     }
                 }
@@ -192,11 +215,13 @@ namespace OrbitRender
                     throw new InvalidOperationException("Unity Mod Manager did not load the updated assembly.");
                 RefreshEntryMetadata(entry, packageRoot);
                 TryDelete(tempRoot);
+                RestoreDisplayName(entry);
                 entry.Logger.Log("Update " + FormatVersion(version) + " applied without restarting ADOFAI.");
             }
             catch (Exception ex)
             {
                 entry.Logger.Log("Hot reload failed: " + ex.Message);
+                SetDisplayName(entry, "Update pending restart");
                 try
                 {
                     StartApplyHelper(packageRoot, targetDirectory, tempRoot, Process.GetCurrentProcess().Id);
@@ -205,6 +230,7 @@ namespace OrbitRender
                 catch (Exception fallbackException)
                 {
                     TryDelete(tempRoot);
+                    RestoreDisplayName(entry);
                     entry.Logger.Error("Could not schedule the update installer: " + fallbackException);
                 }
             }
@@ -259,7 +285,7 @@ namespace OrbitRender
             }
         }
 
-        private static void DownloadAsset(string url, string destination, JObject asset)
+        private static void DownloadAsset(string url, string destination, JObject asset, Action<int> reportProgress)
         {
             var expectedSize = asset.Value<long?>("size") ?? -1;
             if (expectedSize > MaximumDownloadBytes)
@@ -277,6 +303,8 @@ namespace OrbitRender
                     total += read;
                     if (total > MaximumDownloadBytes) throw new InvalidDataException("Downloaded update is too large.");
                     output.Write(buffer, 0, read);
+                    if (expectedSize > 0)
+                        reportProgress?.Invoke((int)Math.Min(99L, total * 100L / expectedSize));
                 }
                 if (expectedSize >= 0 && total != expectedSize)
                     throw new InvalidDataException("Downloaded update size does not match the GitHub asset metadata.");
@@ -369,20 +397,24 @@ namespace OrbitRender
             else
             {
                 var script =
-                    "#!/bin/sh\n" +
+                    "set -u\n" +
                     "pid_to_wait=" + ShellLiteral(processId.ToString()) + "\n" +
                     "source=" + ShellLiteral(sourceDirectory) + "\n" +
                     "target=" + ShellLiteral(targetDirectory) + "\n" +
                     "cleanup=" + ShellLiteral(tempRoot) + "\n" +
                     "metadata=\"$source/Info.json\"\n" +
                     "[ -f \"$metadata\" ] || metadata=\"$source/info.json\"\n" +
+                    "[ -f \"$metadata\" ] || exit 1\n" +
                     "i=0\n" +
                     "while kill -0 \"$pid_to_wait\" 2>/dev/null && [ $i -lt 240 ]; do sleep 0.5; i=$((i + 1)); done\n" +
                     "attempt=0\n" +
-                    "while [ $attempt -lt 30 ]; do mkdir -p \"$target\" && find \"$source\" -mindepth 1 -maxdepth 1 ! -path \"$metadata\" -exec cp -R \"{}\" \"$target/\" \\; && cp \"$metadata\" \"$target/$(basename \"$metadata\")\" && rm -rf \"$cleanup\" && exit 0; attempt=$((attempt + 1)); sleep 1; done\n" +
+                    "while [ $attempt -lt 30 ]; do mkdir -p \"$target\" && find \"$source\" -mindepth 1 -maxdepth 1 ! -path \"$metadata\" -exec cp -R \"{}\" \"$target/\" \\; && cp \"$metadata\" \"$target/${metadata##*/}\" && rm -rf \"$cleanup\" && exit 0; attempt=$((attempt + 1)); sleep 1; done\n" +
                     "exit 1\n";
                 File.WriteAllText(scriptPath, script, new UTF8Encoding(false));
-                StartDetachedProcess("/bin/sh", ShellLiteral(scriptPath));
+                // The interpreter is passed explicitly, so no shebang or
+                // FHS-specific /bin/sh path is required. Resolve sh through
+                // PATH; this also works with NixOS' system profile.
+                StartDetachedProcess("sh", ShellLiteral(scriptPath));
             }
         }
 
@@ -393,7 +425,7 @@ namespace OrbitRender
                 foreach (var path in Directory.GetFiles(packageRoot, name, SearchOption.AllDirectories))
                 {
                     using (var chmod = Process.Start(new ProcessStartInfo {
-                        FileName = "/bin/chmod",
+                        FileName = "chmod",
                         Arguments = "+x " + UnixArgument(path),
                         UseShellExecute = false,
                         CreateNoWindow = true
@@ -494,6 +526,18 @@ namespace OrbitRender
             return version.Build == 0 && version.Revision == 0
                 ? version.Major + "." + version.Minor
                 : version.Major + "." + version.Minor + "." + version.Build;
+        }
+
+        private static void SetDisplayName(UnityModManager.ModEntry entry, string status)
+        {
+            if (entry?.Info == null) return;
+            entry.Info.DisplayName = originalDisplayName + " <color=grey>[" + status + "]</color>";
+        }
+
+        private static void RestoreDisplayName(UnityModManager.ModEntry entry)
+        {
+            if (entry?.Info == null || string.IsNullOrEmpty(originalDisplayName)) return;
+            entry.Info.DisplayName = originalDisplayName;
         }
 
         private static string ToHex(byte[] bytes)
