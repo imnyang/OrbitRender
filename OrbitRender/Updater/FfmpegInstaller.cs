@@ -24,7 +24,13 @@ namespace OrbitRender
         private const int Skipped = 4;
         private const int AwaitingConsent = 5;
         private const int Declined = 6;
+        private const int DownloadStage = 0;
+        private const int ExtractStage = 1;
+        private const int InstallStage = 2;
         private static int state = NotStarted;
+        private static int installStage = DownloadStage;
+        private static long downloadedBytes;
+        private static long downloadTotalBytes = -1;
         private static string error;
         private static UnityModManager.ModEntry installEntry;
         private static RendererSettings installSettings;
@@ -67,6 +73,42 @@ namespace OrbitRender
             }
         }
 
+        internal static long DownloadedBytes
+        {
+            get { return Interlocked.Read(ref downloadedBytes); }
+        }
+
+        internal static long DownloadTotalBytes
+        {
+            get { return Interlocked.Read(ref downloadTotalBytes); }
+        }
+
+        internal static bool HasDownloadSize
+        {
+            get { return DownloadTotalBytes > 0; }
+        }
+
+        // The download accounts for most of the bar. Extraction and the final
+        // file move are intentionally visible too, so a full download does not
+        // look like the installer has frozen while the archive is unpacked.
+        internal static double Progress
+        {
+            get
+            {
+                var current = Interlocked.CompareExchange(ref state, NotStarted, NotStarted);
+                if (current == Ready) return 1d;
+                if (current != Downloading) return 0d;
+
+                var stage = Interlocked.CompareExchange(ref installStage, DownloadStage, DownloadStage);
+                if (stage == ExtractStage) return 0.82d;
+                if (stage == InstallStage) return 0.95d;
+
+                var total = DownloadTotalBytes;
+                if (total <= 0) return 0d;
+                return Math.Min(0.80d, DownloadedBytes / (double)total * 0.80d);
+            }
+        }
+
         internal static bool NeedsInstallation
         {
             get
@@ -85,7 +127,12 @@ namespace OrbitRender
                 if (current == AwaitingConsent)
                     return Localization.Get("ffmpeg-is-not-installed-waiting-for-your-confirmation-t");
                 if (current == Downloading)
+                {
+                    var stage = Interlocked.CompareExchange(ref installStage, DownloadStage, DownloadStage);
+                    if (stage == ExtractStage) return Localization.Get("extracting-ffmpeg");
+                    if (stage == InstallStage) return Localization.Get("installing-ffmpeg-binary");
                     return Localization.Get("downloading-ffmpeg-for-this-platform");
+                }
                 if (current == Failed)
                     return Localization.Format("ffmpeg-could-not-be-installed-automatically-value-check", error);
                 if (current == Declined)
@@ -166,6 +213,9 @@ namespace OrbitRender
                 catch (Exception ex) { entry.Logger.Log("Could not save the FFmpeg installation choice: " + ex.Message); }
             }
 
+            Interlocked.Exchange(ref installStage, DownloadStage);
+            Interlocked.Exchange(ref downloadedBytes, 0L);
+            Interlocked.Exchange(ref downloadTotalBytes, -1L);
             entry.Logger.Log("User approved the FFmpeg installation. Downloading the " + spec.Name + " binary.");
             ThreadPool.QueueUserWorkItem(_ => Install(entry, spec, destinationDirectory, destination));
         }
@@ -197,12 +247,14 @@ namespace OrbitRender
                 var extractionPath = Path.Combine(temporaryRoot, "extracted");
                 Directory.CreateDirectory(extractionPath);
                 Download(spec.Url, archivePath);
+                Interlocked.Exchange(ref installStage, ExtractStage);
                 if (spec.TarXz) ExtractTarXz(archivePath, extractionPath);
                 else ExtractZip(archivePath, extractionPath);
 
                 var source = FindFile(extractionPath, spec.ExecutableName);
                 if (source == null) throw new InvalidDataException("The FFmpeg archive did not contain " + spec.ExecutableName + ".");
 
+                Interlocked.Exchange(ref installStage, InstallStage);
                 Directory.CreateDirectory(destinationDirectory);
                 temporaryDestination = destination + ".download-" + Guid.NewGuid().ToString("N");
                 File.Copy(source, temporaryDestination, false);
@@ -284,6 +336,8 @@ namespace OrbitRender
                     throw new InvalidDataException("The FFmpeg download is larger than the safety limit.");
                 var buffer = new byte[64 * 1024];
                 long total = 0;
+                Interlocked.Exchange(ref downloadedBytes, 0L);
+                Interlocked.Exchange(ref downloadTotalBytes, response.ContentLength > 0 ? response.ContentLength : -1L);
                 int read;
                 while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
                 {
@@ -291,6 +345,7 @@ namespace OrbitRender
                     if (total > MaximumDownloadBytes)
                         throw new InvalidDataException("The FFmpeg download is larger than the safety limit.");
                     output.Write(buffer, 0, read);
+                    Interlocked.Exchange(ref downloadedBytes, total);
                 }
             }
         }

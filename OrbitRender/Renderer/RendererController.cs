@@ -78,6 +78,10 @@ namespace OrbitRender.Renderer
             || rpcLoadRoutine != null || editorRecoveryRoutine != null;
         internal bool EncoderFallbackPending => encoderFallbackPending;
         internal string EncoderFallbackReason => encoderFallbackReason ?? string.Empty;
+        internal double MusicActivationDsp(scrConductor conductor)
+        {
+            return conductor.dspTimeSong;
+        }
         private FrameCapture capture;
         private FFmpegEncoder encoder;
         private SavedState saved;
@@ -113,6 +117,11 @@ namespace OrbitRender.Renderer
         private double audioPacingOrigin;
         private long latePlaySoundSchedules;
         private bool openOutputFolderForRun;
+        private int? selectionStartTileForRun;
+        private int? selectionEndTileForRun;
+        private long selectionStartFrameForRun;
+        private long selectionEndFrameForRun;
+        private long timelineFramesForRun;
         private RenderProfile profile;
         private float escapeHeldAt = -1f;
         private bool forceCancelTriggered;
@@ -178,6 +187,8 @@ namespace OrbitRender.Renderer
             gameFrameTicks = 0;
             finalizationTicks = 0;
             tailExtensionFrames = 0;
+            timelineFramesForRun = 0;
+            selectionStartFrameForRun = selectionEndFrameForRun = 0;
             encoderFallbackPending = false;
             encoderFallbackReason = null;
             ClearQueuedInput();
@@ -218,6 +229,13 @@ namespace OrbitRender.Renderer
             audioPacingOrigin = 0.0;
             latePlaySoundSchedules = 0;
             openOutputFolderForRun = requestOptions?.OpenOutputFolder ?? settings.OpenOutputFolder;
+            selectionStartTileForRun = requestOptions?.SelectionStartTile;
+            selectionEndTileForRun = requestOptions?.SelectionEndTile;
+            if (selectionStartTileForRun.HasValue != selectionEndTileForRun.HasValue)
+            {
+                selectionStartTileForRun = null;
+                selectionEndTileForRun = null;
+            }
             FFmpegPath = ResolveFfmpegExecutable(settings);
             activeRpcJob?.SetState(RpcJobState.Preparing);
             Message = Localization.Format("checking-value-encoder", profile.FfmpegCodec);
@@ -396,6 +414,7 @@ namespace OrbitRender.Renderer
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
             ValidateLoadedLevel();
+            ValidateSelection();
             LogRenderChain("before render preparation", level);
             string invalidReason = null;
             if (editor != null && (!editorStateReady || !IsEditorRenderStateValid(level, out invalidReason)))
@@ -470,6 +489,10 @@ namespace OrbitRender.Renderer
             yield return PrepareCustomSoundEffects();
             if (editor != null)
             {
+                // Always pre-roll from tile zero. Mid-level checkpoint scrubbing
+                // does not reconstruct every camera tween, flash, shader and
+                // audio event on complex levels. Selection mode still captures
+                // no video frames before its first selected tile.
                 editor.SelectFloor(editor.floors[0], cameraJump: false);
                 editor.Play();
                 editorStateReady = false;
@@ -533,9 +556,10 @@ namespace OrbitRender.Renderer
             // most recent game frame; if lower, intermediate game frames are
             // simulated but not encoded.
             var hasRenderedGameFrame = false;
+            long timelineFrame = 0;
             while (true)
             {
-                var desiredSimulationFrame = SimulationFrameForVideoFrame(CapturedFrames);
+                var desiredSimulationFrame = SimulationFrameForVideoFrame(timelineFrame);
                 var sampledCurrentGameFrame = false;
                 while (!hasRenderedGameFrame || Clock.FrameIndex <= desiredSimulationFrame)
                 {
@@ -566,18 +590,23 @@ namespace OrbitRender.Renderer
                 if (captureAudioForRun)
                 {
                     if (audio == null) throw new InvalidOperationException("The game did not initialize game audio before frame zero.");
-                    audio.CaptureFrame(CapturedFrames, profile.VideoFps);
+                    audio.CaptureFrame(timelineFrame, profile.VideoFps);
                     if (audio.NeedsRealtimePacing && !audioRealtimePacing)
                     {
                         audioRealtimePacing = true;
                         audioPacingOrigin = Time.realtimeSinceStartupAsDouble
-                            - CapturedFrames / (double)profile.VideoFps;
+                            - timelineFrame / (double)profile.VideoFps;
                         Main.Entry.Logger.Log("Unity AudioRenderer returned no samples; pacing the render to realtime for the AudioListener fallback.");
                     }
                 }
-                capture.Capture(CapturedFrames);
-                CaptureWaitSeconds = capture.BackpressureSeconds;
-                CapturedFrames++;
+                if (!selectionStartTileForRun.HasValue || timelineFrame >= selectionStartFrameForRun)
+                {
+                    capture.Capture(CapturedFrames);
+                    CaptureWaitSeconds = capture.BackpressureSeconds;
+                    CapturedFrames++;
+                }
+                timelineFrame++;
+                timelineFramesForRun = timelineFrame;
                 // Throttle presentation work by wall time. At high generation
                 // rates, updating this every six output frames can
                 // format and rebuild the IMGUI text dozens of times per second.
@@ -587,7 +616,11 @@ namespace OrbitRender.Renderer
                     ShowProgressToast();
                     nextProgressUpdateAt = elapsed + 0.25;
                 }
-                if (TotalFrames > 0 && CapturedFrames >= TotalFrames)
+                if (selectionStartTileForRun.HasValue)
+                {
+                    if (timelineFrame > selectionEndFrameForRun) break;
+                }
+                else if (TotalFrames > 0 && CapturedFrames >= TotalFrames)
                 {
                     var player = ADOBase.controller.playerOne;
                     var floors = ADOBase.lm.listFloors;
@@ -633,9 +666,11 @@ namespace OrbitRender.Renderer
                 encoder.Finish(CapturedFrames);
                 if (audio != null)
                 {
-                    audio.Complete(CapturedFrames, profile.VideoFps);
+                    audio.Complete(timelineFramesForRun, profile.VideoFps);
                     audio.Dispose();
-                    FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath);
+                    var audioOffset = selectionStartTileForRun.HasValue
+                        ? selectionStartFrameForRun / (double)profile.VideoFps : 0.0;
+                    FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset);
                     File.Move(muxPath, OutputPath);
                     File.Delete(partialPath); File.Delete(audioPath);
                 }
@@ -903,7 +938,7 @@ namespace OrbitRender.Renderer
             {
                 if (source == null || source.clip == null) continue;
                 source.Stop();
-                source.time = 0;
+                source.time = 0f;
                 source.PlayScheduled(songStart);
             }
             conductor.PlayHitTimes();
@@ -921,6 +956,11 @@ namespace OrbitRender.Renderer
             if (pitch <= 0 || double.IsNaN(pitch) || double.IsInfinity(pitch))
                 throw new InvalidOperationException("Invalid song pitch.");
             var floors = ADOBase.lm.listFloors;
+            if (selectionStartTileForRun.HasValue)
+            {
+                ConfigureSelectionFrames(conductor, floors, pitch);
+                return;
+            }
             double last = floors[floors.Count - 1].entryTime;
             double endDelay = profile != null ? profile.EndDelaySeconds : 2.0;
             if (double.IsNaN(endDelay) || double.IsInfinity(endDelay) || endDelay < 0) endDelay = 2.0;
@@ -941,6 +981,56 @@ namespace OrbitRender.Renderer
             TotalFrames = checked((long)Math.Ceiling(end * profile.VideoFps) + 1);
             Main.Entry.Logger.Log(string.Format("Render end: chart={0:F2}s, music={1:F2}s, delay={2:F2}s, total frames={3}",
                 chartEnd, musicEnd, endDelay, TotalFrames));
+        }
+
+        private void ConfigureSelectionFrames(scrConductor conductor,
+            System.Collections.Generic.IList<scrFloor> floors, double pitch)
+        {
+            var startIndex = -1;
+            var endIndex = -1;
+            for (var index = 0; index < floors.Count; index++)
+            {
+                var floor = floors[index];
+                if (floor == null) continue;
+                if (floor.seqID == selectionStartTileForRun.Value) startIndex = index;
+                if (floor.seqID == selectionEndTileForRun.Value) endIndex = index;
+            }
+            if (startIndex < 0 || endIndex < startIndex)
+                throw new InvalidOperationException("The selected tile range is no longer available.");
+
+            var startEntry = floors[startIndex].entryTime;
+            var endEntry = floors[endIndex].entryTime;
+
+            var startTime = conductor.dspTimeSong - Clock.DspOrigin
+                + (conductor.addoffset + startEntry) / pitch;
+            var endTime = conductor.dspTimeSong - Clock.DspOrigin
+                + (conductor.addoffset + endEntry) / pitch;
+            if (double.IsNaN(startTime) || double.IsInfinity(startTime)
+                || double.IsNaN(endTime) || double.IsInfinity(endTime) || endTime <= startTime)
+                throw new InvalidOperationException("Invalid selected tile range timing.");
+
+            selectionStartFrameForRun = Math.Max(0L,
+                FrameAtOrAfter(startTime, profile.VideoFps));
+            selectionEndFrameForRun = Math.Max(selectionStartFrameForRun,
+                FrameAtOrAfter(endTime, profile.VideoFps));
+            TotalFrames = checked(selectionEndFrameForRun - selectionStartFrameForRun + 1);
+            Main.Entry.Logger.Log(string.Format(
+                "Selection render: tiles={0}-{1}, capture start={2:F2}s, end={3:F2}s, frames={4}.",
+                selectionStartTileForRun.Value, selectionEndTileForRun.Value,
+                selectionStartFrameForRun / (double)profile.VideoFps,
+                selectionEndFrameForRun / (double)profile.VideoFps, TotalFrames));
+        }
+
+        private static long FrameAtOrAfter(double seconds, int fps)
+        {
+            if (seconds <= 0.0) return 0L;
+            // Subtract only floating-point noise around an exact frame edge.
+            // Without this, e.g. 10.2 * 60 becoming 612.0000000001 would
+            // incorrectly move one boundary one frame later than the other.
+            var exact = seconds * fps;
+            var nearest = Math.Round(exact);
+            if (Math.Abs(exact - nearest) < 1e-7) exact = nearest;
+            return checked((long)Math.Ceiling(exact));
         }
 
         private static double LongestClipLength(scrConductor conductor, double pitch)
@@ -1506,6 +1596,27 @@ namespace OrbitRender.Renderer
             foreach (var temporary in new[] { audioPath, muxPath })
                 if (!string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
+        }
+
+        private void ValidateSelection()
+        {
+            if (!selectionStartTileForRun.HasValue) return;
+            if (editor == null)
+                throw new InvalidOperationException("A tile selection can only be rendered from the editor.");
+            if (selectionStartTileForRun.Value < 0
+                || selectionEndTileForRun.Value <= selectionStartTileForRun.Value)
+                throw new InvalidOperationException("Select at least two tiles before exporting a selection.");
+
+            var hasStart = false;
+            var hasEnd = false;
+            foreach (var floor in editor.floors)
+            {
+                if (floor == null) continue;
+                if (floor.seqID == selectionStartTileForRun.Value) hasStart = true;
+                if (floor.seqID == selectionEndTileForRun.Value) hasEnd = true;
+            }
+            if (!hasStart || !hasEnd)
+                throw new InvalidOperationException("The selected tile range is no longer available.");
         }
 
         private void StartEditorRecovery(scnEditor targetEditor, scnGame targetLevel, SavedState restore)

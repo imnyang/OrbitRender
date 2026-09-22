@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using UnityEngine;
 using OrbitRender.Renderer;
 
@@ -149,16 +150,18 @@ namespace OrbitRender.UI
             }
 
             GUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
             if (GUILayout.Button(Localization.Get("cancel"), GUILayout.Width(120f))) Close();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(Localization.Get("export-video-selection"), GUILayout.Width(190f)))
+                Confirm(renderer, true);
             if (GUILayout.Button(Localization.Get("export-video"), GUILayout.Width(150f)))
-                Confirm(renderer);
+                Confirm(renderer, false);
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
             GUI.DragWindow(new Rect(0f, 0f, 10000f, 26f));
         }
 
-        private static void Confirm(RendererController renderer)
+        private static void Confirm(RendererController renderer, bool selectionOnly)
         {
             if (renderer == null || renderer.Busy)
             {
@@ -170,6 +173,21 @@ namespace OrbitRender.UI
             {
                 error = message;
                 return;
+            }
+
+            if (selectionOnly)
+            {
+                var selected = editor != null && editor.selectedFloors != null
+                    ? editor.selectedFloors.Where(floor => floor != null)
+                        .Select(floor => floor.seqID).Distinct().OrderBy(id => id).ToArray()
+                    : new int[0];
+                if (selected.Length < 2)
+                {
+                    error = Localization.Get("select-at-least-two-tiles-to-export-a-selection");
+                    return;
+                }
+                options.SelectionStartTile = selected[0];
+                options.SelectionEndTile = selected[selected.Length - 1];
             }
 
             if (draft.SaveAsDefault)

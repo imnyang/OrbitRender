@@ -229,7 +229,8 @@ namespace OrbitRender.UI
         {
             EnsureStyles();
             float width = Mathf.Min(760f, Screen.width - 40f);
-            float height = 238f;
+            bool downloading = FfmpegInstaller.IsDownloading;
+            float height = downloading ? 270f : 238f;
             float left = (Screen.width - width) * 0.5f;
             float top = Mathf.Max(24f, (Screen.height - height) * 0.5f);
             var rect = new Rect(left, top, width, height);
@@ -252,15 +253,58 @@ namespace OrbitRender.UI
                     : FfmpegInstaller.StatusMessage,
                 detail);
 
-            if (waiting)
+            if (downloading)
+            {
+                var progressRect = new Rect(content.x, content.y + 144f, content.width, 12f);
+                if (Event.current.type == EventType.Repaint)
+                {
+                    GUI.DrawTexture(progressRect, progressTrack, ScaleMode.StretchToFill, false);
+                    if (FfmpegInstaller.HasDownloadSize)
+                    {
+                        var progress = Mathf.Clamp01((float)FfmpegInstaller.Progress);
+                        if (progress > 0f)
+                            GUI.DrawTexture(new Rect(progressRect.x, progressRect.y,
+                                progressRect.width * progress, progressRect.height), progressFill,
+                                ScaleMode.StretchToFill, false);
+                    }
+                    else
+                    {
+                        // Some mirrors omit Content-Length. Keep a moving
+                        // segment visible so the user knows the worker lives.
+                        var segmentWidth = Mathf.Min(150f, progressRect.width * 0.4f);
+                        var travel = progressRect.width - segmentWidth;
+                        var x = progressRect.x + Mathf.PingPong(Time.realtimeSinceStartup * 180f, travel);
+                        GUI.DrawTexture(new Rect(x, progressRect.y, segmentWidth, progressRect.height),
+                            progressFill, ScaleMode.StretchToFill, false);
+                    }
+                }
+
+                var percent = FfmpegInstaller.HasDownloadSize
+                    ? Localization.FormatWithCurrentCulture("ffmpeg-progress-percent", FfmpegInstaller.Progress * 100d)
+                    : Localization.Get("ffmpeg-progress-waiting-for-size");
+                GUI.Label(new Rect(content.x, content.y + 164f, content.width * 0.52f, 20f),
+                    percent, detail);
+                GUI.Label(new Rect(content.x + content.width * 0.52f, content.y + 164f,
+                    content.width * 0.48f, 20f), FormatFfmpegDownloadSize(), detail);
+            }
+            else if (waiting)
             {
                 if (GUI.Button(new Rect(content.x, content.y + 158f, 310f, 34f),
                     Localization.Get("install-ffmpeg")))
                     FfmpegInstaller.ConfirmInstall();
                 if (GUI.Button(new Rect(content.x + 326f, content.y + 158f, 160f, 34f),
                     Localization.Get("not-now")))
-                    FfmpegInstaller.DeclineInstall();
+                FfmpegInstaller.DeclineInstall();
             }
+        }
+
+        private static string FormatFfmpegDownloadSize()
+        {
+            if (!FfmpegInstaller.HasDownloadSize)
+                return Localization.Get("ffmpeg-download-size-unknown");
+            return Localization.FormatWithCurrentCulture("ffmpeg-download-size",
+                FfmpegInstaller.DownloadedBytes / (1024d * 1024d),
+                FfmpegInstaller.DownloadTotalBytes / (1024d * 1024d));
         }
 
         private static void EnsureStyles()

@@ -83,8 +83,16 @@ internal static class Program
             var metadata = Probe(ResolveProbe(args[0]),
                 "-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels,duration -of default=noprint_wrappers=1 \"" + muxed + "\"");
             Assert(metadata.Contains("codec_name=aac") && metadata.Contains("sample_rate=48000") && metadata.Contains("channels=2") && metadata.Contains("duration=1.000000"), "Muxed audio format/duration mismatch.");
+            var longWav = Path.Combine(args[1], "long-tone.wav");
+            var offsetMuxed = Path.Combine(args[1], "with-offset-audio.mp4");
+            Probe(args[0], "-v error -f lavfi -i sine=frequency=440:sample_rate=48000:duration=2 -ac 2 -c:a pcm_f32le \"" + longWav + "\"");
+            FFmpegEncoder.MuxAudio(args[0], fast, longWav, offsetMuxed, 1.0);
+            var offsetMetadata = Probe(ResolveProbe(args[0]),
+                "-v error -select_streams a:0 -show_entries stream=duration -of default=noprint_wrappers=1 \""
+                + offsetMuxed + "\"");
+            Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
-            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, frame order, identical fast/slow video, failure, cancellation, AAC/Opus mux and H.264/H.265/VP9/AV1 codec support.");
+            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, frame order, identical fast/slow video, failure, cancellation, AAC/Opus mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

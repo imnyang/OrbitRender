@@ -138,6 +138,12 @@ macOS/Linux에서는 로컬 ADOFAI 관리 DLL과 MSBuild를 준비한 뒤 다음
 GAME_DIR="$HOME/.steam/steam/steamapps/common/A Dance of Fire and Ice" bash ./build.sh
 ```
 
+macOS/Linux에서 FFmpeg 통합 테스트까지 실행하려면 Mono와 FFmpeg를 설치한 뒤 `TEST=1`을 추가합니다. `TMPDIR`이 사라진 `/var/folders/...`를 가리켜도 테스트는 `/tmp`로 자동 대체합니다.
+
+```bash
+GAME_DIR="$HOME/.steam/steam/steamapps/common/A Dance of Fire and Ice" TEST=1 FFMPEG_PATH=ffmpeg bash ./build.sh
+```
+
 다른 게임 경로는 `-GameDir` 또는 `GAME_DIR`, 특정 MSBuild는 `-MSBuildPath` 또는 `MSBUILD_PATH`로 지정합니다. 테스트는 프레임 수·순서, 인코딩 결과 일치, 실패·취소, AAC mux, A/V 길이 drift를 확인합니다.
 
 ## License

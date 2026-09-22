@@ -122,6 +122,12 @@ On macOS/Linux, use the portable build entry point after installing the local AD
 GAME_DIR="$HOME/.steam/steam/steamapps/common/A Dance of Fire and Ice" bash ./build.sh
 ```
 
+To run the FFmpeg integration tests on macOS/Linux, install Mono and FFmpeg and add `TEST=1`. If `TMPDIR` points to a stale `/var/folders/...` path, the test runner automatically falls back to `/tmp`.
+
+```bash
+GAME_DIR="$HOME/.steam/steam/steamapps/common/A Dance of Fire and Ice" TEST=1 FFMPEG_PATH=ffmpeg bash ./build.sh
+```
+
 Use `-GameDir`/`GAME_DIR` for a non-default installation and `-MSBuildPath`/`MSBUILD_PATH` for a specific MSBuild executable.
 
 ## License

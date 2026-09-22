@@ -226,8 +226,17 @@ namespace OrbitRender.Renderer
             string pixelFormat, string extension, bool legacyCrf, out string error)
         {
             error = null;
-            var output = Path.Combine(Path.GetTempPath(), "OrbitRender-encoder-check-"
-                + Guid.NewGuid().ToString("N") + extension);
+            string output;
+            try
+            {
+                output = Path.Combine(GetTemporaryDirectory(), "OrbitRender-encoder-check-"
+                    + Guid.NewGuid().ToString("N") + extension);
+            }
+            catch (Exception ex)
+            {
+                error = "Could not create a temporary FFmpeg output path: " + ex.Message;
+                return false;
+            }
             try
             {
                 // Keep the probe at the renderer's minimum profile size. Some
@@ -261,6 +270,38 @@ namespace OrbitRender.Renderer
             }
         }
 
+        private static string GetTemporaryDirectory()
+        {
+            string configured;
+            try { configured = Path.GetTempPath(); }
+            catch { configured = null; }
+
+            if (TryCreateDirectory(configured)) return configured;
+
+            // On macOS, Path.GetTempPath() commonly comes from TMPDIR and can
+            // point at a stale /var/folders/... directory after a shell or
+            // login session has outlived the directory owner. /tmp is the
+            // portable Unix fallback and is recreated by the OS as needed.
+            if (Path.DirectorySeparatorChar == '/' && TryCreateDirectory("/tmp")) return "/tmp";
+
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var fallback = string.IsNullOrEmpty(localAppData) ? null : Path.Combine(localAppData, "Temp");
+            if (TryCreateDirectory(fallback)) return fallback;
+
+            throw new IOException("No writable temporary directory is available.");
+        }
+
+        private static bool TryCreateDirectory(string directory)
+        {
+            if (string.IsNullOrEmpty(directory)) return false;
+            try
+            {
+                Directory.CreateDirectory(directory);
+                return Directory.Exists(directory);
+            }
+            catch { return false; }
+        }
+
         private static bool LooksLikeFilePath(string executable)
         {
             return Path.IsPathRooted(executable)
@@ -290,16 +331,20 @@ namespace OrbitRender.Renderer
             if (WrittenFrames != expectedFrames) throw new IOException("Encoded frame count does not match the render clock.");
         }
         private void AbortProcess() { try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { } }
-        public static void MuxAudio(string executable, string video, string audio, string output)
+        public static void MuxAudio(string executable, string video, string audio, string output,
+            double audioOffsetSeconds = 0.0)
         {
             var isWebm = string.Equals(Path.GetExtension(output), ".webm", StringComparison.OrdinalIgnoreCase);
             var audioEncoder = isWebm ? "libopus" : "aac";
             var audioBitrate = isWebm ? "160k" : "320k";
             var containerOptions = isWebm ? "-f webm" : "-movflags +faststart";
+            var audioSeek = audioOffsetSeconds > 0
+                ? "-ss " + audioOffsetSeconds.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + " "
+                : string.Empty;
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
-                Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" -i \"" + audio
+                Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
                     + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a " + audioEncoder + " -b:a " + audioBitrate
                     + " " + containerOptions + " -shortest \"" + output + "\""
             }})

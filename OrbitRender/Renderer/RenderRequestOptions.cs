@@ -23,5 +23,7 @@ namespace OrbitRender.Renderer
         internal VideoCodec? VideoCodec;
         internal VideoBitDepth? BitDepth;
         internal bool? OpenOutputFolder;
+        internal int? SelectionStartTile;
+        internal int? SelectionEndTile;
     }
 }

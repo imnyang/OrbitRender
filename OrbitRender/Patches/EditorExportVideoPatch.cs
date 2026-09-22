@@ -13,7 +13,6 @@ namespace OrbitRender.Patches
     internal static class EditorExportVideoPatch
     {
         private const string ButtonName = "OrbitRender.ExportVideoButton";
-        private const string ButtonLabel = "Export Video";
 
         private static void Postfix(scnEditor __instance)
         {
@@ -61,11 +60,9 @@ namespace OrbitRender.Patches
             }
 
             if (button == null) return;
-
             button.onClick = new Button.ButtonClickedEvent();
             button.onClick.AddListener(() => ExportVideo(editor));
-            SetButtonLabel(button.gameObject,
-                Localization.Get("export-video"));
+            SetButtonLabel(button.gameObject, Localization.Get("export-video"));
             button.gameObject.SetActive(true);
         }
 

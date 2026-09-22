@@ -115,7 +115,8 @@ namespace OrbitRender.Patches
                 renderer.MusicScheduled();
             }
             catch (Exception ex) { renderer.AbortWithError(ex); yield break; }
-            while (RendererController.ControlsTime && renderer.Clock.DspTime < conductor.dspTimeSong)
+            while (RendererController.ControlsTime
+                && renderer.Clock.DspTime < renderer.MusicActivationDsp(conductor))
                 yield return null;
             if (RendererController.ControlsTime) conductor.hasSongStarted = true;
         }

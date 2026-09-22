@@ -6,6 +6,8 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 GAME_DIR="${GAME_DIR:-}"
 MSBUILD_PATH="${MSBUILD_PATH:-}"
+RUN_TESTS="${TEST:-0}"
+FFMPEG_PATH="${FFMPEG_PATH:-ffmpeg}"
 
 if [[ -z "$GAME_DIR" ]]; then
   echo "Set GAME_DIR to the ADOFAI installation directory." >&2
@@ -61,3 +63,40 @@ done
 echo "Mod output: $ROOT_DIR/OrbitRender/bin/Release"
 echo "FFmpeg will be downloaded by the mod after first-launch consent."
 echo "Install the output folder under the game's Mods directory."
+
+if [[ "$RUN_TESTS" == "1" ]]; then
+  if [[ "$FFMPEG_PATH" == */* ]]; then
+    if [[ ! -x "$FFMPEG_PATH" ]]; then
+      echo "The configured FFMPEG_PATH is not executable: $FFMPEG_PATH" >&2
+      exit 2
+    fi
+  elif ! command -v "$FFMPEG_PATH" >/dev/null 2>&1; then
+    echo "FFmpeg was not found: $FFMPEG_PATH" >&2
+    echo "Install FFmpeg or set FFMPEG_PATH to its executable." >&2
+    exit 2
+  fi
+
+  if ! command -v mono >/dev/null 2>&1; then
+    echo "The standalone .NET Framework tests require Mono on macOS/Linux." >&2
+    echo "Install Mono or set up a Windows test environment." >&2
+    exit 2
+  fi
+
+  "${MSBUILD_COMMAND[@]}" Tests/RendererTests.csproj \
+    /t:Rebuild \
+    /v:minimal
+
+  # macOS normally exposes a per-user TMPDIR under /var/folders, but it can
+  # become stale or unavailable when the shell inherits an old environment.
+  # Fall back to /tmp instead of passing a non-existent path to the test.
+  TEST_TMP_ROOT="${TMPDIR:-/tmp}"
+  if [[ ! -d "$TEST_TMP_ROOT" ]]; then
+    TEST_TMP_ROOT="/tmp"
+  fi
+  if ! TEST_OUTPUT="$(mktemp -d "$TEST_TMP_ROOT/orbit-render-tests.XXXXXX" 2>/dev/null)"; then
+    TEST_OUTPUT="$(mktemp -d /tmp/orbit-render-tests.XXXXXX)"
+  fi
+
+  mono "$ROOT_DIR/Tests/bin/Release/RendererTests.exe" "$FFMPEG_PATH" "$TEST_OUTPUT"
+  echo "Test videos: $TEST_OUTPUT"
+fi
