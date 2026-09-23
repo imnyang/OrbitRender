@@ -269,7 +269,9 @@ namespace OrbitRender.Renderer
             if (hudOverlayCamera == null || gameCamera == null || gameCamera.camobj == null) return;
             var source = gameCamera.camobj;
             hudOverlayCamera.CopyFrom(source);
-            hudOverlayCamera.transform.SetPositionAndRotation(source.transform.position, source.transform.rotation);
+            // This canvas is screen-space UI, so its camera must stay aligned
+            // with the output instead of inheriting the gameplay camera's rotation.
+            hudOverlayCamera.transform.SetPositionAndRotation(source.transform.position, Quaternion.identity);
             hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
             hudOverlayCamera.cullingMask = hudMask;
             hudOverlayCamera.depth = hudOverlayDepth;
