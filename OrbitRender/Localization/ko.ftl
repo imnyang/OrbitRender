@@ -17,6 +17,7 @@ ingame-fps = 인게임 FPS
 video-fps = 영상 FPS
 end-delay-seconds = 종료 지연(초)
 capture-audio = 오디오 캡처
+show-render-preview = 렌더 중 미리보기 표시
 bga-mode-hide-tiles-planets-hit-sounds = BGA 모드 (타일, 행성 및 타격음 숨기기)
 open-output-folder-after-render = 렌더 후 출력 폴더 열기
 show-planet-rings = 행성 고리 표시
