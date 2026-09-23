@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using OrbitRender.Renderer;
+using UnityEngine;
 
 namespace OrbitRender.Patches
 {
@@ -58,6 +59,19 @@ namespace OrbitRender.Patches
         {
             if (!RendererController.InputBlocked) return true;
             __result = 0;
+            return false;
+        }
+    }
+
+    // The editor polls this property directly to zoom its camera with the
+    // mouse wheel. That camera also feeds the render target while exporting.
+    [HarmonyPatch(typeof(RDInput), "get_mouseScrollDelta")]
+    internal static class RendererMouseWheelPatch
+    {
+        static bool Prefix(ref Vector2 __result)
+        {
+            if (!RendererController.InputBlocked) return true;
+            __result = Vector2.zero;
             return false;
         }
     }
