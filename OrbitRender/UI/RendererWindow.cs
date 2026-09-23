@@ -119,7 +119,7 @@ namespace OrbitRender.UI
                     GUI.Label(new Rect(content.x, content.y + 155f, content.width - 118f, 22f),
                         CompactPath(renderer.OutputPath), path);
                     if (GUI.Button(new Rect(content.x + content.width - 110f, content.y + 152f, 110f, 28f),
-                        Localization.Get("copy-path")))
+                        Localization.Get("copy-path"), UiTheme.Button))
                         GUIUtility.systemCopyBuffer = renderer.OutputPath;
                 }
             }
@@ -135,7 +135,7 @@ namespace OrbitRender.UI
                     Localization.Get("hold-esc-for-1-second-to-cancel"), hint);
                 if (renderer.State == RenderState.Rendering
                     && GUI.Button(new Rect(content.x + content.width - 118f, content.y + 198f, 118f, 28f),
-                        Localization.Get("cancel-render")))
+                        Localization.Get("cancel-render"), UiTheme.Button))
                     renderer.Cancel();
             }
         }
@@ -218,10 +218,10 @@ namespace OrbitRender.UI
             GUI.Label(new Rect(content.x, content.y + 132f, content.width, 28f),
                 Localization.Get("use-software-encoder-for-this-render-your-saved-encoder"), detail);
             if (GUI.Button(new Rect(content.x, content.y + 170f, 310f, 34f),
-                Localization.Get("use-software-and-continue")))
+                Localization.Get("use-software-and-continue"), UiTheme.PrimaryButton))
                 renderer.ConfirmEncoderFallback();
             if (GUI.Button(new Rect(content.x + 326f, content.y + 170f, 160f, 34f),
-                Localization.Get("cancel-render")))
+                Localization.Get("cancel-render"), UiTheme.Button))
                 renderer.RejectEncoderFallback();
         }
 
@@ -290,10 +290,10 @@ namespace OrbitRender.UI
             else if (waiting)
             {
                 if (GUI.Button(new Rect(content.x, content.y + 158f, 310f, 34f),
-                    Localization.Get("install-ffmpeg")))
+                    Localization.Get("install-ffmpeg"), UiTheme.PrimaryButton))
                     FfmpegInstaller.ConfirmInstall();
                 if (GUI.Button(new Rect(content.x + 326f, content.y + 158f, 160f, 34f),
-                    Localization.Get("not-now")))
+                    Localization.Get("not-now"), UiTheme.Button))
                 FfmpegInstaller.DeclineInstall();
             }
         }

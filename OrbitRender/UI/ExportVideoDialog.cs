@@ -42,8 +42,15 @@ namespace OrbitRender.UI
         internal static void Draw(RendererController renderer)
         {
             if (!open || draft == null) return;
-            var width = Mathf.Min(760f, Screen.width - 36f);
-            var height = Mathf.Min(680f, Screen.height - 36f);
+            // Scale the entire IMGUI window so text and controls grow with high
+            // resolution or high pixel density, while keeping a screen margin.
+            var resolutionScale = Mathf.Max(1f, Screen.height / 1080f);
+            var dpiScale = Screen.dpi > 0f ? Mathf.Max(1f, Screen.dpi / 96f) : 1f;
+            var fitScale = Mathf.Min((Screen.width - 36f) / 760f, (Screen.height - 36f) / 680f);
+            var scale = Mathf.Min(Mathf.Min(Mathf.Max(resolutionScale, dpiScale), 2f),
+                Mathf.Max(1f, fitScale));
+            var width = Mathf.Min(760f, (Screen.width - 36f) / scale);
+            var height = Mathf.Min(680f, (Screen.height - 36f) / scale);
             if (windowRect.width != width || windowRect.height != height)
             {
                 windowRect.width = width;
@@ -60,8 +67,18 @@ namespace OrbitRender.UI
                 GUI.color = previous;
             }
 
-            windowRect = GUI.Window(WindowId, windowRect, id => DrawWindow(id, renderer),
-                Localization.Get("export-video"));
+            var originalMatrix = GUI.matrix;
+            try
+            {
+                GUIUtility.ScaleAroundPivot(new Vector2(scale, scale),
+                    new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
+                windowRect = GUI.Window(WindowId, windowRect, id => DrawWindow(id, renderer),
+                    string.Empty, UiTheme.Window);
+            }
+            finally
+            {
+                GUI.matrix = originalMatrix;
+            }
             if (Event.current.type != EventType.Layout && Event.current.type != EventType.Repaint)
                 Event.current.Use();
         }
@@ -69,12 +86,18 @@ namespace OrbitRender.UI
         private static void DrawWindow(int id, RendererController renderer)
         {
             GUILayout.BeginVertical();
+            GUILayout.Label(Localization.Get("export-video"), UiTheme.Title);
+            GUILayout.Space(8f);
+            var originalSkin = GUI.skin;
+            GUI.skin = UiTheme.ScrollSkin(originalSkin);
             scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.ExpandHeight(true));
-            GUILayout.Label(Localization.Get("choose-the-settings-for-this-video-export"));
-            GUILayout.Space(6f);
+            try
+            {
+            GUILayout.Label(Localization.Get("choose-the-settings-for-this-video-export"), UiTheme.Label);
+            GUILayout.Space(12f);
 
-            GUILayout.Label(Localization.Get("preset"));
-            var preset = SettingsUi.DrawPreset(draft.Preset);
+            GUILayout.Label(Localization.Get("preset"), UiTheme.Label);
+            var preset = SettingsUi.DrawPreset(draft.Preset, true);
             if (preset != draft.Preset)
             {
                 draft.Preset = preset;
@@ -84,77 +107,85 @@ namespace OrbitRender.UI
             if (draft.Preset == RendererPreset.Custom)
             {
                 GUILayout.BeginHorizontal();
-                draft.WidthText = SettingsUi.LabeledField(Localization.Get("width"), draft.WidthText, 90f);
-                draft.HeightText = SettingsUi.LabeledField(Localization.Get("height"), draft.HeightText, 90f);
-                draft.BitrateText = SettingsUi.LabeledField(Localization.Get("bitrate"), draft.BitrateText, 80f);
-                GUILayout.Label("Mbps", GUILayout.Width(44f));
+                draft.WidthText = SettingsUi.LabeledField(Localization.Get("width"), draft.WidthText, 90f, true);
+                draft.HeightText = SettingsUi.LabeledField(Localization.Get("height"), draft.HeightText, 90f, true);
+                draft.BitrateText = SettingsUi.LabeledField(Localization.Get("bitrate"), draft.BitrateText, 80f, true);
+                GUILayout.Label("Mbps", UiTheme.Label, GUILayout.Width(44f));
                 GUILayout.EndHorizontal();
             }
             else
             {
-                GUILayout.Label(Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText, draft.VideoFpsText, draft.BitrateText));
+                GUILayout.Label(Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText, draft.VideoFpsText, draft.BitrateText), UiTheme.Label);
             }
 
             GUILayout.BeginHorizontal();
-            draft.FpsText = SettingsUi.LabeledField(Localization.Get("ingame-fps"), draft.FpsText, 80f);
-            draft.VideoFpsText = SettingsUi.LabeledField(Localization.Get("video-fps"), draft.VideoFpsText, 80f);
+            draft.FpsText = SettingsUi.LabeledField(Localization.Get("ingame-fps"), draft.FpsText, 80f, true);
+            draft.VideoFpsText = SettingsUi.LabeledField(Localization.Get("video-fps"), draft.VideoFpsText, 80f, true);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(6f);
             if (SettingsUi.DrawSectionHeader(Localization.Get("render-options"),
-                ref renderOptionsExpanded))
+                ref renderOptionsExpanded, true))
             {
                 draft.EndDelayText = SettingsUi.LabeledField(Localization.Get("end-delay-seconds"),
-                    draft.EndDelayText, 90f);
-                draft.CaptureAudio = GUILayout.Toggle(draft.CaptureAudio,
+                    draft.EndDelayText, 90f, true);
+                draft.CaptureAudio = UiTheme.DrawToggle(draft.CaptureAudio,
                     Localization.Get("capture-audio"));
-                draft.BgaMode = GUILayout.Toggle(draft.BgaMode,
+                draft.BgaMode = UiTheme.DrawToggle(draft.BgaMode,
                     Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"));
-                draft.OpenOutputFolder = GUILayout.Toggle(draft.OpenOutputFolder,
+                draft.OpenOutputFolder = UiTheme.DrawToggle(draft.OpenOutputFolder,
                     Localization.Get("open-output-folder-after-render"));
-                draft.SaveAsDefault = GUILayout.Toggle(draft.SaveAsDefault,
+                draft.SaveAsDefault = UiTheme.DrawToggle(draft.SaveAsDefault,
                     Localization.Get("save-these-values-as-the-default-renderer-settings"));
             }
 
             if (SettingsUi.DrawSectionHeader(Localization.Get("visible-components"),
-                ref visibleComponentsExpanded))
+                ref visibleComponentsExpanded, true))
             {
-                draft.ShowPlanetRings = GUILayout.Toggle(draft.ShowPlanetRings,
+                draft.ShowPlanetRings = UiTheme.DrawToggle(draft.ShowPlanetRings,
                     Localization.Get("show-planet-rings"));
-                draft.ShowSongTitle = GUILayout.Toggle(draft.ShowSongTitle,
+                draft.ShowSongTitle = UiTheme.DrawToggle(draft.ShowSongTitle,
                     Localization.Get("show-song-title"));
-                draft.ShowCountdown = GUILayout.Toggle(draft.ShowCountdown,
+                draft.ShowCountdown = UiTheme.DrawToggle(draft.ShowCountdown,
                     Localization.Get("show-countdown"));
-                draft.ShowResultText = GUILayout.Toggle(draft.ShowResultText,
+                draft.ShowResultText = UiTheme.DrawToggle(draft.ShowResultText,
                     Localization.Get("show-result-text-hit-judgments-stay-hidden"));
-                draft.ShowHitJudgments = GUILayout.Toggle(draft.ShowHitJudgments,
+                draft.ShowHitJudgments = UiTheme.DrawToggle(draft.ShowHitJudgments,
                     Localization.Get("show-hit-judgments"));
             }
 
             GUILayout.Space(6f);
-            if (SettingsUi.DrawSectionHeader(Localization.Get("encoding"), ref encodingExpanded))
+            if (SettingsUi.DrawSectionHeader(Localization.Get("encoding"), ref encodingExpanded, true))
             {
-                draft.Encoding = SettingsUi.DrawEncoding(draft.Encoding);
-                draft.Encoder = SettingsUi.DrawEncoder(draft.Encoder);
-                draft.Codec = SettingsUi.DrawCodec(draft.Codec);
-                draft.BitDepth = SettingsUi.DrawBitDepth(draft.BitDepth);
+                draft.Encoding = SettingsUi.DrawEncoding(draft.Encoding, true);
+                draft.Encoder = SettingsUi.DrawEncoder(draft.Encoder, true);
+                draft.Codec = SettingsUi.DrawCodec(draft.Codec, true);
+                draft.BitDepth = SettingsUi.DrawBitDepth(draft.BitDepth, true);
             }
 
-            GUILayout.EndScrollView();
+            }
+            finally
+            {
+                GUILayout.EndScrollView();
+                GUI.skin = originalSkin;
+            }
             if (!string.IsNullOrEmpty(error))
             {
                 var previous = GUI.color;
                 GUI.color = new Color(1f, 0.55f, 0.55f, 1f);
-                GUILayout.Label(error);
+                GUILayout.Label(error, UiTheme.Label);
                 GUI.color = previous;
             }
 
+            GUILayout.Space(10f);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button(Localization.Get("cancel"), GUILayout.Width(120f))) Close();
+            if (GUILayout.Button(Localization.Get("cancel"), UiTheme.Button, GUILayout.Width(120f))) Close();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(Localization.Get("export-video-selection"), GUILayout.Width(190f)))
+            var selectedTiles = GetSelectedTileRange();
+            if (selectedTiles.Length >= 2
+                && GUILayout.Button(Localization.Get("export-video-selection"), UiTheme.Button, GUILayout.Width(190f)))
                 Confirm(renderer, true);
-            if (GUILayout.Button(Localization.Get("export-video"), GUILayout.Width(150f)))
+            if (GUILayout.Button(Localization.Get("export-video"), UiTheme.PrimaryButton, GUILayout.Width(150f)))
                 Confirm(renderer, false);
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
@@ -177,10 +208,7 @@ namespace OrbitRender.UI
 
             if (selectionOnly)
             {
-                var selected = editor != null && editor.selectedFloors != null
-                    ? editor.selectedFloors.Where(floor => floor != null)
-                        .Select(floor => floor.seqID).Distinct().OrderBy(id => id).ToArray()
-                    : new int[0];
+                var selected = GetSelectedTileRange();
                 if (selected.Length < 2)
                 {
                     error = Localization.Get("select-at-least-two-tiles-to-export-a-selection");
@@ -200,6 +228,14 @@ namespace OrbitRender.UI
             Close();
             if (targetEditor != null) targetEditor.ShowFileActionsPanel(false);
             renderer.StartRender(options);
+        }
+
+        private static int[] GetSelectedTileRange()
+        {
+            return editor != null && editor.selectedFloors != null
+                ? editor.selectedFloors.Where(floor => floor != null)
+                    .Select(floor => floor.seqID).Distinct().OrderBy(id => id).ToArray()
+                : new int[0];
         }
 
         private static void Close()
