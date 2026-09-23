@@ -68,8 +68,14 @@ namespace OrbitRender.UI
             }
 
             var originalMatrix = GUI.matrix;
+            var originalColor = GUI.color;
+            var originalBackgroundColor = GUI.backgroundColor;
+            var originalContentColor = GUI.contentColor;
             try
             {
+                GUI.color = Color.white;
+                GUI.backgroundColor = Color.white;
+                GUI.contentColor = Color.white;
                 GUIUtility.ScaleAroundPivot(new Vector2(scale, scale),
                     new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
                 windowRect = GUI.Window(WindowId, windowRect, id => DrawWindow(id, renderer),
@@ -78,6 +84,9 @@ namespace OrbitRender.UI
             finally
             {
                 GUI.matrix = originalMatrix;
+                GUI.color = originalColor;
+                GUI.backgroundColor = originalBackgroundColor;
+                GUI.contentColor = originalContentColor;
             }
             if (Event.current.type != EventType.Layout && Event.current.type != EventType.Repaint)
                 Event.current.Use();
@@ -85,6 +94,7 @@ namespace OrbitRender.UI
 
         private static void DrawWindow(int id, RendererController renderer)
         {
+            UiTheme.DrawWindowBackground(new Rect(0f, 0f, windowRect.width, windowRect.height));
             GUILayout.BeginVertical();
             GUILayout.Label(Localization.Get("export-video"), UiTheme.Title);
             GUILayout.Space(8f);

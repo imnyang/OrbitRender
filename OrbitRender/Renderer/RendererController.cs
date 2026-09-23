@@ -1684,11 +1684,24 @@ namespace OrbitRender.Renderer
             if (target != null && !target.IsCreated() && !target.Create())
                 throw new InvalidOperationException("The game camera render texture could not be recreated.");
 
-            if (target != null && camera.quad != null)
+            if (target != null)
             {
-                var renderer = camera.quad.GetComponent<MeshRenderer>();
+                // Use the same presentation mesh that scrCamera uses for the
+                // full-screen quad, with a child lookup as a fallback.
+                var renderer = AccessTools.Field(typeof(scrCamera), "camQuadMesh")?.GetValue(camera) as MeshRenderer;
+                if (renderer == null && camera.quad != null)
+                    renderer = camera.quad.GetComponentInChildren<MeshRenderer>(true);
                 if (renderer != null && renderer.material.mainTexture != target)
                     renderer.material.mainTexture = target;
+            }
+            if (camera.quad != null && camera.Overlaycam != null && Screen.height > 0)
+            {
+                // scrCamera.Update normally sizes this presentation quad when
+                // camRT is first allocated. We allocate camRT in edit mode, so
+                // that size-change branch no longer runs on the next Play.
+                var quadHeight = camera.Overlaycam.orthographicSize * 2f;
+                var quadWidth = quadHeight * Screen.width / Screen.height;
+                camera.quad.transform.localScale = new Vector3(quadWidth, quadHeight, 1f);
             }
             camera.SetupRTCam(false);
         }
@@ -1738,6 +1751,24 @@ namespace OrbitRender.Renderer
                 reason = "internal camera render texture is released";
                 return false;
             }
+            var quadMesh = AccessTools.Field(typeof(scrCamera), "camQuadMesh")?.GetValue(camera) as MeshRenderer;
+            if (quadMesh != null && quadMesh.material.mainTexture != target)
+            {
+                reason = "camera presentation quad is not bound to the internal render texture";
+                return false;
+            }
+            if (camera.quad != null && camera.Overlaycam != null && Screen.height > 0)
+            {
+                var expectedHeight = camera.Overlaycam.orthographicSize * 2f;
+                var expectedWidth = expectedHeight * Screen.width / Screen.height;
+                var scale = camera.quad.transform.localScale;
+                if (!Mathf.Approximately(scale.x, expectedWidth)
+                    || !Mathf.Approximately(scale.y, expectedHeight))
+                {
+                    reason = "camera presentation quad has the wrong size";
+                    return false;
+                }
+            }
             if (camera.flashPlusRendererBg == null || camera.flashPlusRendererFg == null
                 || !camera.flashPlusRendererBg.enabled || !camera.flashPlusRendererFg.enabled)
             {
@@ -1770,6 +1801,8 @@ namespace OrbitRender.Renderer
                 return;
             }
             var target = AccessTools.Field(typeof(scrCamera), "camRT")?.GetValue(camera) as RenderTexture;
+            var quadMesh = AccessTools.Field(typeof(scrCamera), "camQuadMesh")?.GetValue(camera) as MeshRenderer;
+            var quadTexture = quadMesh != null ? quadMesh.material.mainTexture : null;
             var background = FindDefaultBackground(targetLevel);
             var backgroundRenderers = background != null
                 ? background.GetComponentsInChildren<UnityEngine.Renderer>(true)
@@ -1783,6 +1816,11 @@ namespace OrbitRender.Renderer
                 + ", customFPS=" + camera.enableCustomFPS
                 + ", forceRTCam=" + camera.forceRTCam
                 + ", lockCustomFrameUpdate=" + camera.lockCustomFrameUpdate
+                + ", quadActive=" + (camera.quad != null && camera.quad.activeInHierarchy)
+                + ", overlayActive=" + (camera.Overlaycam != null && camera.Overlaycam.gameObject.activeInHierarchy)
+                + ", quadTexture=" + (quadTexture != null ? quadTexture.name : "missing")
+                + ", quadUsesCamRT=" + (quadTexture == target)
+                + ", quadScale=" + (camera.quad != null ? camera.quad.transform.localScale.ToString() : "missing")
                 + ", hom=" + (ADOBase.controller != null && ADOBase.controller.homEnabled)
                 + "; " + DescribeRenderer("flashBg", camera.flashPlusRendererBg)
                 + "; " + DescribeRenderer("flashFg", camera.flashPlusRendererFg)

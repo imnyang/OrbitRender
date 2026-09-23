@@ -5,7 +5,7 @@ namespace OrbitRender.UI
     // Styles shared by the export dialog and the small in-game prompts.
     internal static class UiTheme
     {
-        private static GUIStyle window, button, primaryButton, section, textFieldStyle, toolbar, label, title, toggleLabel;
+        private static GUIStyle window, windowBackground, button, primaryButton, section, textFieldStyle, toolbar, label, title, toggleLabel;
         private static Texture2D switchOff, switchOn, switchKnobOff, switchKnobOn;
         private static GUISkin sourceScrollSkin, scrollSkin;
 
@@ -17,6 +17,13 @@ namespace OrbitRender.UI
         internal static GUIStyle Toolbar { get { Ensure(); return toolbar; } }
         internal static GUIStyle Label { get { Ensure(); return label; } }
         internal static GUIStyle Title { get { Ensure(); return title; } }
+
+        internal static void DrawWindowBackground(Rect rect)
+        {
+            Ensure();
+            if (Event.current.type == EventType.Repaint)
+                windowBackground.Draw(rect, GUIContent.none, false, false, false, false);
+        }
 
         internal static GUISkin ScrollSkin(GUISkin source)
         {
@@ -81,9 +88,13 @@ namespace OrbitRender.UI
                 border = new RectOffset(11, 11, 11, 11),
                 padding = new RectOffset(22, 22, 20, 20)
             };
-            SetStates(window, surface, surface, surface, white);
+            SetStates(window, null, null, null, white);
             window.onNormal.background = window.onHover.background =
-                window.onActive.background = window.onFocused.background = surface;
+                window.onActive.background = window.onFocused.background = null;
+            windowBackground = new GUIStyle {
+                border = new RectOffset(11, 11, 11, 11)
+            };
+            SetStates(windowBackground, surface, surface, surface, white);
 
             button = new GUIStyle(GUI.skin.button) {
                 border = new RectOffset(7, 7, 7, 7),
