@@ -94,6 +94,9 @@ namespace OrbitRender
         [Draw("Capture audio", DrawType.Toggle)]
         public bool CaptureAudio = true;
 
+        [Draw("Show render preview", DrawType.Toggle)]
+        public bool ShowRenderPreview = true;
+
         [Draw("BGA mode (hide tiles, planets & hit sounds)", DrawType.Toggle)]
         public bool BgaMode = false;
 
@@ -174,6 +177,7 @@ namespace OrbitRender
             BitrateMbps = 18;
             EndDelaySeconds = 2f;
             CaptureAudio = true;
+            ShowRenderPreview = true;
             BgaMode = false;
             ShowPlanetRings = true;
             ShowSongTitle = true;

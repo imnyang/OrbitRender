@@ -1170,7 +1170,12 @@ namespace OrbitRender.Renderer
                 return;
             }
             if (State == RenderState.Rendering && Event.current.type == EventType.Repaint)
-                OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
+            {
+                if (Main.Settings == null || Main.Settings.ShowRenderPreview)
+                    OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
+                else
+                    OrbitRender.UI.RendererWindow.DrawBackdrop();
+            }
             // Rendering temporarily owns the gameplay cameras and editor
             // overlays. Cover the presentation surface so a camera or canvas
             // target change can never flash through to the player window.

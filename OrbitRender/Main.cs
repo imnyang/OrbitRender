@@ -258,6 +258,8 @@ namespace OrbitRender
                 ref localizedEndDelayText, ref localizedEndDelayValue, 90f);
             Settings.CaptureAudio = DrawLocalizedToggle(
                 Localization.Get("capture-audio"), Settings.CaptureAudio);
+            Settings.ShowRenderPreview = DrawLocalizedToggle(
+                Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
             Settings.BgaMode = DrawLocalizedToggle(
                 Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), Settings.BgaMode);
             Settings.OpenOutputFolder = DrawLocalizedToggle(
