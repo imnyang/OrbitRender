@@ -49,7 +49,7 @@ namespace OrbitRender.Patches
         private static float DeltaTime()
         {
             return RendererController.ControlsTime
-                ? 1f / RendererController.Instance.Clock.Fps
+                ? RendererController.DeterministicDelta
                 : Time.deltaTime;
         }
 

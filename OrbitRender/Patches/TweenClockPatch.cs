@@ -13,7 +13,8 @@ namespace OrbitRender.Patches
     [HarmonyPatch(typeof(DOTweenComponent), "Update")]
     internal static class TweenClockPatch
     {
-        static float Delta(float actual) => RendererController.ControlsTime ? 1f / RendererController.Instance.Clock.Fps : actual;
+        static float Delta(float actual) => RendererController.ControlsTime
+            ? RendererController.DeterministicDelta : actual;
         static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
             var field = AccessTools.Field(typeof(DOTweenComponent), "_unscaledDeltaTime");

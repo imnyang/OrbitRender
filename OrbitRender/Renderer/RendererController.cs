@@ -25,6 +25,11 @@ namespace OrbitRender.Renderer
         public static RendererController Instance { get; private set; }
         public static bool ControlsTime => Instance != null && Instance.saved != null &&
             (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering);
+        // The render clock does not advance during preparation. Keep game
+        // components that use a patched delta in step with it instead of
+        // letting setup frames move animations ahead of output frame zero.
+        internal static float DeterministicDelta => ControlsTime && Instance.State == RenderState.Rendering
+            ? 1f / Instance.Clock.Fps : 0f;
         // Block game/editor input for every render phase, including encoder
         // preflight and finalization. ControlsTime is intentionally narrower
         // because it only describes simulation ownership.

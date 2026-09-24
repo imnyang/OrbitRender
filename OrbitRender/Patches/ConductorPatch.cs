@@ -20,7 +20,8 @@ namespace OrbitRender.Patches
         }
         static double DspTime() => RendererController.ControlsTime ? RendererController.Instance.Clock.DspTime : AudioSettings.dspTime;
         static double UnscaledTime() => RendererController.ControlsTime ? RendererController.Instance.Clock.Time : Time.unscaledTimeAsDouble;
-        static float UnscaledDelta() => RendererController.ControlsTime ? 1f / RendererController.Instance.Clock.Fps : Time.unscaledDeltaTime;
+        static float UnscaledDelta() => RendererController.ControlsTime
+            ? RendererController.DeterministicDelta : Time.unscaledDeltaTime;
         static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
             var dsp = AccessTools.PropertyGetter(typeof(AudioSettings), nameof(AudioSettings.dspTime));
