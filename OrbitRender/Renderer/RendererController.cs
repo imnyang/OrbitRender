@@ -1907,6 +1907,7 @@ namespace OrbitRender.Renderer
             private readonly SkipIntroBehavior intro = Persistence.skipIntroBehavior;
             private readonly bool strictlyEditing = ADOBase.editor != null && ADOBase.editor.inStrictlyEditingMode;
             private readonly int[] selection = ADOBase.editor != null ? ADOBase.editor.selectedFloors.Select(f => f.seqID).ToArray() : new int[0];
+            private readonly CameraViewState cameraView = CameraViewState.Capture();
             private readonly AudioConfiguration audioConfiguration = AudioSettings.GetConfiguration();
             private readonly AudioSource song = ADOBase.conductor != null ? ADOBase.conductor.song : null;
             private readonly AudioSource song2 = ADOBase.conductor != null ? ADOBase.conductor.song2 : null;
@@ -1952,6 +1953,7 @@ namespace OrbitRender.Renderer
                         if (selection.Length == 1) editor.SelectFloor(editor.floors[selection[0]], cameraJump: false);
                         else editor.MultiSelectFloors(editor.floors[selection.Min()], editor.floors[selection.Max()], setSelectPoint: true);
                     }
+                    cameraView.Restore();
                 }
             }
             public void RestoreTiming()
@@ -1993,6 +1995,71 @@ namespace OrbitRender.Renderer
                     "Restored audio source: clip={0}, length={1:F2}s, volume={2:F3}, pitch={3:F3}.",
                     source.clip != null ? source.clip.name : "<none>",
                     source.clip != null ? source.clip.length : 0.0f, volume, pitch));
+            }
+
+            private sealed class CameraViewState
+            {
+                private readonly scrCamera owner;
+                private readonly CameraState main;
+                private readonly CameraState background;
+                private readonly CameraState staticBackground;
+                private readonly float zoomSize;
+
+                private CameraViewState(scrCamera owner)
+                {
+                    this.owner = owner;
+                    main = CameraState.Capture(owner != null ? owner.camobj : null);
+                    background = CameraState.Capture(owner != null ? owner.BGcam : null);
+                    staticBackground = CameraState.Capture(owner != null ? owner.Bgcamstatic : null);
+                    zoomSize = owner != null ? owner.zoomSize : 0f;
+                }
+
+                public static CameraViewState Capture()
+                {
+                    return new CameraViewState(scrCamera.instance);
+                }
+
+                public void Restore()
+                {
+                    if (owner == null || scrCamera.instance != owner) return;
+
+                    // Playback moves the shared level camera all the way to the
+                    // final tile. Restore the editor's pre-render framing after
+                    // selection so the view stays on the tile the user was on.
+                    owner.zoomSize = zoomSize;
+                    main.Restore(owner.camobj);
+                    background.Restore(owner.BGcam);
+                    staticBackground.Restore(owner.Bgcamstatic);
+                }
+
+                private struct CameraState
+                {
+                    private readonly bool valid;
+                    private readonly Vector3 position;
+                    private readonly Quaternion rotation;
+                    private readonly float orthographicSize;
+
+                    private CameraState(Camera camera)
+                    {
+                        valid = camera != null;
+                        position = valid ? camera.transform.position : Vector3.zero;
+                        rotation = valid ? camera.transform.rotation : Quaternion.identity;
+                        orthographicSize = valid && camera.orthographic ? camera.orthographicSize : 0f;
+                    }
+
+                    public static CameraState Capture(Camera camera)
+                    {
+                        return new CameraState(camera);
+                    }
+
+                    public void Restore(Camera camera)
+                    {
+                        if (!valid || camera == null) return;
+                        camera.transform.SetPositionAndRotation(position, rotation);
+                        if (camera.orthographic && orthographicSize > 0f)
+                            camera.orthographicSize = orthographicSize;
+                    }
+                }
             }
         }
     }
