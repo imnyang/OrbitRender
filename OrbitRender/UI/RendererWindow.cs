@@ -309,7 +309,9 @@ namespace OrbitRender.UI
 
         private static void EnsureStyles()
         {
-            if (initialized) return;
+            if (initialized && backdrop != null && border != null && background != null
+                && progressTrack != null && progressFill != null && divider != null)
+                return;
             initialized = true;
             backdrop = Solid(DarkBackground);
             border = Rounded(DarkBorder, 48, 12);
@@ -385,7 +387,11 @@ namespace OrbitRender.UI
 
         private static Texture2D Solid(Color color)
         {
-            var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false) { name = "OrbitRender UI" };
+            // These textures are referenced by static IMGUI styles, not scene objects.
+            var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false) {
+                name = "OrbitRender UI",
+                hideFlags = HideFlags.DontUnloadUnusedAsset
+            };
             texture.SetPixel(0, 0, color);
             texture.Apply();
             return texture;
@@ -395,6 +401,7 @@ namespace OrbitRender.UI
         {
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) {
                 name = "OrbitRender Rounded UI",
+                hideFlags = HideFlags.DontUnloadUnusedAsset,
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear
             };

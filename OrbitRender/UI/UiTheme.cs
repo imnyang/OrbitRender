@@ -27,9 +27,14 @@ namespace OrbitRender.UI
 
         internal static GUISkin ScrollSkin(GUISkin source)
         {
-            if (scrollSkin != null && sourceScrollSkin == source) return scrollSkin;
+            if (scrollSkin != null && sourceScrollSkin == source
+                && scrollSkin.verticalScrollbar.normal.background != null
+                && scrollSkin.verticalScrollbarThumb.normal.background != null)
+                return scrollSkin;
             sourceScrollSkin = source;
             scrollSkin = Object.Instantiate(source);
+            // The editor reloads level assets after a render; keep this static IMGUI cache alive.
+            scrollSkin.hideFlags |= HideFlags.DontUnloadUnusedAsset;
 
             var track = Rounded(new Color(0.12f, 0.10f, 0.14f), 12, 6);
             var thumb = Rounded(new Color(0.40f, 0.36f, 0.43f), 12, 6);
@@ -73,7 +78,15 @@ namespace OrbitRender.UI
 
         private static void Ensure()
         {
-            if (window != null) return;
+            if (window != null && windowBackground != null
+                && windowBackground.normal.background != null
+                && button != null && button.normal.background != null
+                && primaryButton != null && primaryButton.normal.background != null
+                && textFieldStyle != null && textFieldStyle.normal.background != null
+                && toolbar != null && toolbar.onNormal.background != null
+                && switchOff != null && switchOn != null
+                && switchKnobOff != null && switchKnobOn != null)
+                return;
             var surface = Rounded(new Color(0.16f, 0.13f, 0.17f), 48, 11);
             var resting = Rounded(new Color(0.23f, 0.20f, 0.25f), 32, 7);
             var hovering = Rounded(new Color(0.31f, 0.27f, 0.33f), 32, 7);
@@ -154,8 +167,10 @@ namespace OrbitRender.UI
 
         private static Texture2D Rounded(Color color, int width, int height, int radius)
         {
+            // These textures are referenced by static IMGUI styles, not scene objects.
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false) {
                 name = "OrbitRender UI style",
+                hideFlags = HideFlags.DontUnloadUnusedAsset,
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear
             };
