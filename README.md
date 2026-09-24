@@ -51,6 +51,7 @@ Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mo
 | End delay | 2초 | 음악 또는 마지막 타일 이후 대기 |
 | Capture audio | 켜짐 | 게임 음악/오디오 캡처 |
 | 렌더 중 미리보기 표시 | 켜짐 | 렌더 중 게임 화면에 출력 프레임 표시 |
+| 저부하 미리보기 | 꺼짐 | 선택 시 최대 960×540 미리보기를 초당 15회 갱신. 출력 영상에는 영향 없음 |
 | BGA mode | 꺼짐 | 타일, 공, 힛사운드 없이 렌더 |
 | Show planet rings | 켜짐 | 행성 궤도 링 포함 |
 | Show song title | 켜짐 | 기본 곡 제목 텍스트 포함 |
@@ -124,6 +125,8 @@ console.log(job);
 ## 성능
 
 GPU readback과 FFmpeg 인코딩을 파이프라인으로 겹치며, raw 프레임을 임시 디스크 파일로 저장하지 않습니다. 완료 로그에는 게임 프레임, readback 대기/복사, encoder backpressure, 오디오 캡처, 최종 mux 시간이 분리되어 기록됩니다.
+
+출력 FPS가 게임 시뮬레이션 FPS보다 높을 때 같은 게임 프레임의 추가 GPU readback을 생략합니다. 완료 로그의 `Performance detail`에는 준비 시간, 매 프레임 표시 상태 관리, 미리보기·진행창 UI 호출 시간, 저부하 미리보기 복사, 인코더 버퍼 대기, 생략한 readback 수와 프로세스 메모리 피크가 기록됩니다. UI 및 미리보기 복사 시간은 CPU 호출 시간이며 GPU 실행 시간과는 다릅니다.
 
 일반 게임에서 200–500 FPS가 나오더라도 GPU readback, CPU 프레임 복사, 인코더 입력, 오디오 mux가 필요하므로 실제 렌더 완료 속도는 Video FPS와 다를 수 있습니다. Target FPS는 게임 시뮬레이션에, Video FPS는 최종 영상 스트림에 각각 적용되며, 비트레이트와 화질은 자동으로 낮추지 않습니다.
 

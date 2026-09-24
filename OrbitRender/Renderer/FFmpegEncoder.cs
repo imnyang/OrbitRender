@@ -13,6 +13,7 @@ namespace OrbitRender.Renderer
         {
             public readonly byte[] Bytes;
             public long Index;
+            public int RepeatCount = 1;
 
             public Frame(int byteCount) { Bytes = new byte[byteCount]; }
         }
@@ -28,7 +29,9 @@ namespace OrbitRender.Renderer
         public int QueueDepth => work.Count;
         public int PeakQueueDepth => Volatile.Read(ref peakQueueDepth);
         public int BufferCapacity => work.BoundedCapacity;
+        public long RepeatedFrames => Interlocked.Read(ref repeatedFrames);
         private long written;
+        private long repeatedFrames;
         private long writeTicks;
         private int peakQueueDepth;
 
@@ -129,10 +132,16 @@ namespace OrbitRender.Renderer
                 foreach (var frame in work.GetConsumingEnumerable())
                 {
                     if (frame.Index != WrittenFrames) throw new InvalidDataException("Frame ordering violation.");
-                    var writeStart = Stopwatch.GetTimestamp();
-                    stream.Write(frame.Bytes, 0, frame.Bytes.Length);
-                    Interlocked.Add(ref writeTicks, Stopwatch.GetTimestamp() - writeStart);
-                    Interlocked.Increment(ref written);
+                    if (frame.RepeatCount < 1) throw new InvalidDataException("Invalid frame repeat count.");
+                    for (var i = 0; i < frame.RepeatCount; i++)
+                    {
+                        var writeStart = Stopwatch.GetTimestamp();
+                        stream.Write(frame.Bytes, 0, frame.Bytes.Length);
+                        Interlocked.Add(ref writeTicks, Stopwatch.GetTimestamp() - writeStart);
+                        Interlocked.Increment(ref written);
+                    }
+                    if (frame.RepeatCount > 1) Interlocked.Add(ref repeatedFrames, frame.RepeatCount - 1);
+                    frame.RepeatCount = 1;
                     free.Add(frame);
                 }
                 stream.Flush();

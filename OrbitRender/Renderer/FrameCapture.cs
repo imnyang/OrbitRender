@@ -45,6 +45,7 @@ namespace OrbitRender.Renderer
             public void Reset(FFmpegEncoder.Frame frame, long submittedAt)
             {
                 Frame = frame;
+                Frame.RepeatCount = 1;
                 Request = default(AsyncGPUReadbackRequest);
                 Ready = false;
                 Error = null;
@@ -76,6 +77,7 @@ namespace OrbitRender.Renderer
         private readonly List<CameraState> cameras = new List<CameraState>();
         private readonly List<CanvasState> canvases = new List<CanvasState>();
         private readonly Queue<Pending> pending = new Queue<Pending>();
+        private Pending lastPending;
         private readonly Stack<Pending> reusable = new Stack<Pending>();
         private readonly FFmpegEncoder encoder;
         private readonly RenderTexture target;
@@ -100,13 +102,23 @@ namespace OrbitRender.Renderer
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
         private Texture2D fallback;
+        private RenderTexture lowLoadPreview;
+        private int previewScreenWidth, previewScreenHeight;
+        private double nextPreviewUpdate;
         private bool disposed;
         private long readbackWaitTicks;
         private long readbackCopyTicks;
         private long readbackLatencyTicks;
+        private long encoderBufferWaitTicks;
+        private long previewCopyTicks;
+        private long previewCopies;
         private int peakPending;
         public double BackpressureSeconds { get; private set; }
         internal Texture PreviewTexture => target;
+        internal Texture LowLoadPreviewTexture => lowLoadPreview != null ? lowLoadPreview : target;
+        public double EncoderBufferWaitSeconds => encoderBufferWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+        public double PreviewCopySeconds => previewCopyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+        public long PreviewCopies => previewCopies;
         public double ReadbackWaitSeconds => readbackWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackCopySeconds => readbackCopyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackLatencySeconds => readbackLatencyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -312,6 +324,7 @@ namespace OrbitRender.Renderer
         public void Capture(long index)
         {
             Drain(false);
+            lastPending = null;
             var source = SelectCaptureSource();
             if (!encoder.TryRent(out var buffer))
             {
@@ -319,11 +332,14 @@ namespace OrbitRender.Renderer
                 // Never yield a Unity frame under backpressure: that would advance
                 // tweens/particles while the song clock and output frame stand still.
                 Drain(true);
+                var rentStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 buffer = encoder.Rent();
+                encoderBufferWaitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - rentStart;
                 BackpressureSeconds += (System.Diagnostics.Stopwatch.GetTimestamp() - waitStart)
                     / (double)System.Diagnostics.Stopwatch.Frequency;
             }
             buffer.Index = index;
+            buffer.RepeatCount = 1;
             if (fallback != null)
             {
                 var previous = RenderTexture.active;
@@ -342,7 +358,42 @@ namespace OrbitRender.Renderer
             // Copy in the callback; Unity request data is only valid for one frame.
             frame.Request = AsyncGPUReadback.Request(source, 0, TextureFormat.RGBA32, frame.Complete);
             pending.Enqueue(frame);
+            lastPending = frame;
             if (pending.Count > peakPending) peakPending = pending.Count;
+        }
+        public bool TryRepeat(long index)
+        {
+            var frame = lastPending?.Frame;
+            if (frame == null || frame.Index + frame.RepeatCount != index) return false;
+            checked { frame.RepeatCount++; }
+            return true;
+        }
+
+        public void UpdateLowLoadPreview(double now)
+        {
+            var screenWidth = Screen.width;
+            var screenHeight = Screen.height;
+            if (screenWidth <= 0 || screenHeight <= 0) return;
+            if (lowLoadPreview == null || screenWidth != previewScreenWidth || screenHeight != previewScreenHeight)
+            {
+                if (lowLoadPreview != null) { lowLoadPreview.Release(); UnityEngine.Object.Destroy(lowLoadPreview); }
+                var scale = Math.Min(1.0, Math.Min(960.0 / width, Math.Min(540.0 / height,
+                    Math.Min(screenWidth / (double)width, screenHeight / (double)height))));
+                lowLoadPreview = new RenderTexture(Math.Max(1, (int)Math.Round(width * scale)),
+                    Math.Max(1, (int)Math.Round(height * scale)), 0, RenderTextureFormat.ARGB32) {
+                    name = "OrbitRender Low-load Preview", useMipMap = false, autoGenerateMips = false
+                };
+                if (!lowLoadPreview.Create()) throw new InvalidOperationException("Cannot allocate preview texture.");
+                previewScreenWidth = screenWidth;
+                previewScreenHeight = screenHeight;
+                nextPreviewUpdate = 0;
+            }
+            if (now < nextPreviewUpdate) return;
+            var start = System.Diagnostics.Stopwatch.GetTimestamp();
+            Graphics.Blit(target, lowLoadPreview);
+            previewCopyTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
+            previewCopies++;
+            nextPreviewUpdate = now + 1.0 / 15.0;
         }
         private RenderTexture SelectCaptureSource()
         {
@@ -401,6 +452,7 @@ namespace OrbitRender.Renderer
                 readbackLatencyTicks += frame.CompletedAt - frame.SubmittedAt;
                 encoder.Submit(frame.Frame);
                 pending.Dequeue();
+                if (lastPending == frame) lastPending = null;
                 reusable.Push(frame);
             }
         }
@@ -412,6 +464,7 @@ namespace OrbitRender.Renderer
             // when encoder failure/cancellation means their frames are discarded.
             foreach (var frame in pending) if (!frame.Ready) frame.Request.WaitForCompletion();
             pending.Clear();
+            lastPending = null;
             foreach (var state in cameras) if (state.Camera != null) {
                 state.Camera.targetTexture = state.Target;
                 state.Camera.cullingMask = state.CullingMask;
@@ -453,6 +506,7 @@ namespace OrbitRender.Renderer
             hudLayers.Clear();
             hudLayerObjects.Clear();
             if (fallback != null) UnityEngine.Object.Destroy(fallback);
+            if (lowLoadPreview != null) { lowLoadPreview.Release(); UnityEngine.Object.Destroy(lowLoadPreview); }
             if (customFrameHold != null) { customFrameHold.Release(); UnityEngine.Object.Destroy(customFrameHold); }
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
         }

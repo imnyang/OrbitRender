@@ -58,6 +58,13 @@ internal static class Program
             Assert(customMetadata.Contains("r_frame_rate=24/1")
                 && customMetadata.Contains("avg_frame_rate=24/1")
                 && customMetadata.Contains("nb_frames=24"), "Custom Video FPS was not preserved in the output stream.");
+            var duplicateBaseline = Path.Combine(args[1], "duplicate-baseline.mp4");
+            var duplicateGrouped = Path.Combine(args[1], "duplicate-grouped.mp4");
+            EncodeDuplicateFrames(args[0], duplicateBaseline, false);
+            EncodeDuplicateFrames(args[0], duplicateGrouped, true);
+            Assert(Probe(args[0], "-v error -i \"" + duplicateBaseline + "\" -f framemd5 -")
+                == Probe(args[0], "-v error -i \"" + duplicateGrouped + "\" -f framemd5 -"),
+                "Grouped repeated frames changed decoded pixels or timestamps.");
             using (var encoder = new FFmpegEncoder(args[0], Path.Combine(args[1], "bad-order.mp4")))
             {
                 var frame = encoder.Rent(); frame.Index = 1; encoder.Submit(frame);
@@ -92,7 +99,7 @@ internal static class Program
                 + offsetMuxed + "\"");
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
-            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, frame order, identical fast/slow video, failure, cancellation, AAC/Opus mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
+            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, failure, cancellation, AAC/Opus mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -115,6 +122,30 @@ internal static class Program
                 encoder.Submit(frame);
             }
             encoder.Finish(fps);
+        }
+    }
+
+    private static void EncodeDuplicateFrames(string ffmpeg, string output, bool grouped)
+    {
+        using (var encoder = new FFmpegEncoder(ffmpeg, output, 320, 180, 60, 4, "veryfast"))
+        {
+            for (var index = 0; index < 60; index += grouped ? 2 : 1)
+            {
+                var frame = encoder.Rent();
+                frame.Index = index;
+                frame.RepeatCount = grouped ? 2 : 1;
+                var sample = index / 2;
+                for (var pixel = 0; pixel < frame.Bytes.Length; pixel += 4)
+                {
+                    frame.Bytes[pixel] = (byte)(sample * 7);
+                    frame.Bytes[pixel + 1] = (byte)((pixel / (320 * 4)) & 255);
+                    frame.Bytes[pixel + 2] = (byte)(255 - sample * 7);
+                    frame.Bytes[pixel + 3] = 255;
+                }
+                encoder.Submit(frame);
+            }
+            encoder.Finish(60);
+            Assert(encoder.RepeatedFrames == (grouped ? 30 : 0), "Repeated-frame counter mismatch.");
         }
     }
 

@@ -97,6 +97,9 @@ namespace OrbitRender
         [Draw("Show render preview", DrawType.Toggle)]
         public bool ShowRenderPreview = true;
 
+        [Draw("Low-load preview", DrawType.Toggle)]
+        public bool LowLoadRenderPreview = false;
+
         [Draw("BGA mode (hide tiles, planets & hit sounds)", DrawType.Toggle)]
         public bool BgaMode = false;
 
@@ -178,6 +181,7 @@ namespace OrbitRender
             EndDelaySeconds = 2f;
             CaptureAudio = true;
             ShowRenderPreview = true;
+            LowLoadRenderPreview = false;
             BgaMode = false;
             ShowPlanetRings = true;
             ShowSongTitle = true;

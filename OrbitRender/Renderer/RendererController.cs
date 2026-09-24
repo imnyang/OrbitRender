@@ -49,7 +49,8 @@ namespace OrbitRender.Renderer
         public string SpeedText { get; private set; } = "";
         public string OutputPath { get; private set; } = "";
         public string FFmpegPath = "";
-        internal Texture RenderPreviewTexture => capture != null ? capture.PreviewTexture : null;
+        internal Texture RenderPreviewTexture => capture == null ? null
+            : lowLoadPreviewForRun ? capture.LowLoadPreviewTexture : capture.PreviewTexture;
         private readonly System.Diagnostics.Stopwatch renderTimer = new System.Diagnostics.Stopwatch();
         public double GenerationFps => renderTimer.Elapsed.TotalSeconds > 0 ? CapturedFrames / renderTimer.Elapsed.TotalSeconds : 0;
         public double ElapsedSeconds => renderTimer.Elapsed.TotalSeconds;
@@ -118,6 +119,8 @@ namespace OrbitRender.Renderer
         private double scheduledMusicLengthSeconds;
         private float toastUntil;
         private bool captureAudioForRun;
+        private bool showPreviewForRun;
+        private bool lowLoadPreviewForRun;
         private bool audioRealtimePacing;
         private double audioPacingOrigin;
         private long latePlaySoundSchedules;
@@ -133,6 +136,10 @@ namespace OrbitRender.Renderer
         private bool processPriorityChanged;
         private System.Diagnostics.ProcessPriorityClass processPriorityBefore;
         private long gameFrameTicks;
+        private long preparationStartTicks, preparationTicks;
+        private long bgaTicks, ringTicks, textTicks, cameraBindTicks;
+        private long previewUiTicks, progressUiTicks;
+        private long peakWorkingSetBytes;
         private long finalizationTicks;
         private long tailExtensionFrames;
         private readonly ConcurrentQueue<object> rpcCommands = new ConcurrentQueue<object>();
@@ -190,6 +197,9 @@ namespace OrbitRender.Renderer
             CaptureWaitSeconds = 0;
             ProgressPercentText = ProgressText = EtaText = SpeedText = "";
             gameFrameTicks = 0;
+            preparationStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            preparationTicks = bgaTicks = ringTicks = textTicks = cameraBindTicks = 0;
+            previewUiTicks = progressUiTicks = peakWorkingSetBytes = 0;
             finalizationTicks = 0;
             tailExtensionFrames = 0;
             timelineFramesForRun = 0;
@@ -200,6 +210,9 @@ namespace OrbitRender.Renderer
             escapeHeldAt = -1f;
             forceCancelTriggered = false;
             var settings = Main.Settings ?? new RendererSettings();
+            showPreviewForRun = requestOptions?.ShowRenderPreview ?? settings.ShowRenderPreview;
+            lowLoadPreviewForRun = showPreviewForRun
+                && (requestOptions?.LowLoadRenderPreview ?? settings.LowLoadRenderPreview);
             var rpcOptions = activeRpcJob != null ? activeRpcJob.Options : null;
             bgaModeForRun = requestOptions?.BgaMode ?? rpcOptions?.BgaMode ?? settings.BgaMode;
             showPlanetRingsForRun = requestOptions?.ShowPlanetRings ?? rpcOptions?.ShowPlanetRings
@@ -552,6 +565,7 @@ namespace OrbitRender.Renderer
                 Main.Entry.Logger.Log("BGA mode enabled: hidden renderers=" + bga.HiddenRendererCount);
             }
             State = RenderState.Rendering;
+            preparationTicks = System.Diagnostics.Stopwatch.GetTimestamp() - preparationStartTicks;
             renderTimer.Start();
             ApplyFramePacing();
             Message = Localization.FormatWithCurrentCulture("rendering-summary", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps);
@@ -562,6 +576,7 @@ namespace OrbitRender.Renderer
             // simulated but not encoded.
             var hasRenderedGameFrame = false;
             long timelineFrame = 0;
+            long lastCapturedSimulationIndex = -1;
             while (true)
             {
                 var desiredSimulationFrame = SimulationFrameForVideoFrame(timelineFrame);
@@ -606,7 +621,11 @@ namespace OrbitRender.Renderer
                 }
                 if (!selectionStartTileForRun.HasValue || timelineFrame >= selectionStartFrameForRun)
                 {
-                    capture.Capture(CapturedFrames);
+                    if (Clock.FrameIndex != lastCapturedSimulationIndex || !capture.TryRepeat(CapturedFrames))
+                        capture.Capture(CapturedFrames);
+                    lastCapturedSimulationIndex = Clock.FrameIndex;
+                    if (lowLoadPreviewForRun)
+                        capture.UpdateLowLoadPreview(Time.realtimeSinceStartupAsDouble);
                     CaptureWaitSeconds = capture.BackpressureSeconds;
                     CapturedFrames++;
                 }
@@ -619,6 +638,10 @@ namespace OrbitRender.Renderer
                 if (elapsed >= nextProgressUpdateAt)
                 {
                     ShowProgressToast();
+                    try {
+                        using (var process = System.Diagnostics.Process.GetCurrentProcess())
+                            peakWorkingSetBytes = Math.Max(peakWorkingSetBytes, process.WorkingSet64);
+                    } catch { }
                     nextProgressUpdateAt = elapsed + 0.25;
                 }
                 if (selectionStartTileForRun.HasValue)
@@ -698,6 +721,16 @@ namespace OrbitRender.Renderer
             if (latePlaySoundSchedules > 0)
                 Main.Entry.Logger.Log("Adjusted " + latePlaySoundSchedules
                     + " late Play Sound Effect schedule(s) to the next captured audio sample.");
+            Main.Entry.Logger.Log(string.Format("Performance detail: prepare={0:F2}s, bga={1:F2}s, rings={2:F2}s, text={3:F2}s, cameraBind={4:F2}s, previewUI={5:F2}s, progressUI={6:F2}s, previewCopy={7:F2}s/{8} copies, encoderBufferWait={9:F2}s, repeatedReadbacksAvoided={10}, processWorkingSetPeak={11:F1} MiB.",
+                preparationTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                bgaTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                ringTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                textTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                cameraBindTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                previewUiTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                progressUiTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                capture.PreviewCopySeconds, capture.PreviewCopies, capture.EncoderBufferWaitSeconds,
+                encoder.RepeatedFrames, peakWorkingSetBytes / (1024.0 * 1024.0)));
             if (openOutputFolderForRun) OpenOutputFolder();
         }
 
@@ -1099,7 +1132,23 @@ namespace OrbitRender.Renderer
         private void LateUpdate()
         {
             if (State != RenderState.Rendering) return;
-            try { bga?.Apply(); planetRings?.Apply(); defaultText?.Apply(); ApplyFramePacing(); capture.Bind(); }
+            try
+            {
+                var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                bga?.Apply();
+                var next = System.Diagnostics.Stopwatch.GetTimestamp();
+                bgaTicks += next - start;
+                planetRings?.Apply();
+                start = System.Diagnostics.Stopwatch.GetTimestamp();
+                ringTicks += start - next;
+                defaultText?.Apply();
+                next = System.Diagnostics.Stopwatch.GetTimestamp();
+                textTicks += next - start;
+                ApplyFramePacing();
+                next = System.Diagnostics.Stopwatch.GetTimestamp();
+                capture.Bind();
+                cameraBindTicks += System.Diagnostics.Stopwatch.GetTimestamp() - next;
+            }
             catch (Exception ex) { Fail(ex); StopAndClean(); }
         }
         private void Update()
@@ -1176,10 +1225,12 @@ namespace OrbitRender.Renderer
             }
             if (State == RenderState.Rendering && Event.current.type == EventType.Repaint)
             {
-                if (Main.Settings == null || Main.Settings.ShowRenderPreview)
+                var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (showPreviewForRun)
                     OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
                 else
                     OrbitRender.UI.RendererWindow.DrawBackdrop();
+                previewUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - previewStart;
             }
             // Rendering temporarily owns the gameplay cameras and editor
             // overlays. Cover the presentation surface so a camera or canvas
@@ -1192,7 +1243,10 @@ namespace OrbitRender.Renderer
                 return;
             }
             if (!ToastVisible) return;
+            var progressStart = System.Diagnostics.Stopwatch.GetTimestamp();
             OrbitRender.UI.RendererWindow.DrawToast(this);
+            if (State == RenderState.Rendering)
+                progressUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - progressStart;
         }
         private void MaximizeRenderPerformance()
         {
