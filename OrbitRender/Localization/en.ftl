@@ -18,7 +18,6 @@ video-fps = Video FPS
 end-delay-seconds = End delay (seconds)
 capture-audio = Capture audio
 show-render-preview = Show preview while rendering
-low-load-render-preview = Low-load preview (15 FPS)
 bga-mode-hide-tiles-planets-hit-sounds = BGA mode (hide tiles, planets & hit sounds)
 open-output-folder-after-render = Open output folder after render
 show-planet-rings = Show planet rings

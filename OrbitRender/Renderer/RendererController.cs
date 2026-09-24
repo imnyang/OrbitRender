@@ -49,8 +49,7 @@ namespace OrbitRender.Renderer
         public string SpeedText { get; private set; } = "";
         public string OutputPath { get; private set; } = "";
         public string FFmpegPath = "";
-        internal Texture RenderPreviewTexture => capture == null ? null
-            : lowLoadPreviewForRun ? capture.LowLoadPreviewTexture : capture.PreviewTexture;
+        internal Texture RenderPreviewTexture => capture != null ? capture.PreviewTexture : null;
         private readonly System.Diagnostics.Stopwatch renderTimer = new System.Diagnostics.Stopwatch();
         public double GenerationFps => renderTimer.Elapsed.TotalSeconds > 0 ? CapturedFrames / renderTimer.Elapsed.TotalSeconds : 0;
         public double ElapsedSeconds => renderTimer.Elapsed.TotalSeconds;
@@ -120,7 +119,6 @@ namespace OrbitRender.Renderer
         private float toastUntil;
         private bool captureAudioForRun;
         private bool showPreviewForRun;
-        private bool lowLoadPreviewForRun;
         private bool audioRealtimePacing;
         private double audioPacingOrigin;
         private long latePlaySoundSchedules;
@@ -211,8 +209,6 @@ namespace OrbitRender.Renderer
             forceCancelTriggered = false;
             var settings = Main.Settings ?? new RendererSettings();
             showPreviewForRun = requestOptions?.ShowRenderPreview ?? settings.ShowRenderPreview;
-            lowLoadPreviewForRun = showPreviewForRun
-                && (requestOptions?.LowLoadRenderPreview ?? settings.LowLoadRenderPreview);
             var rpcOptions = activeRpcJob != null ? activeRpcJob.Options : null;
             bgaModeForRun = requestOptions?.BgaMode ?? rpcOptions?.BgaMode ?? settings.BgaMode;
             showPlanetRingsForRun = requestOptions?.ShowPlanetRings ?? rpcOptions?.ShowPlanetRings
@@ -624,8 +620,6 @@ namespace OrbitRender.Renderer
                     if (Clock.FrameIndex != lastCapturedSimulationIndex || !capture.TryRepeat(CapturedFrames))
                         capture.Capture(CapturedFrames);
                     lastCapturedSimulationIndex = Clock.FrameIndex;
-                    if (lowLoadPreviewForRun)
-                        capture.UpdateLowLoadPreview(Time.realtimeSinceStartupAsDouble);
                     CaptureWaitSeconds = capture.BackpressureSeconds;
                     CapturedFrames++;
                 }
@@ -721,7 +715,7 @@ namespace OrbitRender.Renderer
             if (latePlaySoundSchedules > 0)
                 Main.Entry.Logger.Log("Adjusted " + latePlaySoundSchedules
                     + " late Play Sound Effect schedule(s) to the next captured audio sample.");
-            Main.Entry.Logger.Log(string.Format("Performance detail: prepare={0:F2}s, bga={1:F2}s, rings={2:F2}s, text={3:F2}s, cameraBind={4:F2}s, previewUI={5:F2}s, progressUI={6:F2}s, previewCopy={7:F2}s/{8} copies, encoderBufferWait={9:F2}s, repeatedReadbacksAvoided={10}, processWorkingSetPeak={11:F1} MiB.",
+            Main.Entry.Logger.Log(string.Format("Performance detail: prepare={0:F2}s, bga={1:F2}s, rings={2:F2}s, text={3:F2}s, cameraBind={4:F2}s, previewUI={5:F2}s, progressUI={6:F2}s, encoderBufferWait={7:F2}s, repeatedReadbacksAvoided={8}, processWorkingSetPeak={9:F1} MiB.",
                 preparationTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 bgaTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 ringTicks / (double)System.Diagnostics.Stopwatch.Frequency,
@@ -729,7 +723,7 @@ namespace OrbitRender.Renderer
                 cameraBindTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 previewUiTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 progressUiTicks / (double)System.Diagnostics.Stopwatch.Frequency,
-                capture.PreviewCopySeconds, capture.PreviewCopies, capture.EncoderBufferWaitSeconds,
+                capture.EncoderBufferWaitSeconds,
                 encoder.RepeatedFrames, peakWorkingSetBytes / (1024.0 * 1024.0)));
             if (openOutputFolderForRun) OpenOutputFolder();
         }

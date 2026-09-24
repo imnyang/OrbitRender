@@ -143,9 +143,6 @@ namespace OrbitRender.UI
                     Localization.Get("capture-audio"));
                 draft.ShowRenderPreview = UiTheme.DrawToggle(draft.ShowRenderPreview,
                     Localization.Get("show-render-preview"));
-                if (draft.ShowRenderPreview)
-                    draft.LowLoadRenderPreview = UiTheme.DrawToggle(draft.LowLoadRenderPreview,
-                        Localization.Get("low-load-render-preview"));
                 draft.BgaMode = UiTheme.DrawToggle(draft.BgaMode,
                     Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"));
                 draft.OpenOutputFolder = UiTheme.DrawToggle(draft.OpenOutputFolder,
@@ -273,7 +270,6 @@ namespace OrbitRender.UI
             internal string EndDelayText;
             internal bool CaptureAudio;
             internal bool ShowRenderPreview;
-            internal bool LowLoadRenderPreview;
             internal bool BgaMode;
             internal bool ShowPlanetRings;
             internal bool ShowSongTitle;
@@ -299,7 +295,6 @@ namespace OrbitRender.UI
                     EndDelayText = settings.EndDelaySeconds.ToString("0.##", CultureInfo.InvariantCulture),
                     CaptureAudio = settings.CaptureAudio,
                     ShowRenderPreview = settings.ShowRenderPreview,
-                    LowLoadRenderPreview = settings.LowLoadRenderPreview,
                     BgaMode = settings.BgaMode,
                     ShowPlanetRings = settings.ShowPlanetRings,
                     ShowSongTitle = settings.ShowSongTitle,
@@ -372,7 +367,6 @@ namespace OrbitRender.UI
                     EndDelaySeconds = endDelay,
                     CaptureAudio = CaptureAudio,
                     ShowRenderPreview = ShowRenderPreview,
-                    LowLoadRenderPreview = LowLoadRenderPreview,
                     BgaMode = BgaMode,
                     ShowPlanetRings = ShowPlanetRings,
                     ShowSongTitle = ShowSongTitle,
@@ -410,7 +404,6 @@ namespace OrbitRender.UI
                 settings.EndDelaySeconds = options.EndDelaySeconds.Value;
                 settings.CaptureAudio = CaptureAudio;
                 settings.ShowRenderPreview = ShowRenderPreview;
-                settings.LowLoadRenderPreview = LowLoadRenderPreview;
                 settings.BgaMode = BgaMode;
                 settings.ShowPlanetRings = ShowPlanetRings;
                 settings.ShowSongTitle = ShowSongTitle;

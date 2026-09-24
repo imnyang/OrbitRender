@@ -45,7 +45,6 @@ On startup, the mod checks GitHub's latest stable release. Drafts and pre-releas
 | End delay | 2 seconds | Delay after the later of music or final tile |
 | Capture audio | On | Capture game audio |
 | Show preview while rendering | On | Show output frames on the game screen during rendering |
-| Low-load preview | Off | Optional 15 FPS preview capped at 960×540; does not change the encoded video |
 | BGA mode | Off | Render without tiles, planets, or hit sounds |
 | Show planet rings | On | Include planet orbit rings |
 | Show song title | On | Include the level's default title text |

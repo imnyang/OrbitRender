@@ -102,23 +102,15 @@ namespace OrbitRender.Renderer
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
         private Texture2D fallback;
-        private RenderTexture lowLoadPreview;
-        private int previewScreenWidth, previewScreenHeight;
-        private double nextPreviewUpdate;
         private bool disposed;
         private long readbackWaitTicks;
         private long readbackCopyTicks;
         private long readbackLatencyTicks;
         private long encoderBufferWaitTicks;
-        private long previewCopyTicks;
-        private long previewCopies;
         private int peakPending;
         public double BackpressureSeconds { get; private set; }
         internal Texture PreviewTexture => target;
-        internal Texture LowLoadPreviewTexture => lowLoadPreview != null ? lowLoadPreview : target;
         public double EncoderBufferWaitSeconds => encoderBufferWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
-        public double PreviewCopySeconds => previewCopyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
-        public long PreviewCopies => previewCopies;
         public double ReadbackWaitSeconds => readbackWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackCopySeconds => readbackCopyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackLatencySeconds => readbackLatencyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -369,32 +361,6 @@ namespace OrbitRender.Renderer
             return true;
         }
 
-        public void UpdateLowLoadPreview(double now)
-        {
-            var screenWidth = Screen.width;
-            var screenHeight = Screen.height;
-            if (screenWidth <= 0 || screenHeight <= 0) return;
-            if (lowLoadPreview == null || screenWidth != previewScreenWidth || screenHeight != previewScreenHeight)
-            {
-                if (lowLoadPreview != null) { lowLoadPreview.Release(); UnityEngine.Object.Destroy(lowLoadPreview); }
-                var scale = Math.Min(1.0, Math.Min(960.0 / width, Math.Min(540.0 / height,
-                    Math.Min(screenWidth / (double)width, screenHeight / (double)height))));
-                lowLoadPreview = new RenderTexture(Math.Max(1, (int)Math.Round(width * scale)),
-                    Math.Max(1, (int)Math.Round(height * scale)), 0, RenderTextureFormat.ARGB32) {
-                    name = "OrbitRender Low-load Preview", useMipMap = false, autoGenerateMips = false
-                };
-                if (!lowLoadPreview.Create()) throw new InvalidOperationException("Cannot allocate preview texture.");
-                previewScreenWidth = screenWidth;
-                previewScreenHeight = screenHeight;
-                nextPreviewUpdate = 0;
-            }
-            if (now < nextPreviewUpdate) return;
-            var start = System.Diagnostics.Stopwatch.GetTimestamp();
-            Graphics.Blit(target, lowLoadPreview);
-            previewCopyTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
-            previewCopies++;
-            nextPreviewUpdate = now + 1.0 / 15.0;
-        }
         private RenderTexture SelectCaptureSource()
         {
             if (!FrameRateEventPatch.Enabled || FrameRateEventPatch.FrameRate <= 0f)
@@ -506,7 +472,6 @@ namespace OrbitRender.Renderer
             hudLayers.Clear();
             hudLayerObjects.Clear();
             if (fallback != null) UnityEngine.Object.Destroy(fallback);
-            if (lowLoadPreview != null) { lowLoadPreview.Release(); UnityEngine.Object.Destroy(lowLoadPreview); }
             if (customFrameHold != null) { customFrameHold.Release(); UnityEngine.Object.Destroy(customFrameHold); }
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
         }
