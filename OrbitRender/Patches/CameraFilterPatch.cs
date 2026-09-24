@@ -43,7 +43,9 @@ namespace OrbitRender.Patches
 
         private static void Prefix(CameraFilterPack_Blur_Movie __instance)
         {
-            if (__instance == null || __instance.FastFilter > 0) return;
+            // Negative values are intentional for some levels and produce a
+            // distinct filter effect. Only zero needs the fallback divisor.
+            if (__instance == null || __instance.FastFilter != 0) return;
             // The filter's own default is 2. A zero value can be produced by
             // a level event that omits the integer property; use the same
             // valid default instead of changing the filter's resolution to a
