@@ -99,6 +99,7 @@ namespace OrbitRender.Renderer
         private int hudLayer;
         private int hudMask;
         private float hudOverlayDepth;
+        private Vector3 hudOverlayPosition;
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
         private Texture2D fallback;
@@ -123,8 +124,8 @@ namespace OrbitRender.Renderer
             public int Layer;
         }
 
-        public FrameCapture(FFmpegEncoder encoder, int width, int height, Canvas defaultTextCanvas = null,
-            GameObject hitTextContainer = null)
+        public FrameCapture(FFmpegEncoder encoder, int width, int height,
+            IEnumerable<Canvas> captureCanvases = null)
         {
             this.encoder = encoder;
             this.width = width;
@@ -153,16 +154,20 @@ namespace OrbitRender.Renderer
                 // it again would feed our own output back into itself.
                 if (gameCamera.Overlaycam != null) gameCamera.Overlaycam.gameObject.SetActive(false);
                 if (gameCamera.quad != null) gameCamera.quad.SetActive(false);
-                if (defaultTextCanvas != null)
-                    CreateHudOverlay(defaultTextCanvas, hitTextContainer);
+                var captureCanvasSet = new HashSet<Canvas>();
+                if (captureCanvases != null)
+                    foreach (var canvas in captureCanvases)
+                        if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
+                if (captureCanvasSet.Count > 0)
+                    CreateHudOverlay(captureCanvasSet);
                 foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
                 {
                     // Keep world-space level decorations; exclude editor/game HUD
                     // and third-party screen-space overlays from the three cameras.
-                    // The selected default text is rendered by the separate
+                    // The selected HUD canvas is rendered by the separate
                     // overlay camera so filters cannot affect it.
                     if (!canvas.isRootCanvas || canvas.renderMode == RenderMode.WorldSpace) continue;
-                    var captureCanvas = canvas == defaultTextCanvas;
+                    var captureCanvas = captureCanvasSet.Contains(canvas);
                     canvases.Add(new CanvasState {
                         Canvas = canvas,
                         Enabled = canvas.enabled,
@@ -208,15 +213,19 @@ namespace OrbitRender.Renderer
             canvas.enabled = true;
         }
 
-        private void CreateHudOverlay(Canvas defaultTextCanvas, GameObject hitTextContainer)
+        private void CreateHudOverlay(IEnumerable<Canvas> captureCanvases)
         {
             hudLayer = FindUnusedLayer();
             hudMask = 1 << hudLayer;
-            AssignLayerRecursively(defaultTextCanvas.gameObject, hitTextContainer);
+            // Every selected root canvas belongs to the HUD. Leaving a
+            // countdown canvas on a gameplay layer lets Hall of Mirrors retain
+            // it through the background camera.
+            foreach (var canvas in captureCanvases)
+                if (canvas != null) AssignLayerRecursively(canvas.gameObject);
 
-            // Keep selected default text out of the source that level filters
-            // process. The hit-judgment container is deliberately excluded so
-            // the normal gameplay cameras still apply zoom/distortion filters.
+            // Keep every HUD graphic out of the source that level filters
+            // process. The overlay camera composites it after the gameplay
+            // cameras have finished rendering.
             foreach (var state in cameras)
                 if (state.Camera != null) state.Camera.cullingMask &= ~hudMask;
 
@@ -224,6 +233,9 @@ namespace OrbitRender.Renderer
             hudOverlayObject.hideFlags = HideFlags.HideAndDontSave;
             hudOverlayCamera = hudOverlayObject.AddComponent<Camera>();
             hudOverlayCamera.CopyFrom(gameCamera.camobj);
+            hudOverlayPosition = gameCamera.camobj.transform.position;
+            hudOverlayCamera.transform.SetPositionAndRotation(hudOverlayPosition, Quaternion.identity);
+            hudOverlayCamera.aspect = width / (float)height;
             hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
             hudOverlayCamera.cullingMask = hudMask;
             hudOverlayDepth = MaxCameraDepth() + 1f;
@@ -253,14 +265,11 @@ namespace OrbitRender.Renderer
             throw new InvalidOperationException("No unused Unity layer is available for the HUD overlay.");
         }
 
-        private void AssignLayerRecursively(GameObject root, GameObject excludedSubtree)
+        private void AssignLayerRecursively(GameObject root)
         {
             if (root == null) return;
             foreach (var child in root.GetComponentsInChildren<Transform>(true))
             {
-                if (excludedSubtree != null
-                    && (child == excludedSubtree.transform || child.IsChildOf(excludedSubtree.transform)))
-                    continue;
                 var gameObject = child.gameObject;
                 if (!hudLayerObjects.Add(gameObject)) continue;
                 hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
@@ -271,11 +280,11 @@ namespace OrbitRender.Renderer
         private void SyncHudOverlayCamera()
         {
             if (hudOverlayCamera == null || gameCamera == null || gameCamera.camobj == null) return;
-            var source = gameCamera.camobj;
-            hudOverlayCamera.CopyFrom(source);
-            // This canvas is screen-space UI, so its camera must stay aligned
-            // with the output instead of inheriting the gameplay camera's rotation.
-            hudOverlayCamera.transform.SetPositionAndRotation(source.transform.position, Quaternion.identity);
+            // Keep the HUD projection fixed. Copying the gameplay camera every
+            // frame makes zoom, movement, and Hall of Mirrors state leak into
+            // screen-space text even though it is on a separate layer.
+            hudOverlayCamera.transform.SetPositionAndRotation(hudOverlayPosition, Quaternion.identity);
+            hudOverlayCamera.aspect = width / (float)height;
             hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
             hudOverlayCamera.cullingMask = hudMask;
             hudOverlayCamera.depth = hudOverlayDepth;

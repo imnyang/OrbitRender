@@ -548,8 +548,7 @@ namespace OrbitRender.Renderer
             LogRenderChain("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun);
-            capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvas,
-                defaultText.HitTextContainer);
+            capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvases);
             if (!showPlanetRingsForRun)
             {
                 planetRings = PlanetRingRenderState.Capture();
