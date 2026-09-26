@@ -8,6 +8,24 @@ namespace OrbitRender.Renderer
 {
     internal sealed class FrameCapture : IDisposable
     {
+        internal static RawVideoPixelFormat SelectRawPixelFormat()
+        {
+            try
+            {
+                // RGB24 discards only the already-rendered alpha channel. The
+                // encoded video has no alpha plane, so RGB values remain exact
+                // while readback and pipe traffic drop from four bytes to three
+                // bytes per pixel. Keep RGBA for devices that cannot expose the
+                // conversion format.
+                return SystemInfo.SupportsTextureFormat(TextureFormat.RGB24)
+                    ? RawVideoPixelFormat.Rgb24 : RawVideoPixelFormat.Rgba32;
+            }
+            catch
+            {
+                return RawVideoPixelFormat.Rgba32;
+            }
+        }
+
         private sealed class CameraState
         {
             public Camera Camera;
@@ -92,6 +110,7 @@ namespace OrbitRender.Renderer
         private readonly Vector2 originalOffset;
         private readonly int originalPositionStateInt;
         private readonly PositionState originalPositionState;
+        private readonly TextureFormat readbackFormat;
         private readonly bool overlayActive, quadActive;
         private readonly int mainMask;
         private Camera hudOverlayCamera;
@@ -108,6 +127,9 @@ namespace OrbitRender.Renderer
         private long readbackCopyTicks;
         private long readbackLatencyTicks;
         private long encoderBufferWaitTicks;
+        private long bindCalls;
+        private long bindPropertyWrites;
+        private bool measuringBind;
         private int peakPending;
         public double BackpressureSeconds { get; private set; }
         internal Texture PreviewTexture => target;
@@ -117,6 +139,9 @@ namespace OrbitRender.Renderer
         public double ReadbackLatencySeconds => readbackLatencyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public int PendingReadbacks => pending.Count;
         public int PeakPendingReadbacks => peakPending;
+        public long BindCalls => bindCalls;
+        public long BindPropertyWrites => bindPropertyWrites;
+        internal string RawFrameFormat => readbackFormat == TextureFormat.RGB24 ? "rgb24" : "rgba";
 
         private sealed class LayerState
         {
@@ -130,6 +155,8 @@ namespace OrbitRender.Renderer
             this.encoder = encoder;
             this.width = width;
             this.height = height;
+            readbackFormat = encoder.RawPixelFormat == RawVideoPixelFormat.Rgb24
+                ? TextureFormat.RGB24 : TextureFormat.RGBA32;
             gameCamera = scrCamera.instance;
             if (gameCamera == null || gameCamera.Bgcamstatic == null || gameCamera.BGcam == null || gameCamera.camobj == null)
                 throw new InvalidOperationException("ADOFAI camera chain is not available.");
@@ -180,7 +207,7 @@ namespace OrbitRender.Renderer
                     else canvas.enabled = false;
                 }
                 if (!SystemInfo.supportsAsyncGPUReadback)
-                    fallback = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                    fallback = new Texture2D(width, height, readbackFormat, false);
                 Bind();
             }
             catch { Dispose(); throw; }
@@ -206,11 +233,33 @@ namespace OrbitRender.Renderer
 
         private void ConfigureCaptureCanvas(Canvas canvas, Camera renderCamera)
         {
-            canvas.renderMode = RenderMode.ScreenSpaceCamera;
-            canvas.worldCamera = renderCamera;
-            canvas.planeDistance = Mathf.Max(renderCamera.nearClipPlane + 0.01f, 1f);
-            renderCamera.cullingMask |= 1 << canvas.gameObject.layer;
-            canvas.enabled = true;
+            var planeDistance = Mathf.Max(renderCamera.nearClipPlane + 0.01f, 1f);
+            if (canvas.renderMode != RenderMode.ScreenSpaceCamera)
+            {
+                canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                RecordBindWrite();
+            }
+            if (canvas.worldCamera != renderCamera)
+            {
+                canvas.worldCamera = renderCamera;
+                RecordBindWrite();
+            }
+            if (!Mathf.Approximately(canvas.planeDistance, planeDistance))
+            {
+                canvas.planeDistance = planeDistance;
+                RecordBindWrite();
+            }
+            var canvasLayerMask = 1 << canvas.gameObject.layer;
+            if ((renderCamera.cullingMask & canvasLayerMask) == 0)
+            {
+                renderCamera.cullingMask |= canvasLayerMask;
+                RecordBindWrite();
+            }
+            if (!canvas.enabled)
+            {
+                canvas.enabled = true;
+                RecordBindWrite();
+            }
         }
 
         private void CreateHudOverlay(IEnumerable<Canvas> captureCanvases)
@@ -283,44 +332,110 @@ namespace OrbitRender.Renderer
             // Keep the HUD projection fixed. Copying the gameplay camera every
             // frame makes zoom, movement, and Hall of Mirrors state leak into
             // screen-space text even though it is on a separate layer.
-            hudOverlayCamera.transform.SetPositionAndRotation(hudOverlayPosition, Quaternion.identity);
-            hudOverlayCamera.aspect = width / (float)height;
-            hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
-            hudOverlayCamera.cullingMask = hudMask;
-            hudOverlayCamera.depth = hudOverlayDepth;
-            hudOverlayCamera.targetTexture = target;
-            hudOverlayCamera.enabled = true;
+            if (hudOverlayCamera.transform.position != hudOverlayPosition
+                || hudOverlayCamera.transform.rotation != Quaternion.identity)
+            {
+                hudOverlayCamera.transform.SetPositionAndRotation(hudOverlayPosition, Quaternion.identity);
+                RecordBindWrite();
+            }
+            var targetAspect = width / (float)height;
+            if (!Mathf.Approximately(hudOverlayCamera.aspect, targetAspect))
+            {
+                hudOverlayCamera.aspect = targetAspect;
+                RecordBindWrite();
+            }
+            if (hudOverlayCamera.clearFlags != CameraClearFlags.Depth)
+            {
+                hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
+                RecordBindWrite();
+            }
+            if (hudOverlayCamera.cullingMask != hudMask)
+            {
+                hudOverlayCamera.cullingMask = hudMask;
+                RecordBindWrite();
+            }
+            if (!Mathf.Approximately(hudOverlayCamera.depth, hudOverlayDepth))
+            {
+                hudOverlayCamera.depth = hudOverlayDepth;
+                RecordBindWrite();
+            }
+            if (hudOverlayCamera.targetTexture != target)
+            {
+                hudOverlayCamera.targetTexture = target;
+                RecordBindWrite();
+            }
+            if (!hudOverlayCamera.enabled)
+            {
+                hudOverlayCamera.enabled = true;
+                RecordBindWrite();
+            }
         }
 
         public void Bind()
         {
-            if (gameCamera.Overlaycam != null && gameCamera.Overlaycam.gameObject.activeSelf)
-                gameCamera.Overlaycam.gameObject.SetActive(false);
-            if (gameCamera.quad != null && gameCamera.quad.activeSelf)
-                gameCamera.quad.SetActive(false);
-            foreach (var state in canvases)
+            bindCalls++;
+            measuringBind = true;
+            try
             {
-                if (state.Canvas == null) continue;
-                if (state.Capture) ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
-                else if (state.Canvas.enabled) state.Canvas.enabled = false;
+                if (gameCamera.Overlaycam != null && gameCamera.Overlaycam.gameObject.activeSelf)
+                {
+                    gameCamera.Overlaycam.gameObject.SetActive(false);
+                    RecordBindWrite();
+                }
+                if (gameCamera.quad != null && gameCamera.quad.activeSelf)
+                {
+                    gameCamera.quad.SetActive(false);
+                    RecordBindWrite();
+                }
+                foreach (var state in canvases)
+                {
+                    if (state.Canvas == null) continue;
+                    if (state.Capture) ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
+                    else if (state.Canvas.enabled)
+                    {
+                        state.Canvas.enabled = false;
+                        RecordBindWrite();
+                    }
+                }
+                foreach (var state in cameras)
+                {
+                    if (state.Camera == null) throw new InvalidOperationException("A render camera was destroyed.");
+                    // Own the camera output for the duration of the render. The old
+                    // path let Unity draw these cameras to the game window and then
+                    // called Camera.Render again into this texture, doubling the
+                    // scene-rendering work for every encoded frame. RendererController
+                    // calls Bind from its last LateUpdate, immediately before Unity's
+                    // normal camera pass, so that pass can be captured directly.
+                    if (state.Camera.targetTexture != target)
+                    {
+                        state.Camera.targetTexture = target;
+                        RecordBindWrite();
+                    }
+                    var targetAspect = width / (float)height;
+                    if (!Mathf.Approximately(state.Camera.aspect, targetAspect))
+                    {
+                        state.Camera.aspect = targetAspect;
+                        RecordBindWrite();
+                    }
+                    // Camera.Render ignored the component's enabled flag on the old
+                    // manual path; keep that behavior while using the automatic pass.
+                    if (!state.Camera.enabled)
+                    {
+                        state.Camera.enabled = true;
+                        RecordBindWrite();
+                    }
+                }
+                SyncHudOverlayCamera();
             }
-            foreach (var state in cameras)
+            finally
             {
-                if (state.Camera == null) throw new InvalidOperationException("A render camera was destroyed.");
-                // Own the camera output for the duration of the render. The old
-                // path let Unity draw these cameras to the game window and then
-                // called Camera.Render again into this texture, doubling the
-                // scene-rendering work for every encoded frame. RendererController
-                // calls Bind from its last LateUpdate, immediately before Unity's
-                // normal camera pass, so that pass can be captured directly.
-                if (state.Camera.targetTexture != target) state.Camera.targetTexture = target;
-                var targetAspect = width / (float)height;
-                if (!Mathf.Approximately(state.Camera.aspect, targetAspect)) state.Camera.aspect = targetAspect;
-                // Camera.Render ignored the component's enabled flag on the old
-                // manual path; keep that behavior while using the automatic pass.
-                if (!state.Camera.enabled) state.Camera.enabled = true;
+                measuringBind = false;
             }
-            SyncHudOverlayCamera();
+        }
+
+        private void RecordBindWrite()
+        {
+            if (measuringBind) bindPropertyWrites++;
         }
         public void Capture(long index)
         {
@@ -357,7 +472,7 @@ namespace OrbitRender.Renderer
             var frame = reusable.Count > 0 ? reusable.Pop() : new Pending();
             frame.Reset(buffer, System.Diagnostics.Stopwatch.GetTimestamp());
             // Copy in the callback; Unity request data is only valid for one frame.
-            frame.Request = AsyncGPUReadback.Request(source, 0, TextureFormat.RGBA32, frame.Complete);
+            frame.Request = AsyncGPUReadback.Request(source, 0, readbackFormat, frame.Complete);
             pending.Enqueue(frame);
             lastPending = frame;
             if (pending.Count > peakPending) peakPending = pending.Count;

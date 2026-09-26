@@ -50,6 +50,17 @@ internal static class Program
                 var columns = decoded[i].Split(',');
                 Assert(long.Parse(columns[2]) == i && int.Parse(columns[3]) == 1, "Frame timestamp or duration mismatch.");
             }
+            if (!string.Equals(Environment.GetEnvironmentVariable("ORBIT_RENDER_SKIP_TRANSPORT_TEST"), "1",
+                StringComparison.Ordinal))
+            {
+                var rgbaTransport = Path.Combine(args[1], "transport-rgba.mp4");
+                var rgbTransport = Path.Combine(args[1], "transport-rgb.mp4");
+                EncodeTransportVariant(args[0], rgbaTransport, RawVideoPixelFormat.Rgba32);
+                EncodeTransportVariant(args[0], rgbTransport, RawVideoPixelFormat.Rgb24);
+                Assert(Probe(args[0], "-v error -i \"" + rgbaTransport + "\" -f framemd5 -")
+                    == Probe(args[0], "-v error -i \"" + rgbTransport + "\" -f framemd5 -"),
+                    "RGB24 raw transport changed decoded RGB frames or timestamps.");
+            }
             var customFpsVideo = Path.Combine(args[1], "video-24.mp4");
             const int customVideoFps = 24;
             Encode(args[0], customFpsVideo, false, customVideoFps);
@@ -107,7 +118,7 @@ internal static class Program
                 + offsetMuxed + "\"");
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
-            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, failure, cancellation, AAC/Opus mux, +3 dB audio gain, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
+            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus mux, +3 dB audio gain, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -154,6 +165,29 @@ internal static class Program
             }
             encoder.Finish(60);
             Assert(encoder.RepeatedFrames == (grouped ? 30 : 0), "Repeated-frame counter mismatch.");
+        }
+    }
+
+    private static void EncodeTransportVariant(string ffmpeg, string output, RawVideoPixelFormat format)
+    {
+        using (var encoder = new FFmpegEncoder(ffmpeg, output, 320, 180, 30, 4, "ultrafast", false,
+            "libx264", "yuv420p", format))
+        {
+            var bytesPerPixel = format == RawVideoPixelFormat.Rgb24 ? 3 : 4;
+            for (var frameIndex = 0; frameIndex < 6; frameIndex++)
+            {
+                var frame = encoder.Rent();
+                frame.Index = frameIndex;
+                for (var pixel = 0; pixel < frame.Bytes.Length; pixel += bytesPerPixel)
+                {
+                    frame.Bytes[pixel] = (byte)(frameIndex * 19);
+                    frame.Bytes[pixel + 1] = (byte)((pixel / (320 * bytesPerPixel)) * 31);
+                    frame.Bytes[pixel + 2] = (byte)(255 - frameIndex * 19);
+                    if (bytesPerPixel == 4) frame.Bytes[pixel + 3] = 255;
+                }
+                encoder.Submit(frame);
+            }
+            encoder.Finish(6);
         }
     }
 

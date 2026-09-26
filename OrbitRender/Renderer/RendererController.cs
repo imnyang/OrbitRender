@@ -53,6 +53,7 @@ namespace OrbitRender.Renderer
         private readonly System.Diagnostics.Stopwatch renderTimer = new System.Diagnostics.Stopwatch();
         public double GenerationFps => renderTimer.Elapsed.TotalSeconds > 0 ? CapturedFrames / renderTimer.Elapsed.TotalSeconds : 0;
         public double ElapsedSeconds => renderTimer.Elapsed.TotalSeconds;
+        public double TotalRenderSeconds => totalRenderTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double EstimatedRemainingSeconds
         {
             get
@@ -140,7 +141,9 @@ namespace OrbitRender.Renderer
         private long previewUiTicks, progressUiTicks;
         private long peakWorkingSetBytes;
         private long finalizationTicks;
+        private long totalRenderStartTicks, totalRenderTicks;
         private long tailExtensionFrames;
+        private double nextPreviewUiAt;
         private readonly ConcurrentQueue<object> rpcCommands = new ConcurrentQueue<object>();
         private readonly ConcurrentQueue<EncoderPreflightResult> encoderPreflightResults =
             new ConcurrentQueue<EncoderPreflightResult>();
@@ -194,6 +197,7 @@ namespace OrbitRender.Renderer
             audioPath = muxPath = null;
             renderTimer.Reset();
             nextProgressUpdateAt = 0;
+            nextPreviewUiAt = 0;
             CaptureWaitSeconds = 0;
             ProgressPercentText = ProgressText = EtaText = SpeedText = "";
             gameFrameTicks = 0;
@@ -201,6 +205,7 @@ namespace OrbitRender.Renderer
             preparationTicks = bgaTicks = ringTicks = textTicks = cameraBindTicks = 0;
             previewUiTicks = progressUiTicks = peakWorkingSetBytes = 0;
             finalizationTicks = 0;
+            totalRenderStartTicks = totalRenderTicks = 0;
             tailExtensionFrames = 0;
             timelineFramesForRun = 0;
             selectionStartFrameForRun = selectionEndFrameForRun = 0;
@@ -324,6 +329,7 @@ namespace OrbitRender.Renderer
         private void StartRenderCore()
         {
             encoderFallbackPending = false;
+            totalRenderStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             routine = StartCoroutine(GuardedRun());
         }
 
@@ -463,7 +469,7 @@ namespace OrbitRender.Renderer
             MaximizeRenderPerformance();
             encoder = new FFmpegEncoder(FFmpegPath, partialPath, profile.Width, profile.Height,
                 profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset, !captureAudioForRun,
-                profile.FfmpegCodec, profile.PixelFormat);
+                profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat());
             if (editor != null)
             {
                 Main.Entry.Logger.Log("Preparing editor render: playMode=" + editor.playMode
@@ -640,7 +646,7 @@ namespace OrbitRender.Renderer
                         using (var process = System.Diagnostics.Process.GetCurrentProcess())
                             peakWorkingSetBytes = Math.Max(peakWorkingSetBytes, process.WorkingSet64);
                     } catch { }
-                    nextProgressUpdateAt = elapsed + 0.25;
+                    nextProgressUpdateAt = elapsed + 1.0;
                 }
                 if (selectionStartTileForRun.HasValue)
                 {
@@ -707,28 +713,30 @@ namespace OrbitRender.Renderer
                 else File.Move(partialPath, OutputPath);
             }
             finally { finalizationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - finalizationStart; }
+            totalRenderTicks = System.Diagnostics.Stopwatch.GetTimestamp() - totalRenderStartTicks;
             State = RenderState.Completed;
             Message = Localization.Format("completed-frames", CapturedFrames)
                 + (audio != null && audio.Peak < 0.000001f
                     ? Localization.Get("audio-mix-was-silent-check-game-sound-settings")
                     : "");
             ShowToast(Message, 8f);
-            Main.Entry.Logger.Log(string.Format("Completed: {0} frames in {1:F2}s, {2:F1} frames/s ({3:F2}x video). Target={4}fps Video={5}fps {6}x{7} {8}Mbps {9}/{10}. Audio={11}. Capture/encoder wait={12:F2}s. Metrics: game={13:F2}s, readbackWait={14:F2}s, readbackLatency={15:F2}s, readbackCopy={16:F2}s, pendingPeak={17}, encoderWrite={18:F2}s, encoderQueuePeak={19}, written={20}, audioCapture={21:F2}s, finalization={22:F2}s. Output={23}",
+            Main.Entry.Logger.Log(string.Format("Completed: {0} frames in {1:F2}s, {2:F1} frames/s ({3:F2}x video). Target={4}fps Video={5}fps {6}x{7} {8}Mbps {9}/{10}. Audio={11}. Capture/encoder wait={12:F2}s. Metrics: totalWall={13:F2}s, game={14:F2}s, readbackWait={15:F2}s, readbackLatency={16:F2}s, readbackCopy={17:F2}s, pendingPeak={18}, encoderWrite={19:F2}s, encoderQueuePeak={20}, written={21}, audioCapture={22:F2}s, finalization={23:F2}s, raw={24}. Output={25}",
                 CapturedFrames, ElapsedSeconds, GenerationFps, GenerationFps / profile.VideoFps,
                 profile.TargetFps, profile.VideoFps, profile.Width, profile.Height, profile.BitrateMbps, profile.FfmpegCodec, profile.FfmpegPreset,
                 audio != null, CaptureWaitSeconds,
-                GameFrameSeconds, ReadbackWaitSeconds, ReadbackLatencySeconds, ReadbackCopySeconds,
+                TotalRenderSeconds, GameFrameSeconds, ReadbackWaitSeconds, ReadbackLatencySeconds, ReadbackCopySeconds,
                 PeakPendingReadbacks, EncoderWriteSeconds, PeakEncoderQueueDepth, WrittenFrames,
-                AudioCaptureSeconds, FinalizationSeconds, OutputPath));
+                AudioCaptureSeconds, FinalizationSeconds, encoder.RawPixelFormat, OutputPath));
             if (latePlaySoundSchedules > 0)
                 Main.Entry.Logger.Log("Adjusted " + latePlaySoundSchedules
                     + " late Play Sound Effect schedule(s) to the next captured audio sample.");
-            Main.Entry.Logger.Log(string.Format("Performance detail: prepare={0:F2}s, bga={1:F2}s, rings={2:F2}s, text={3:F2}s, cameraBind={4:F2}s, previewUI={5:F2}s, progressUI={6:F2}s, encoderBufferWait={7:F2}s, repeatedReadbacksAvoided={8}, processWorkingSetPeak={9:F1} MiB.",
+            Main.Entry.Logger.Log(string.Format("Performance detail: prepare={0:F2}s, bga={1:F2}s, rings={2:F2}s, text={3:F2}s, cameraBind={4:F2}s, bindCalls={5}, bindPropertyWrites={6}, previewUI={7:F2}s, progressUI={8:F2}s, encoderBufferWait={9:F2}s, repeatedReadbacksAvoided={10}, processWorkingSetPeak={11:F1} MiB.",
                 preparationTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 bgaTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 ringTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 textTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 cameraBindTicks / (double)System.Diagnostics.Stopwatch.Frequency,
+                capture.BindCalls, capture.BindPropertyWrites,
                 previewUiTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 progressUiTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 capture.EncoderBufferWaitSeconds,
@@ -1227,12 +1235,17 @@ namespace OrbitRender.Renderer
             }
             if (State == RenderState.Rendering && Event.current.type == EventType.Repaint)
             {
-                var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                if (showPreviewForRun)
-                    OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
-                else
-                    OrbitRender.UI.RendererWindow.DrawBackdrop();
-                previewUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - previewStart;
+                var now = Time.realtimeSinceStartupAsDouble;
+                if (now >= nextPreviewUiAt)
+                {
+                    var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                    if (showPreviewForRun)
+                        OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
+                    else
+                        OrbitRender.UI.RendererWindow.DrawBackdrop();
+                    previewUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - previewStart;
+                    nextPreviewUiAt = now + 0.1;
+                }
             }
             // Rendering temporarily owns the gameplay cameras and editor
             // overlays. Cover the presentation surface so a camera or canvas

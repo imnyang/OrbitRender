@@ -124,7 +124,7 @@ console.log(job);
 
 ## 성능
 
-GPU readback과 FFmpeg 인코딩을 파이프라인으로 겹치며, raw 프레임을 임시 디스크 파일로 저장하지 않습니다. 완료 로그에는 게임 프레임, readback 대기/복사, encoder backpressure, 오디오 캡처, 최종 mux 시간이 분리되어 기록됩니다.
+GPU readback과 FFmpeg 인코딩을 파이프라인으로 겹치며, raw 프레임을 임시 디스크 파일로 저장하지 않습니다. 완료 로그에는 전체 렌더 시간(`totalWall`), 게임 프레임, readback 대기/복사, encoder backpressure/write, 오디오 캡처, 최종 mux 시간이 분리되어 기록됩니다. 지원되는 장치에서는 최종 RGB 결과를 유지하면서 raw 입력을 `rgb24`로 전송해 RGBA보다 프레임당 전송량을 25% 줄이고, 지원되지 않는 장치에서는 RGBA 경로를 사용합니다.
 
 출력 FPS가 게임 시뮬레이션 FPS보다 높을 때 같은 게임 프레임의 추가 GPU readback을 생략합니다. 완료 로그의 `Performance detail`에는 준비 시간, 매 프레임 표시 상태 관리, 미리보기·진행창 UI 호출 시간, 인코더 버퍼 대기, 생략한 readback 수와 프로세스 메모리 피크가 기록됩니다. UI 시간은 CPU 호출 시간이며 GPU 실행 시간과는 다릅니다.
 

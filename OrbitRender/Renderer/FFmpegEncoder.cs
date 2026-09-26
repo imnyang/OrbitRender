@@ -7,6 +7,12 @@ using System.Threading;
 
 namespace OrbitRender.Renderer
 {
+    internal enum RawVideoPixelFormat
+    {
+        Rgba32,
+        Rgb24
+    }
+
     internal sealed class FFmpegEncoder : IDisposable
     {
         private const double MinAudioGainDb = -60.0;
@@ -24,6 +30,7 @@ namespace OrbitRender.Renderer
         private readonly StringBuilder stderr = new StringBuilder();
         private readonly Process process;
         private readonly Thread writer;
+        private readonly RawVideoPixelFormat rawPixelFormat;
         private volatile Exception failure;
         private bool disposed;
         public long WrittenFrames => Interlocked.Read(ref written);
@@ -32,6 +39,9 @@ namespace OrbitRender.Renderer
         public int PeakQueueDepth => Volatile.Read(ref peakQueueDepth);
         public int BufferCapacity => work.BoundedCapacity;
         public long RepeatedFrames => Interlocked.Read(ref repeatedFrames);
+        internal RawVideoPixelFormat RawPixelFormat => rawPixelFormat;
+        internal int BytesPerPixel => rawPixelFormat == RawVideoPixelFormat.Rgb24 ? 3 : 4;
+        internal int FrameByteCount { get; }
         private long written;
         private long repeatedFrames;
         private long writeTicks;
@@ -40,25 +50,36 @@ namespace OrbitRender.Renderer
         // Kept for the standalone encoder tests and for callers that use the
         // original API. RendererController uses the configurable overload.
         public FFmpegEncoder(string executable, string output)
-            : this(executable, output, 1920, 1080, 60, 18, "veryfast", true, true, "libx264", "yuv420p") { }
+            : this(executable, output, 1920, 1080, 60, 18, "veryfast", true, true, "libx264", "yuv420p",
+                RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps, string preset)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, true, "libx264", "yuv420p") { }
+            : this(executable, output, width, height, fps, bitrateMbps, preset, false, true, "libx264", "yuv420p",
+                RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, "libx264", "yuv420p") { }
+            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, "libx264", "yuv420p",
+                RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, "yuv420p") { }
+            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, "yuv420p",
+                RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec, string pixelFormat)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat) { }
+            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
+                RawVideoPixelFormat.Rgba32) { }
+
+        internal FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
+            string preset, bool fastStart, string codec, string pixelFormat, RawVideoPixelFormat rawPixelFormat)
+            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
+                rawPixelFormat) { }
 
         private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
-            string preset, bool legacyCrf, bool fastStart, string codec, string pixelFormat)
+            string preset, bool legacyCrf, bool fastStart, string codec, string pixelFormat,
+            RawVideoPixelFormat rawPixelFormat)
         {
             if (string.IsNullOrWhiteSpace(executable)) throw new FileNotFoundException("FFmpeg executable was not configured.");
             if (LooksLikeFilePath(executable) && !File.Exists(executable))
@@ -68,10 +89,14 @@ namespace OrbitRender.Renderer
             if (string.IsNullOrEmpty(preset)) preset = "fast";
             if (string.IsNullOrEmpty(codec)) codec = "libx264";
             if (!string.Equals(pixelFormat, "yuv420p10le", StringComparison.OrdinalIgnoreCase)) pixelFormat = "yuv420p";
+            if (!Enum.IsDefined(typeof(RawVideoPixelFormat), rawPixelFormat))
+                rawPixelFormat = RawVideoPixelFormat.Rgba32;
+            this.rawPixelFormat = rawPixelFormat;
             bool isHardwareEncoder = codec.EndsWith("_nvenc", StringComparison.OrdinalIgnoreCase)
                 || codec.EndsWith("_qsv", StringComparison.OrdinalIgnoreCase)
                 || codec.EndsWith("_amf", StringComparison.OrdinalIgnoreCase);
-            var frameByteCount = checked(width * height * 4);
+            var frameByteCount = checked(width * height * BytesPerPixel);
+            FrameByteCount = frameByteCount;
             // Readback and encoding share this pool. Keep enough frames in flight
             // to hide GPU readback and x264 latency instead of making the Unity
             // thread wait after every few frames. Rendering prioritizes throughput,
@@ -95,7 +120,8 @@ namespace OrbitRender.Renderer
             var encoderOptions = BuildEncoderOptions(codec, preset, rateControl, isHardwareEncoder, pixelFormat);
             process = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable,
-                Arguments = "-hide_banner -loglevel warning -nostdin -n -f rawvideo -pixel_format rgba -video_size "
+                Arguments = "-hide_banner -loglevel warning -nostdin -n -f rawvideo -pixel_format "
+                    + (rawPixelFormat == RawVideoPixelFormat.Rgb24 ? "rgb24" : "rgba") + " -video_size "
                     + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf vflip "
                     + encoderOptions + " -pix_fmt " + pixelFormat
                     // The raw-video demuxer supplies the same target time base
@@ -254,7 +280,8 @@ namespace OrbitRender.Renderer
                 // hardware encoders, including NVENC on supported drivers,
                 // reject tiny 128x128 surfaces before testing any real frame.
                 using (var encoder = new FFmpegEncoder(executable, output, 320, 180, 30,
-                    Math.Max(1, bitrateMbps), preset, legacyCrf, false, codec, pixelFormat))
+                    Math.Max(1, bitrateMbps), preset, legacyCrf, false, codec, pixelFormat,
+                    RawVideoPixelFormat.Rgba32))
                 {
                     var frame = encoder.Rent();
                     frame.Index = 0;
