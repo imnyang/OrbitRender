@@ -12,6 +12,7 @@ namespace OrbitRender.Renderer
         internal int? BitrateMbps;
         internal float? EndDelaySeconds;
         internal bool? CaptureAudio;
+        internal float? AudioGainDb;
         internal bool? ShowRenderPreview;
         internal bool? BgaMode;
         internal bool? ShowPlanetRings;

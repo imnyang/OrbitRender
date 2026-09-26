@@ -78,6 +78,7 @@ Content-Type: application/json
   "videoFps": 60,
   "bitrateMbps": 30,
   "captureAudio": true,
+  "audioGainDb": 3,
   "bgaMode": true,
   "showPlanetRings": true,
   "showSongTitle": true,
@@ -110,6 +111,7 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `endDelaySeconds` | number | No | `0..30` | Delay after the music/final-tile end time |
 | `captureAudio` | boolean | No | `true` / `false` | Capture game audio |
 | `audio` | boolean | No | `true` / `false` | Alias for `captureAudio` |
+| `audioGainDb` | number | No | `-60..12` | Adjust captured audio volume before muxing; `0` leaves it unchanged |
 | `bgaMode` | boolean | No | `true` / `false` | Exclude tiles, planets, and gameplay hit sounds |
 | `showPlanetRings` | boolean | No | `true` / `false` | Include planet orbit rings |
 | `showSongTitle` | boolean | No | `true` / `false` | Include the default song-title text |

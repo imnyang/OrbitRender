@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Globalization;
 using System.Threading;
 using OrbitRender;
 using OrbitRender.Renderer;
@@ -90,6 +91,13 @@ internal static class Program
             var metadata = Probe(ResolveProbe(args[0]),
                 "-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels,duration -of default=noprint_wrappers=1 \"" + muxed + "\"");
             Assert(metadata.Contains("codec_name=aac") && metadata.Contains("sample_rate=48000") && metadata.Contains("channels=2") && metadata.Contains("duration=1.000000"), "Muxed audio format/duration mismatch.");
+            var boostedMuxed = Path.Combine(args[1], "with-boosted-audio.mp4");
+            FFmpegEncoder.MuxAudio(args[0], fast, wav, boostedMuxed, 0.0, 3.0);
+            var baseVolume = MeanVolume(args[0], muxed);
+            var boostedVolume = MeanVolume(args[0], boostedMuxed);
+            Assert(boostedVolume > baseVolume + 2.0 && boostedVolume < baseVolume + 4.0,
+                "Audio gain did not apply approximately +3 dB: " + baseVolume.ToString(CultureInfo.InvariantCulture)
+                + " -> " + boostedVolume.ToString(CultureInfo.InvariantCulture));
             var longWav = Path.Combine(args[1], "long-tone.wav");
             var offsetMuxed = Path.Combine(args[1], "with-offset-audio.mp4");
             Probe(args[0], "-v error -f lavfi -i sine=frequency=440:sample_rate=48000:duration=2 -ac 2 -c:a pcm_f32le \"" + longWav + "\"");
@@ -99,7 +107,7 @@ internal static class Program
                 + offsetMuxed + "\"");
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
-            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, failure, cancellation, AAC/Opus mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
+            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, failure, cancellation, AAC/Opus mux, +3 dB audio gain, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -214,6 +222,35 @@ internal static class Program
         })) {
             string result = process.StandardOutput.ReadToEnd(); process.WaitForExit();
             Assert(process.ExitCode == 0, "Video decode failed."); return result;
+        }
+    }
+    private static double MeanVolume(string ffmpeg, string input)
+    {
+        var output = ProbeStderr(ffmpeg, "-v info -i \"" + input
+            + "\" -map 0:a:0 -af volumedetect -f null NUL");
+        foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var marker = "mean_volume:";
+            var index = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index < 0) continue;
+            var value = line.Substring(index + marker.Length).Trim().TrimEnd(' ', 'd', 'B');
+            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)) return parsed;
+        }
+        throw new Exception("FFmpeg did not report mean audio volume.");
+    }
+    private static string ProbeStderr(string ffmpeg, string arguments)
+    {
+        using (var process = Process.Start(new ProcessStartInfo(ffmpeg, arguments) {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        })) {
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            stdout.GetAwaiter().GetResult();
+            var result = stderr.GetAwaiter().GetResult();
+            Assert(process.ExitCode == 0, "FFmpeg audio analysis failed: " + result);
+            return result;
         }
     }
     private static string ResolveProbe(string ffmpeg)

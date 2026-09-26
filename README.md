@@ -50,6 +50,7 @@ Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mo
 | Video bitrate | 18 Mbps | 1–200 Mbps CBR |
 | End delay | 2초 | 음악 또는 마지막 타일 이후 대기 |
 | Capture audio | 켜짐 | 게임 음악/오디오 캡처 |
+| 오디오 음량 조절 | 0 dB | 캡처 오디오를 최종 영상에 합칠 때 적용, -60~12 dB |
 | 렌더 중 미리보기 표시 | 켜짐 | 렌더 중 게임 화면에 출력 프레임 표시 |
 | BGA mode | 꺼짐 | 타일, 공, 힛사운드 없이 렌더 |
 | Show planet rings | 켜짐 | 행성 궤도 링 포함 |

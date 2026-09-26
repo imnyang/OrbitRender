@@ -9,6 +9,8 @@ namespace OrbitRender.Renderer
 {
     internal sealed class FFmpegEncoder : IDisposable
     {
+        private const double MinAudioGainDb = -60.0;
+        private const double MaxAudioGainDb = 12.0;
         internal sealed class Frame
         {
             public readonly byte[] Bytes;
@@ -341,8 +343,12 @@ namespace OrbitRender.Renderer
         }
         private void AbortProcess() { try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { } }
         public static void MuxAudio(string executable, string video, string audio, string output,
-            double audioOffsetSeconds = 0.0)
+            double audioOffsetSeconds = 0.0, double audioGainDb = 0.0)
         {
+            if (double.IsNaN(audioGainDb) || double.IsInfinity(audioGainDb)
+                || audioGainDb < MinAudioGainDb
+                || audioGainDb > MaxAudioGainDb)
+                throw new ArgumentOutOfRangeException(nameof(audioGainDb));
             var isWebm = string.Equals(Path.GetExtension(output), ".webm", StringComparison.OrdinalIgnoreCase);
             var audioEncoder = isWebm ? "libopus" : "aac";
             var audioBitrate = isWebm ? "160k" : "320k";
@@ -350,11 +356,14 @@ namespace OrbitRender.Renderer
             var audioSeek = audioOffsetSeconds > 0
                 ? "-ss " + audioOffsetSeconds.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + " "
                 : string.Empty;
+            var audioFilter = Math.Abs(audioGainDb) > 0.000001
+                ? " -af \"volume=" + audioGainDb.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + "dB\""
+                : string.Empty;
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
                 Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
-                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a " + audioEncoder + " -b:a " + audioBitrate
+                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy" + audioFilter + " -c:a " + audioEncoder + " -b:a " + audioBitrate
                     + " " + containerOptions + " -shortest \"" + output + "\""
             }})
             {

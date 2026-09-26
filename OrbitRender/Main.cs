@@ -28,12 +28,14 @@ namespace OrbitRender
         private static string localizedVideoFpsText;
         private static string localizedBitrateText;
         private static string localizedEndDelayText;
+        private static string localizedAudioGainText;
         private static int localizedWidthValue = int.MinValue;
         private static int localizedHeightValue = int.MinValue;
         private static int localizedFpsValue = int.MinValue;
         private static int localizedVideoFpsValue = int.MinValue;
         private static int localizedBitrateValue = int.MinValue;
         private static float localizedEndDelayValue = float.NaN;
+        private static float localizedAudioGainValue = float.NaN;
         private static bool diagnosticsHaveRun;
         private static bool renderOptionsExpanded = true;
         private static bool visibleComponentsExpanded = true;
@@ -63,6 +65,7 @@ namespace OrbitRender
                 {
                     if (!enabled)
                     {
+                        AudioPreview.Stop();
                         ExportVideoDialog.CloseDialog();
                         RendererController.Instance?.StopAndClean();
                     }
@@ -86,6 +89,7 @@ namespace OrbitRender
                 entry.OnUnload = mod =>
                 {
                     ExportVideoDialog.CloseDialog();
+                    AudioPreview.Stop();
                     RendererController.Instance?.StopAndClean();
                     StopRpcServer();
                     SceneManager.sceneLoaded -= OnSceneLoaded;
@@ -258,6 +262,15 @@ namespace OrbitRender
                 ref localizedEndDelayText, ref localizedEndDelayValue, 90f);
             Settings.CaptureAudio = DrawLocalizedToggle(
                 Localization.Get("capture-audio"), Settings.CaptureAudio);
+            Settings.AudioGainDb = DrawLocalizedAudioGainField(
+                Localization.Get("audio-volume-db"), Settings.AudioGainDb,
+                ref localizedAudioGainText, ref localizedAudioGainValue, 90f);
+            if (GUILayout.Button(AudioPreview.IsPlaying
+                ? Localization.Get("stop-audio-preview")
+                : Localization.Get("preview-audio"), GUILayout.ExpandWidth(false)))
+            {
+                AudioPreview.Toggle(RendererSettings.ClampAudioGainDb(Settings.AudioGainDb));
+            }
             Settings.ShowRenderPreview = DrawLocalizedToggle(
                 Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
             Settings.BgaMode = DrawLocalizedToggle(
@@ -310,12 +323,14 @@ namespace OrbitRender
             localizedVideoFpsText = null;
             localizedBitrateText = null;
             localizedEndDelayText = null;
+            localizedAudioGainText = null;
             localizedWidthValue = int.MinValue;
             localizedHeightValue = int.MinValue;
             localizedFpsValue = int.MinValue;
             localizedVideoFpsValue = int.MinValue;
             localizedBitrateValue = int.MinValue;
             localizedEndDelayValue = float.NaN;
+            localizedAudioGainValue = float.NaN;
         }
 
         private static bool DrawLocalizedToggle(string label, bool value)
@@ -352,6 +367,24 @@ namespace OrbitRender
             var edited = SettingsUi.LabeledField(label, text, width);
             if (!string.Equals(edited, text, StringComparison.Ordinal)) text = edited;
             if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+            {
+                syncedValue = parsed;
+                return parsed;
+            }
+            return value;
+        }
+
+        private static float DrawLocalizedAudioGainField(string label, float value, ref string text,
+            ref float syncedValue, float width)
+        {
+            if (text == null || float.IsNaN(syncedValue) || Math.Abs(syncedValue - value) > 0.0001f)
+            {
+                text = value.ToString("0.##", CultureInfo.InvariantCulture);
+                syncedValue = value;
+            }
+            var edited = SettingsUi.LabeledField(label, text, width);
+            if (!string.Equals(edited, text, StringComparison.Ordinal)) text = edited;
+            if (RendererSettings.TryParseAudioGainDb(text, out var parsed))
             {
                 syncedValue = parsed;
                 return parsed;

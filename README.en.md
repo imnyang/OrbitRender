@@ -44,6 +44,7 @@ On startup, the mod checks GitHub's latest stable release. Drafts and pre-releas
 | Video bitrate | 18 Mbps | 1–200 Mbps CBR |
 | End delay | 2 seconds | Delay after the later of music or final tile |
 | Capture audio | On | Capture game audio |
+| Audio volume adjustment | 0 dB | Adjust captured audio during final muxing, -60 to +12 dB |
 | Show preview while rendering | On | Show output frames on the game screen during rendering |
 | BGA mode | Off | Render without tiles, planets, or hit sounds |
 | Show planet rings | On | Include planet orbit rings |

@@ -25,6 +25,7 @@ namespace OrbitRender.Renderer
         public int? VideoFps;
         public int? BitrateMbps;
         public float? EndDelaySeconds;
+        public float? AudioGainDb;
         public bool? BgaMode;
         public bool? ShowPlanetRings;
         public bool? ShowSongTitle;
@@ -37,7 +38,7 @@ namespace OrbitRender.Renderer
         public bool HasValues
         {
             get { return Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
-                || BitrateMbps.HasValue || EndDelaySeconds.HasValue || BgaMode.HasValue
+                || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || BgaMode.HasValue
                 || ShowPlanetRings.HasValue
                 || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
                 || ShowHitJudgments.HasValue
@@ -56,6 +57,7 @@ namespace OrbitRender.Renderer
                 fps = VideoFps,
                 bitrateMbps = BitrateMbps,
                 endDelaySeconds = EndDelaySeconds,
+                audioGainDb = AudioGainDb,
                 bgaMode = BgaMode,
                 showPlanetRings = ShowPlanetRings,
                 showSongTitle = ShowSongTitle,
@@ -403,6 +405,14 @@ namespace OrbitRender.Renderer
                 error = InvalidOption("endDelaySeconds", "0..30");
                 return null;
             }
+            if (payload.AudioGainDb.HasValue && (float.IsNaN(payload.AudioGainDb.Value)
+                || float.IsInfinity(payload.AudioGainDb.Value)
+                || payload.AudioGainDb.Value < RendererSettings.MinAudioGainDb
+                || payload.AudioGainDb.Value > RendererSettings.MaxAudioGainDb))
+            {
+                error = InvalidOption("audioGainDb", "-60..12");
+                return null;
+            }
             VideoCodec? videoCodec = null;
             VideoCodec? primaryCodec = null;
             VideoCodec? aliasCodec = null;
@@ -448,6 +458,7 @@ namespace OrbitRender.Renderer
                 VideoFps = videoFps,
                 BitrateMbps = bitrate,
                 EndDelaySeconds = payload.EndDelaySeconds,
+                AudioGainDb = payload.AudioGainDb,
                 BgaMode = payload.BgaMode,
                 ShowPlanetRings = payload.ShowPlanetRings,
                 ShowSongTitle = payload.ShowSongTitle,
@@ -536,6 +547,7 @@ namespace OrbitRender.Renderer
             [JsonProperty("bitrateMbps")] public int? BitrateMbps { get; set; }
             [JsonProperty("bitrate")] public int? Bitrate { get; set; }
             [JsonProperty("endDelaySeconds")] public float? EndDelaySeconds { get; set; }
+            [JsonProperty("audioGainDb")] public float? AudioGainDb { get; set; }
             [JsonProperty("bgaMode")] public bool? BgaMode { get; set; }
             [JsonProperty("showPlanetRings")] public bool? ShowPlanetRings { get; set; }
             [JsonProperty("showSongTitle")] public bool? ShowSongTitle { get; set; }

@@ -118,6 +118,7 @@ namespace OrbitRender.Renderer
         private double scheduledMusicLengthSeconds;
         private float toastUntil;
         private bool captureAudioForRun;
+        private float audioGainDbForRun;
         private bool showPreviewForRun;
         private bool audioRealtimePacing;
         private double audioPacingOrigin;
@@ -171,6 +172,7 @@ namespace OrbitRender.Renderer
         internal void StartRender(RenderRequestOptions requestOptions)
         {
             if (Busy || !Main.Enabled) return;
+            OrbitRender.UI.AudioPreview.Stop();
             if (FfmpegInstaller.IsDownloading)
             {
                 Message = FfmpegInstaller.StatusMessage;
@@ -239,6 +241,9 @@ namespace OrbitRender.Renderer
             captureAudioForRun = activeRpcJob != null
                 ? activeRpcJob.CaptureAudio
                 : requestOptions?.CaptureAudio ?? settings.CaptureAudio;
+            audioGainDbForRun = RendererSettings.ClampAudioGainDb(
+                activeRpcJob != null ? activeRpcJob.Options?.AudioGainDb ?? settings.AudioGainDb
+                : requestOptions?.AudioGainDb ?? settings.AudioGainDb);
             audioRealtimePacing = false;
             audioPacingOrigin = 0.0;
             latePlaySoundSchedules = 0;
@@ -691,7 +696,11 @@ namespace OrbitRender.Renderer
                     audio.Dispose();
                     var audioOffset = selectionStartTileForRun.HasValue
                         ? selectionStartFrameForRun / (double)profile.VideoFps : 0.0;
-                    FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset);
+                    Main.Entry.Logger.Log("Applying audio gain "
+                        + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                        + " dB during final audio mux.");
+                    FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
+                        audioGainDbForRun);
                     File.Move(muxPath, OutputPath);
                     File.Delete(partialPath); File.Delete(audioPath);
                 }

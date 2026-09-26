@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using UnityModManagerNet;
 
@@ -66,6 +67,8 @@ namespace OrbitRender
         private const int MaxVideoFps = 240;
         private const int MinBitrate = 1;
         private const int MaxBitrate = 200;
+        internal const float MinAudioGainDb = -60f;
+        internal const float MaxAudioGainDb = 12f;
 
         [Draw("Preset", DrawType.PopupList)]
         public RendererPreset Preset = RendererPreset.FullHD;
@@ -93,6 +96,9 @@ namespace OrbitRender
 
         [Draw("Capture audio", DrawType.Toggle)]
         public bool CaptureAudio = true;
+
+        [Draw("Audio volume (dB)", DrawType.Field)]
+        public float AudioGainDb = 0f;
 
         [Draw("Show render preview", DrawType.Toggle)]
         public bool ShowRenderPreview = true;
@@ -165,6 +171,7 @@ namespace OrbitRender
             BitrateMbps = Clamp(BitrateMbps, MinBitrate, MaxBitrate);
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
             EndDelaySeconds = Math.Max(0f, Math.Min(30f, EndDelaySeconds));
+            AudioGainDb = ClampAudioGainDb(AudioGainDb);
         }
 
         internal void ResetToDefaults()
@@ -177,6 +184,7 @@ namespace OrbitRender
             BitrateMbps = 18;
             EndDelaySeconds = 2f;
             CaptureAudio = true;
+            AudioGainDb = 0f;
             ShowRenderPreview = true;
             BgaMode = false;
             ShowPlanetRings = true;
@@ -348,6 +356,22 @@ namespace OrbitRender
             if (!Enum.IsDefined(typeof(VideoEncoder), Encoder)) Encoder = VideoEncoder.Auto;
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
             EndDelaySeconds = Clamp(EndDelaySeconds, 0f, 30f);
+            AudioGainDb = ClampAudioGainDb(AudioGainDb);
+        }
+
+        internal static float ClampAudioGainDb(float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value)) return 0f;
+            return Clamp(value, MinAudioGainDb, MaxAudioGainDb);
+        }
+
+        internal static bool TryParseAudioGainDb(string text, out float value)
+        {
+            var normalized = (text ?? string.Empty).Trim();
+            if (normalized.EndsWith("dB", StringComparison.OrdinalIgnoreCase))
+                normalized = normalized.Substring(0, normalized.Length - 2).Trim();
+            return float.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+                || float.TryParse(normalized, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
         }
 
         private static float Clamp(float value, float min, float max)
