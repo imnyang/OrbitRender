@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.IO;
 using UnityModManagerNet;
 
@@ -97,7 +96,7 @@ namespace OrbitRender
         [Draw("Capture audio", DrawType.Toggle)]
         public bool CaptureAudio = true;
 
-        [Draw("Audio volume (dB)", DrawType.Field)]
+        [Draw(DrawType.Ignore)]
         public float AudioGainDb = 0f;
 
         [Draw("Show render preview", DrawType.Toggle)]
@@ -363,15 +362,6 @@ namespace OrbitRender
         {
             if (float.IsNaN(value) || float.IsInfinity(value)) return 0f;
             return Clamp(value, MinAudioGainDb, MaxAudioGainDb);
-        }
-
-        internal static bool TryParseAudioGainDb(string text, out float value)
-        {
-            var normalized = (text ?? string.Empty).Trim();
-            if (normalized.EndsWith("dB", StringComparison.OrdinalIgnoreCase))
-                normalized = normalized.Substring(0, normalized.Length - 2).Trim();
-            return float.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
-                || float.TryParse(normalized, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
         }
 
         private static float Clamp(float value, float min, float max)

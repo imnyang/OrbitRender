@@ -6,7 +6,7 @@ namespace OrbitRender.UI
     // current volume has to be applied to the PCM samples in the audio chain.
     internal sealed class AudioPreviewGainFilter : MonoBehaviour
     {
-        internal float LinearGain = 1f;
+        internal volatile float LinearGain = 1f;
 
         private void OnAudioFilterRead(float[] data, int channels)
         {

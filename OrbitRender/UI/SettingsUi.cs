@@ -1,3 +1,4 @@
+using System.Globalization;
 using UnityEngine;
 
 namespace OrbitRender.UI
@@ -12,6 +13,59 @@ namespace OrbitRender.UI
             GUILayout.Label(label, dark ? UiTheme.Label : GUI.skin.label, GUILayout.ExpandWidth(false));
             return GUILayout.TextField(value ?? string.Empty, dark ? UiTheme.Field : GUI.skin.textField,
                 GUILayout.Width(width));
+        }
+
+        internal static float DrawAudioGainSlider(float gainDb, ref string gainText,
+            ref float syncedGainDb, bool dark = false)
+        {
+            gainDb = RendererSettings.ClampAudioGainDb(gainDb);
+            if (gainText == null || float.IsNaN(syncedGainDb)
+                || Mathf.Abs(syncedGainDb - gainDb) > 0.0001f)
+            {
+                gainText = gainDb.ToString("0.##", CultureInfo.InvariantCulture);
+                syncedGainDb = gainDb;
+            }
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.Get("audio-volume-db"), dark ? UiTheme.Label : GUI.skin.label,
+                GUILayout.Width(dark ? 175f : 190f));
+            var sliderPosition = gainDb <= 0f
+                ? (gainDb - RendererSettings.MinAudioGainDb) / -RendererSettings.MinAudioGainDb * 0.75f
+                : 0.75f + gainDb / RendererSettings.MaxAudioGainDb * 0.25f;
+            var newPosition = GUILayout.HorizontalSlider(sliderPosition, 0f, 1f,
+                GUILayout.MinWidth(120f), GUILayout.ExpandWidth(true));
+            var newGainDb = newPosition <= 0.75f
+                ? RendererSettings.MinAudioGainDb + newPosition / 0.75f * -RendererSettings.MinAudioGainDb
+                : (newPosition - 0.75f) / 0.25f * RendererSettings.MaxAudioGainDb;
+            // Preserve the exact saved value during layout/repaint to avoid
+            // introducing floating-point drift when the slider has not moved.
+            if (Mathf.Abs(newPosition - sliderPosition) > 0.000001f)
+            {
+                gainDb = RendererSettings.ClampAudioGainDb(Mathf.Round(newGainDb * 10f) / 10f);
+                gainText = gainDb.ToString("0.##", CultureInfo.InvariantCulture);
+                syncedGainDb = gainDb;
+            }
+            var percent = gainDb <= RendererSettings.MinAudioGainDb
+                ? 0f : Mathf.Pow(10f, gainDb / 20f) * 100f;
+            GUILayout.Label(percent.ToString("0.#", CultureInfo.InvariantCulture) + "%",
+                dark ? UiTheme.Label : GUI.skin.label, GUILayout.Width(55f));
+            var edited = GUILayout.TextField(gainText, dark ? UiTheme.Field : GUI.skin.textField,
+                GUILayout.Width(65f));
+            if (edited != gainText)
+            {
+                gainText = edited;
+                if ((float.TryParse(edited, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+                    || float.TryParse(edited, NumberStyles.Float, CultureInfo.CurrentCulture, out parsed))
+                    && !float.IsNaN(parsed) && !float.IsInfinity(parsed))
+                {
+                    gainDb = RendererSettings.ClampAudioGainDb(parsed);
+                    syncedGainDb = gainDb;
+                    if (parsed != gainDb)
+                        gainText = gainDb.ToString("0.##", CultureInfo.InvariantCulture);
+                }
+            }
+            GUILayout.Label("dB", dark ? UiTheme.Label : GUI.skin.label, GUILayout.Width(25f));
+            GUILayout.EndHorizontal();
+            return gainDb;
         }
 
         internal static bool DrawSectionHeader(string title, ref bool expanded, bool dark = false)

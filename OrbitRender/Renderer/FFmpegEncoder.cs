@@ -383,9 +383,11 @@ namespace OrbitRender.Renderer
             var audioSeek = audioOffsetSeconds > 0
                 ? "-ss " + audioOffsetSeconds.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + " "
                 : string.Empty;
-            var audioFilter = Math.Abs(audioGainDb) > 0.000001
-                ? " -af \"volume=" + audioGainDb.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + "dB\""
-                : string.Empty;
+            var audioFilter = audioGainDb <= MinAudioGainDb
+                ? " -af \"volume=0\""
+                : Math.Abs(audioGainDb) > 0.000001
+                    ? " -af \"volume=" + audioGainDb.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + "dB\""
+                    : string.Empty;
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,

@@ -262,15 +262,18 @@ namespace OrbitRender
                 ref localizedEndDelayText, ref localizedEndDelayValue, 90f);
             Settings.CaptureAudio = DrawLocalizedToggle(
                 Localization.Get("capture-audio"), Settings.CaptureAudio);
-            Settings.AudioGainDb = DrawLocalizedAudioGainField(
-                Localization.Get("audio-volume-db"), Settings.AudioGainDb,
-                ref localizedAudioGainText, ref localizedAudioGainValue, 90f);
-            if (GUILayout.Button(AudioPreview.IsPlaying
-                ? Localization.Get("stop-audio-preview")
+            Settings.AudioGainDb = SettingsUi.DrawAudioGainSlider(Settings.AudioGainDb,
+                ref localizedAudioGainText, ref localizedAudioGainValue);
+            AudioPreview.SetGain(Settings.AudioGainDb);
+            if (GUILayout.Button(AudioPreview.IsLoading
+                ? Localization.Get("loading-audio-preview")
+                : AudioPreview.IsActive ? Localization.Get("stop-audio-preview")
                 : Localization.Get("preview-audio"), GUILayout.ExpandWidth(false)))
             {
                 AudioPreview.Toggle(RendererSettings.ClampAudioGainDb(Settings.AudioGainDb));
             }
+            if (!string.IsNullOrEmpty(AudioPreview.ErrorMessage))
+                GUILayout.Label(AudioPreview.ErrorMessage);
             Settings.ShowRenderPreview = DrawLocalizedToggle(
                 Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
             Settings.BgaMode = DrawLocalizedToggle(
@@ -367,24 +370,6 @@ namespace OrbitRender
             var edited = SettingsUi.LabeledField(label, text, width);
             if (!string.Equals(edited, text, StringComparison.Ordinal)) text = edited;
             if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
-            {
-                syncedValue = parsed;
-                return parsed;
-            }
-            return value;
-        }
-
-        private static float DrawLocalizedAudioGainField(string label, float value, ref string text,
-            ref float syncedValue, float width)
-        {
-            if (text == null || float.IsNaN(syncedValue) || Math.Abs(syncedValue - value) > 0.0001f)
-            {
-                text = value.ToString("0.##", CultureInfo.InvariantCulture);
-                syncedValue = value;
-            }
-            var edited = SettingsUi.LabeledField(label, text, width);
-            if (!string.Equals(edited, text, StringComparison.Ordinal)) text = edited;
-            if (RendererSettings.TryParseAudioGainDb(text, out var parsed))
             {
                 syncedValue = parsed;
                 return parsed;

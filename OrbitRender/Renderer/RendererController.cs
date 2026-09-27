@@ -143,7 +143,6 @@ namespace OrbitRender.Renderer
         private long finalizationTicks;
         private long totalRenderStartTicks, totalRenderTicks;
         private long tailExtensionFrames;
-        private double nextPreviewUiAt;
         private readonly ConcurrentQueue<object> rpcCommands = new ConcurrentQueue<object>();
         private readonly ConcurrentQueue<EncoderPreflightResult> encoderPreflightResults =
             new ConcurrentQueue<EncoderPreflightResult>();
@@ -197,7 +196,6 @@ namespace OrbitRender.Renderer
             audioPath = muxPath = null;
             renderTimer.Reset();
             nextProgressUpdateAt = 0;
-            nextPreviewUiAt = 0;
             CaptureWaitSeconds = 0;
             ProgressPercentText = ProgressText = EtaText = SpeedText = "";
             gameFrameTicks = 0;
@@ -1235,17 +1233,15 @@ namespace OrbitRender.Renderer
             }
             if (State == RenderState.Rendering && Event.current.type == EventType.Repaint)
             {
-                var now = Time.realtimeSinceStartupAsDouble;
-                if (now >= nextPreviewUiAt)
-                {
-                    var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                    if (showPreviewForRun)
-                        OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
-                    else
-                        OrbitRender.UI.RendererWindow.DrawBackdrop();
-                    previewUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - previewStart;
-                    nextPreviewUiAt = now + 0.1;
-                }
+                // IMGUI redraws the window on every Repaint. Skipping a draw
+                // exposes the editor/game frame underneath and makes the preview
+                // alternate between two images while the render is running.
+                var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (showPreviewForRun)
+                    OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
+                else
+                    OrbitRender.UI.RendererWindow.DrawBackdrop();
+                previewUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - previewStart;
             }
             // Rendering temporarily owns the gameplay cameras and editor
             // overlays. Cover the presentation surface so a camera or canvas

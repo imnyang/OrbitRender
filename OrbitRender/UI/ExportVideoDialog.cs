@@ -141,20 +141,20 @@ namespace OrbitRender.UI
                     draft.EndDelayText, 90f, true);
                 draft.CaptureAudio = UiTheme.DrawToggle(draft.CaptureAudio,
                     Localization.Get("capture-audio"));
-                GUILayout.BeginHorizontal();
-                draft.AudioGainDbText = SettingsUi.LabeledField(Localization.Get("audio-volume-db"),
-                    draft.AudioGainDbText, 90f, true);
-                if (GUILayout.Button(AudioPreview.IsPlaying
-                    ? Localization.Get("stop-audio-preview")
+                draft.AudioGainDb = SettingsUi.DrawAudioGainSlider(draft.AudioGainDb,
+                    ref draft.AudioGainDbText, ref draft.SyncedAudioGainDb, true);
+                AudioPreview.SetGain(draft.AudioGainDb);
+                if (GUILayout.Button(AudioPreview.IsLoading
+                    ? Localization.Get("loading-audio-preview")
+                    : AudioPreview.IsActive ? Localization.Get("stop-audio-preview")
                     : Localization.Get("preview-audio"), UiTheme.Button, GUILayout.Width(150f)))
                 {
-                    var wasPlaying = AudioPreview.IsPlaying;
-                    var isPlaying = AudioPreview.Toggle(ParsePreviewGain(draft.AudioGainDbText));
+                    var wasPlaying = AudioPreview.IsActive;
+                    var isPlaying = AudioPreview.Toggle(draft.AudioGainDb);
                     if (!wasPlaying && !isPlaying)
-                        error = Localization.Get("audio-preview-unavailable");
+                        error = AudioPreview.ErrorMessage ?? Localization.Get("audio-preview-unavailable");
                     else error = string.Empty;
                 }
-                GUILayout.EndHorizontal();
                 draft.ShowRenderPreview = UiTheme.DrawToggle(draft.ShowRenderPreview,
                     Localization.Get("show-render-preview"));
                 draft.BgaMode = UiTheme.DrawToggle(draft.BgaMode,
@@ -195,6 +195,8 @@ namespace OrbitRender.UI
                 GUILayout.EndScrollView();
                 GUI.skin = originalSkin;
             }
+            if (!string.IsNullOrEmpty(AudioPreview.ErrorMessage))
+                error = AudioPreview.ErrorMessage;
             if (!string.IsNullOrEmpty(error))
             {
                 var previous = GUI.color;
@@ -274,13 +276,6 @@ namespace OrbitRender.UI
             error = string.Empty;
         }
 
-        private static float ParsePreviewGain(string value)
-        {
-            if (!RendererSettings.TryParseAudioGainDb(value, out var parsed))
-                return 0f;
-            return RendererSettings.ClampAudioGainDb(parsed);
-        }
-
         private sealed class Draft
         {
             internal RendererPreset Preset;
@@ -290,7 +285,9 @@ namespace OrbitRender.UI
             internal string VideoFpsText;
             internal string BitrateText;
             internal string EndDelayText;
+            internal float AudioGainDb;
             internal string AudioGainDbText;
+            internal float SyncedAudioGainDb = float.NaN;
             internal bool CaptureAudio;
             internal bool ShowRenderPreview;
             internal bool BgaMode;
@@ -316,7 +313,7 @@ namespace OrbitRender.UI
                     VideoFpsText = settings.VideoFps.ToString(CultureInfo.InvariantCulture),
                     BitrateText = settings.BitrateMbps.ToString(CultureInfo.InvariantCulture),
                     EndDelayText = settings.EndDelaySeconds.ToString("0.##", CultureInfo.InvariantCulture),
-                    AudioGainDbText = settings.AudioGainDb.ToString("0.##", CultureInfo.InvariantCulture),
+                    AudioGainDb = RendererSettings.ClampAudioGainDb(settings.AudioGainDb),
                     CaptureAudio = settings.CaptureAudio,
                     ShowRenderPreview = settings.ShowRenderPreview,
                     BgaMode = settings.BgaMode,
@@ -349,7 +346,7 @@ namespace OrbitRender.UI
                 options = null;
                 message = string.Empty;
                 int width = 0, height = 0, targetFps = 0, videoFps = 0, bitrate = 0;
-                float endDelay, audioGainDb;
+                float endDelay;
                 if (!int.TryParse(FpsText, out targetFps) || targetFps < 15 || targetFps > 1024)
                 {
                     message = Localization.Get("ingame-fps-must-be-between-15-and-1024");
@@ -385,19 +382,11 @@ namespace OrbitRender.UI
                     message = Localization.Get("end-delay-must-be-between-0-and-30-seconds");
                     return false;
                 }
-                if (!RendererSettings.TryParseAudioGainDb(AudioGainDbText, out audioGainDb)
-                    || audioGainDb < RendererSettings.MinAudioGainDb
-                    || audioGainDb > RendererSettings.MaxAudioGainDb)
-                {
-                    message = Localization.Get("audio-volume-must-be-between-minus-60-and-12-db");
-                    return false;
-                }
-
                 options = new RenderRequestOptions {
                     Preset = Preset,
                     EndDelaySeconds = endDelay,
                     CaptureAudio = CaptureAudio,
-                    AudioGainDb = audioGainDb,
+                    AudioGainDb = RendererSettings.ClampAudioGainDb(AudioGainDb),
                     ShowRenderPreview = ShowRenderPreview,
                     BgaMode = BgaMode,
                     ShowPlanetRings = ShowPlanetRings,
