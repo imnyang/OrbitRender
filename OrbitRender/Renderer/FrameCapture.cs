@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using OrbitRender.Patches;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -54,6 +57,7 @@ namespace OrbitRender.Renderer
         {
             public FFmpegEncoder.Frame Frame;
             public AsyncGPUReadbackRequest Request;
+            public bool Direct;
             public bool Ready;
             public Exception Error;
             public long SubmittedAt;
@@ -65,6 +69,7 @@ namespace OrbitRender.Renderer
                 Frame = frame;
                 Frame.RepeatCount = 1;
                 Request = default(AsyncGPUReadbackRequest);
+                Direct = false;
                 Ready = false;
                 Error = null;
                 SubmittedAt = submittedAt;
@@ -79,9 +84,12 @@ namespace OrbitRender.Renderer
                 try
                 {
                     if (request.hasError) throw new InvalidOperationException("GPU readback failed at frame " + Frame.Index);
-                    var data = request.GetData<byte>();
-                    if (data.Length != Frame.Bytes.Length) throw new InvalidOperationException("Unexpected GPU frame size.");
-                    data.CopyTo(Frame.Bytes);
+                    if (!Direct)
+                    {
+                        var data = request.GetData<byte>();
+                        if (data.Length != Frame.Bytes.Length) throw new InvalidOperationException("Unexpected GPU frame size.");
+                        data.CopyTo(Frame.Bytes);
+                    }
                 }
                 catch (Exception ex) { Error = ex; }
                 finally
@@ -92,11 +100,39 @@ namespace OrbitRender.Renderer
                 }
             }
         }
+        private sealed class PinnedFrame : IDisposable
+        {
+            private GCHandle handle;
+            public NativeArray<byte> Data;
+
+            public unsafe PinnedFrame(byte[] bytes)
+            {
+                handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+                try
+                {
+                    Data = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(
+                        handle.AddrOfPinnedObject().ToPointer(), bytes.Length, Allocator.None);
+                }
+                catch
+                {
+                    handle.Free();
+                    throw;
+                }
+            }
+
+            public void Dispose()
+            {
+                if (handle.IsAllocated) handle.Free();
+            }
+        }
         private readonly List<CameraState> cameras = new List<CameraState>();
         private readonly List<CanvasState> canvases = new List<CanvasState>();
         private readonly Queue<Pending> pending = new Queue<Pending>();
         private Pending lastPending;
         private readonly Stack<Pending> reusable = new Stack<Pending>();
+        private readonly Dictionary<FFmpegEncoder.Frame, PinnedFrame> pinnedFrames =
+            new Dictionary<FFmpegEncoder.Frame, PinnedFrame>();
+        private bool directReadbackAvailable = true;
         private readonly FFmpegEncoder encoder;
         private readonly RenderTexture target;
         private RenderTexture customFrameHold;
@@ -471,8 +507,32 @@ namespace OrbitRender.Renderer
             }
             var frame = reusable.Count > 0 ? reusable.Pop() : new Pending();
             frame.Reset(buffer, System.Diagnostics.Stopwatch.GetTimestamp());
-            // Copy in the callback; Unity request data is only valid for one frame.
-            frame.Request = AsyncGPUReadback.Request(source, 0, readbackFormat, frame.Complete);
+            // Read directly into the encoder's pinned buffer when supported.
+            // The callback-copy path remains available for other backends.
+            if (directReadbackAvailable)
+            {
+                try
+                {
+                    if (!pinnedFrames.TryGetValue(buffer, out var pinned))
+                    {
+                        pinned = new PinnedFrame(buffer.Bytes);
+                        pinnedFrames.Add(buffer, pinned);
+                    }
+                    frame.Direct = true;
+                    frame.Request = AsyncGPUReadback.RequestIntoNativeArray(
+                        ref pinned.Data, source, 0, readbackFormat, frame.Complete);
+                    if (frame.Request.hasError)
+                        throw new InvalidOperationException("Direct GPU readback request was rejected.");
+                }
+                catch (Exception ex)
+                {
+                    frame.Direct = false;
+                    directReadbackAvailable = false;
+                    Main.Entry.Logger.Log("Direct GPU readback unavailable; using copy path: " + ex.Message);
+                }
+            }
+            if (!frame.Direct)
+                frame.Request = AsyncGPUReadback.Request(source, 0, readbackFormat, frame.Complete);
             pending.Enqueue(frame);
             lastPending = frame;
             if (pending.Count > peakPending) peakPending = pending.Count;
@@ -555,6 +615,8 @@ namespace OrbitRender.Renderer
             foreach (var frame in pending) if (!frame.Ready) frame.Request.WaitForCompletion();
             pending.Clear();
             lastPending = null;
+            foreach (var pinned in pinnedFrames.Values) pinned.Dispose();
+            pinnedFrames.Clear();
             foreach (var state in cameras) if (state.Camera != null) {
                 state.Camera.targetTexture = state.Target;
                 state.Camera.cullingMask = state.CullingMask;

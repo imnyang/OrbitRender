@@ -13,6 +13,7 @@ namespace OrbitRender.Renderer
         // requests, so keep this at one 60 fps frame plus headroom.
         private const int ListenerHistorySamples = 1024;
         private FileStream stream;
+        private ConcurrentAudioEncoder concurrentEncoder;
         private NativeArray<float> samples;
         private float[] managed;
         private byte[] bytes;
@@ -27,6 +28,8 @@ namespace OrbitRender.Renderer
         private long filterSamplesToDiscard;
         private int zeroSampleReads;
         private long captureTicks;
+        private long concurrentWriteTicks;
+        private long concurrentFinishTicks;
         public int SampleRate { get; private set; }
         public int Channels { get; private set; }
         public long SampleFrames { get; private set; }
@@ -47,6 +50,50 @@ namespace OrbitRender.Renderer
         }
         public double CaptureSeconds => System.Threading.Interlocked.Read(ref captureTicks)
             / (double)System.Diagnostics.Stopwatch.Frequency;
+        public double ConcurrentWriteSeconds => concurrentWriteTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+        public double ConcurrentFinishSeconds => concurrentFinishTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+
+        public void BeginConcurrentEncoding(string executable, string output, double gainDb)
+        {
+            try { concurrentEncoder = new ConcurrentAudioEncoder(executable, output, SampleRate, Channels, gainDb); }
+            catch (Exception ex)
+            {
+                Main.Entry.Logger.Log("Concurrent audio encoding unavailable; using final mux: " + ex.Message);
+            }
+        }
+
+        private void WriteConcurrent(byte[] data, int count)
+        {
+            if (concurrentEncoder == null) return;
+            var start = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { concurrentEncoder.Write(data, count); }
+            catch (Exception ex)
+            {
+                Main.Entry.Logger.Log("Concurrent audio encoding stopped; using final mux: " + ex.Message);
+                concurrentEncoder.Dispose();
+                concurrentEncoder = null;
+            }
+            finally { concurrentWriteTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start; }
+        }
+
+        public bool FinishConcurrentEncoding()
+        {
+            var encoder = concurrentEncoder;
+            concurrentEncoder = null;
+            if (encoder == null) return false;
+            var start = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { encoder.Finish(); return true; }
+            catch (Exception ex)
+            {
+                Main.Entry.Logger.Log("Concurrent audio encoding failed; using final mux: " + ex.Message);
+                return false;
+            }
+            finally
+            {
+                concurrentFinishTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
+                encoder.Dispose();
+            }
+        }
 
         public void Begin(string path)
         {
@@ -192,10 +239,27 @@ namespace OrbitRender.Renderer
                     + " sample frames (unavailable reads: " + zeroSampleReads
                     + "); padded the WAV with silence.");
             }
+            else if (SampleFrames > targetSamples && concurrentEncoder != null)
+            {
+                // WAV can trim a rounded final block; a streamed AAC input
+                // cannot. Use the WAV mux for this uncommon boundary.
+                concurrentEncoder.Dispose();
+                concurrentEncoder = null;
+            }
             long dataLength = checked(targetSamples * Channels * sizeof(float));
             stream.SetLength(44 + dataLength);
             stream.Position = 0; WriteHeader(dataLength); stream.Flush();
             stream.Dispose(); stream = null;
+            if (concurrentEncoder != null)
+            {
+                try { concurrentEncoder.CloseInput(); }
+                catch (Exception ex)
+                {
+                    Main.Entry.Logger.Log("Concurrent audio input failed; using final mux: " + ex.Message);
+                    concurrentEncoder.Dispose();
+                    concurrentEncoder = null;
+                }
+            }
         }
         private void WriteHeader(long size)
         {
@@ -220,6 +284,7 @@ namespace OrbitRender.Renderer
             {
                 int frames = (int)Math.Min(chunkFrames, sampleFrames);
                 stream.Write(bytes, 0, checked(frames * Channels * sizeof(float)));
+                WriteConcurrent(bytes, checked(frames * Channels * sizeof(float)));
                 sampleFrames -= frames;
             }
         }
@@ -330,6 +395,7 @@ namespace OrbitRender.Renderer
             Peak = peak;
             Buffer.BlockCopy(managed, 0, bytes, 0, checked(sampleValues * sizeof(float)));
             stream.Write(bytes, 0, checked(sampleValues * sizeof(float)));
+            WriteConcurrent(bytes, checked(sampleValues * sizeof(float)));
             SampleFrames += sampleValues / Channels;
         }
 
@@ -354,6 +420,7 @@ namespace OrbitRender.Renderer
                 listenerLeft = null;
                 listenerRight = null;
                 if (samples.IsCreated) samples.Dispose();
+                concurrentEncoder?.Dispose(); concurrentEncoder = null;
                 stream?.Dispose(); stream = null;
             }
         }

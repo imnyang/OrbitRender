@@ -3,7 +3,7 @@
  <PropertyGroup>
   <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
   <ProjectGuid>{6D295B50-05F2-474C-BC70-B38B0FC0A3FF}</ProjectGuid>
-  <OutputType>Library</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><LangVersion>latest</LangVersion>
+  <OutputType>Library</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><LangVersion>latest</LangVersion><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   <AssemblyName>OrbitRender</AssemblyName><RootNamespace>OrbitRender</RootNamespace>
   <OutputPath>bin/$(Configuration)/</OutputPath><Optimize>true</Optimize>
   <TargetFrameworkRootPath Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/</TargetFrameworkRootPath>

@@ -109,6 +109,33 @@ internal static class Program
             Assert(boostedVolume > baseVolume + 2.0 && boostedVolume < baseVolume + 4.0,
                 "Audio gain did not apply approximately +3 dB: " + baseVolume.ToString(CultureInfo.InvariantCulture)
                 + " -> " + boostedVolume.ToString(CultureInfo.InvariantCulture));
+            var rawTone = Path.Combine(args[1], "tone.f32le");
+            var concurrentAudio = Path.Combine(args[1], "tone-concurrent.m4a");
+            var concurrentMuxed = Path.Combine(args[1], "with-concurrent-audio.mp4");
+            Probe(args[0], "-v error -i \"" + wav + "\" -f f32le \"" + rawTone + "\"");
+            var rawSamples = File.ReadAllBytes(rawTone);
+            using (var concurrent = new ConcurrentAudioEncoder(args[0], concurrentAudio, 48000, 2, 3.0))
+            {
+                for (var offset = 0; offset < rawSamples.Length; offset += 6400)
+                {
+                    var count = Math.Min(6400, rawSamples.Length - offset);
+                    var block = new byte[count];
+                    Buffer.BlockCopy(rawSamples, offset, block, 0, count);
+                    concurrent.Write(block, count);
+                }
+                concurrent.Finish();
+            }
+            FFmpegEncoder.MuxPreencodedAudio(args[0], fast, concurrentAudio, concurrentMuxed);
+            Assert(Probe(args[0], "-v error -i \"" + concurrentMuxed + "\" -map 0:v:0 -f framemd5 -") == fastHash,
+                "Concurrent audio mux changed video frames or timestamps.");
+            var concurrentMetadata = Probe(ResolveProbe(args[0]),
+                "-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels,duration -of default=noprint_wrappers=1 \""
+                + concurrentMuxed + "\"");
+            Assert(concurrentMetadata.Contains("codec_name=aac") && concurrentMetadata.Contains("sample_rate=48000")
+                && concurrentMetadata.Contains("channels=2") && concurrentMetadata.Contains("duration=1.000000"),
+                "Concurrent audio format/duration mismatch.");
+            Assert(Math.Abs(MeanVolume(args[0], concurrentMuxed) - boostedVolume) < 0.2,
+                "Concurrent audio gain differs from final-mux gain.");
             var longWav = Path.Combine(args[1], "long-tone.wav");
             var offsetMuxed = Path.Combine(args[1], "with-offset-audio.mp4");
             Probe(args[0], "-v error -f lavfi -i sine=frequency=440:sample_rate=48000:duration=2 -ac 2 -c:a pcm_f32le \"" + longWav + "\"");
@@ -118,7 +145,7 @@ internal static class Program
                 + offsetMuxed + "\"");
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
-            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus mux, +3 dB audio gain, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
+            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus mux, concurrent AAC gain/mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

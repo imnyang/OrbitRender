@@ -13,6 +13,7 @@
   <Compile Include="..\OrbitRender\VideoCodec.cs" Link="VideoCodec.cs"/>
   <Compile Include="..\OrbitRender\Renderer\RenderClock.cs" Link="RenderClock.cs"/>
   <Compile Include="..\OrbitRender\Renderer\FFmpegEncoder.cs" Link="FFmpegEncoder.cs"/>
+  <Compile Include="..\OrbitRender\Renderer\ConcurrentAudioEncoder.cs" Link="ConcurrentAudioEncoder.cs"/>
  </ItemGroup>
  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets"/>
 </Project>

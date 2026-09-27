@@ -402,6 +402,22 @@ namespace OrbitRender.Renderer
                 if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors.GetAwaiter().GetResult());
             }
         }
+        public static void MuxPreencodedAudio(string executable, string video, string audio, string output)
+        {
+            using (var mux = new Process { StartInfo = new ProcessStartInfo {
+                FileName = executable, UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardError = true,
+                Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" -i \"" + audio
+                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy -movflags +faststart -shortest \""
+                    + output + "\""
+            }})
+            {
+                mux.Start();
+                var errors = mux.StandardError.ReadToEndAsync();
+                if (!mux.WaitForExit(60000)) { mux.Kill(); mux.WaitForExit(); throw new TimeoutException("Audio/video mux timed out."); }
+                if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors.GetAwaiter().GetResult());
+            }
+        }
         public void Dispose()
         {
             if (disposed) return;
