@@ -135,6 +135,7 @@ namespace OrbitRender.Renderer
         private bool directReadbackAvailable = true;
         private readonly FFmpegEncoder encoder;
         private readonly RenderTexture target;
+        private readonly RenderTexture gameTarget;
         private RenderTexture customFrameHold;
         private bool customFrameHoldValid;
         private int customFrameRateRevision = -1;
@@ -153,7 +154,6 @@ namespace OrbitRender.Renderer
         private GameObject hudOverlayObject;
         private int hudLayer;
         private int hudMask;
-        private float hudOverlayDepth;
         private Vector3 hudOverlayPosition;
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
@@ -206,12 +206,15 @@ namespace OrbitRender.Renderer
             target = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32) {
                 name = "OrbitRender Frame", antiAliasing = 1, useMipMap = false, autoGenerateMips = false
             };
+            gameTarget = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32) {
+                name = "OrbitRender Gameplay Feedback", antiAliasing = 1, useMipMap = false, autoGenerateMips = false
+            };
             try
             {
                 if (!target.Create()) throw new InvalidOperationException("Cannot allocate render target.");
-                var previous = RenderTexture.active;
-                try { RenderTexture.active = target; GL.Clear(true, true, Color.black); }
-                finally { RenderTexture.active = previous; }
+                if (!gameTarget.Create()) throw new InvalidOperationException("Cannot allocate gameplay feedback target.");
+                ClearTexture(target, Color.black);
+                ClearTexture(gameTarget, Color.black);
                 Add(gameCamera.Bgcamstatic); Add(gameCamera.BGcam); Add(gameCamera.camobj);
                 // Overlaycam presents the already composited RT on a quad. Capturing
                 // it again would feed our own output back into itself.
@@ -239,7 +242,13 @@ namespace OrbitRender.Renderer
                         WorldCamera = canvas.worldCamera,
                         PlaneDistance = canvas.planeDistance
                     });
-                    if (captureCanvas) ConfigureCaptureCanvas(canvas, hudOverlayCamera ?? gameCamera.camobj);
+                    if (captureCanvas)
+                    {
+                        ConfigureCaptureCanvas(canvas, hudOverlayCamera ?? gameCamera.camobj);
+                        // Keep HUD pixels out of the persistent gameplay image
+                        // used as Hall of Mirrors' next-frame input.
+                        canvas.enabled = false;
+                    }
                     else canvas.enabled = false;
                 }
                 if (!SystemInfo.supportsAsyncGPUReadback)
@@ -291,11 +300,17 @@ namespace OrbitRender.Renderer
                 renderCamera.cullingMask |= canvasLayerMask;
                 RecordBindWrite();
             }
-            if (!canvas.enabled)
+        }
+
+        private static void ClearTexture(RenderTexture texture, Color color)
+        {
+            var previous = RenderTexture.active;
+            try
             {
-                canvas.enabled = true;
-                RecordBindWrite();
+                RenderTexture.active = texture;
+                GL.Clear(true, true, color);
             }
+            finally { RenderTexture.active = previous; }
         }
 
         private void CreateHudOverlay(IEnumerable<Canvas> captureCanvases)
@@ -323,21 +338,13 @@ namespace OrbitRender.Renderer
             hudOverlayCamera.aspect = width / (float)height;
             hudOverlayCamera.clearFlags = CameraClearFlags.Depth;
             hudOverlayCamera.cullingMask = hudMask;
-            hudOverlayDepth = MaxCameraDepth() + 1f;
-            hudOverlayCamera.depth = hudOverlayDepth;
             hudOverlayCamera.targetTexture = target;
-            hudOverlayCamera.enabled = true;
+            // Render the HUD manually after the gameplay camera chain has
+            // finished. This keeps camera image effects from sampling the HUD
+            // even if Unity changes the automatic camera render order.
+            hudOverlayCamera.enabled = false;
             Add(hudOverlayCamera);
             SyncHudOverlayCamera();
-        }
-
-        private float MaxCameraDepth()
-        {
-            var max = float.MinValue;
-            foreach (var state in cameras)
-                if (state.Camera != null && state.Camera != hudOverlayCamera)
-                    max = Mathf.Max(max, state.Camera.depth);
-            return max == float.MinValue ? 0f : max;
         }
 
         private static int FindUnusedLayer()
@@ -390,19 +397,14 @@ namespace OrbitRender.Renderer
                 hudOverlayCamera.cullingMask = hudMask;
                 RecordBindWrite();
             }
-            if (!Mathf.Approximately(hudOverlayCamera.depth, hudOverlayDepth))
-            {
-                hudOverlayCamera.depth = hudOverlayDepth;
-                RecordBindWrite();
-            }
             if (hudOverlayCamera.targetTexture != target)
             {
                 hudOverlayCamera.targetTexture = target;
                 RecordBindWrite();
             }
-            if (!hudOverlayCamera.enabled)
+            if (hudOverlayCamera.enabled)
             {
-                hudOverlayCamera.enabled = true;
+                hudOverlayCamera.enabled = false;
                 RecordBindWrite();
             }
         }
@@ -427,7 +429,7 @@ namespace OrbitRender.Renderer
                 {
                     if (state.Canvas == null) continue;
                     if (state.Capture) ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
-                    else if (state.Canvas.enabled)
+                    if (state.Canvas.enabled)
                     {
                         state.Canvas.enabled = false;
                         RecordBindWrite();
@@ -436,16 +438,23 @@ namespace OrbitRender.Renderer
                 foreach (var state in cameras)
                 {
                     if (state.Camera == null) throw new InvalidOperationException("A render camera was destroyed.");
-                    // Own the camera output for the duration of the render. The old
-                    // path let Unity draw these cameras to the game window and then
-                    // called Camera.Render again into this texture, doubling the
-                    // scene-rendering work for every encoded frame. RendererController
-                    // calls Bind from its last LateUpdate, immediately before Unity's
-                    // normal camera pass, so that pass can be captured directly.
-                    if (state.Camera.targetTexture != target)
+                    // Keep the gameplay cameras on their persistent feedback
+                    // texture. RendererController calls Bind from its last
+                    // LateUpdate, immediately before Unity's normal camera pass.
+                    var cameraTarget = state.Camera == hudOverlayCamera ? target : gameTarget;
+                    if (state.Camera.targetTexture != cameraTarget)
                     {
-                        state.Camera.targetTexture = target;
+                        state.Camera.targetTexture = cameraTarget;
                         RecordBindWrite();
+                    }
+                    if (state.Camera != hudOverlayCamera)
+                    {
+                        var gameplayMask = state.Camera.cullingMask & ~hudMask;
+                        if (state.Camera.cullingMask != gameplayMask)
+                        {
+                            state.Camera.cullingMask = gameplayMask;
+                            RecordBindWrite();
+                        }
                     }
                     var targetAspect = width / (float)height;
                     if (!Mathf.Approximately(state.Camera.aspect, targetAspect))
@@ -455,7 +464,7 @@ namespace OrbitRender.Renderer
                     }
                     // Camera.Render ignored the component's enabled flag on the old
                     // manual path; keep that behavior while using the automatic pass.
-                    if (!state.Camera.enabled)
+                    if (state.Camera != hudOverlayCamera && !state.Camera.enabled)
                     {
                         state.Camera.enabled = true;
                         RecordBindWrite();
@@ -473,8 +482,35 @@ namespace OrbitRender.Renderer
         {
             if (measuringBind) bindPropertyWrites++;
         }
+
+        private void RenderOutputFrame()
+        {
+            // Hall of Mirrors intentionally feeds prior gameplay frames back
+            // into its cameras. Keep that persistent image separate from the
+            // HUD so prior HUD pixels cannot enter the next filter pass.
+            Graphics.Blit(gameTarget, target);
+            if (hudOverlayCamera == null) return;
+
+            SyncHudOverlayCamera();
+            foreach (var state in canvases)
+            {
+                if (!state.Capture || state.Canvas == null) continue;
+                ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera);
+                state.Canvas.enabled = true;
+            }
+            try { hudOverlayCamera.Render(); }
+            finally
+            {
+                foreach (var state in canvases)
+                    if (state.Capture && state.Canvas != null) state.Canvas.enabled = false;
+            }
+        }
+
         public void Capture(long index)
         {
+            // Capture runs after WaitForEndOfFrame. Copy the completed gameplay
+            // feedback image, then composite the isolated HUD before readback.
+            RenderOutputFrame();
             Drain(false);
             lastPending = null;
             var source = SelectCaptureSource();
@@ -659,6 +695,7 @@ namespace OrbitRender.Renderer
             hudLayerObjects.Clear();
             if (fallback != null) UnityEngine.Object.Destroy(fallback);
             if (customFrameHold != null) { customFrameHold.Release(); UnityEngine.Object.Destroy(customFrameHold); }
+            if (gameTarget != null) { gameTarget.Release(); UnityEngine.Object.Destroy(gameTarget); }
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
         }
     }
