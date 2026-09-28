@@ -7,6 +7,7 @@ using System.Threading;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Networking;
+using UnityEngine.Video;
 using OrbitRender.Patches;
 
 namespace OrbitRender.Renderer
@@ -481,6 +482,15 @@ namespace OrbitRender.Renderer
             // Unity advances the game's simulation at InGame FPS. Video FPS
             // is a separate sampling rate used by the output encoder below.
             Time.captureFramerate = profile.TargetFps;
+            // A level's background VideoPlayer defaults to the audio DSP
+            // clock (or unscaled real time), so it normally decodes frames
+            // against the wall clock. Time.captureFramerate only forces
+            // synchronous, frame-accurate playback when the player's time
+            // update mode is GameTime; without this, an accelerated or
+            // throttled render leaves the background video running at real
+            // speed while the deterministic clock races or lags behind it,
+            // producing sped-up/desynced or stuttering video in the export.
+            if (level.videoBG != null) level.videoBG.timeUpdateMode = VideoTimeUpdateMode.GameTime;
             Time.timeScale = 1;
             DG.Tweening.DOTween.useSmoothDeltaTime = false;
             QualitySettings.vSyncCount = 0;
@@ -2012,6 +2022,9 @@ namespace OrbitRender.Renderer
                 ? ADOBase.conductor.song2.pitch : 1f;
             private readonly float song3Pitch = ADOBase.conductor != null && ADOBase.conductor.song3 != null
                 ? ADOBase.conductor.song3.pitch : 1f;
+            private readonly VideoPlayer videoBG = ADOBase.customLevel != null ? ADOBase.customLevel.videoBG : null;
+            private readonly VideoTimeUpdateMode videoTimeUpdateMode = ADOBase.customLevel != null && ADOBase.customLevel.videoBG != null
+                ? ADOBase.customLevel.videoBG.timeUpdateMode : VideoTimeUpdateMode.DSPTime;
             public void Restore()
             {
                 RestoreTiming();
@@ -2065,6 +2078,7 @@ namespace OrbitRender.Renderer
                 RDC.auto = auto; GCS.checkpointNum = checkpoint; Persistence.skipIntroBehavior = intro;
                 RDC.noHud = noHud; RDC.noAutoHud = noAutoHud;
                 if (ADOBase.controller != null) ADOBase.controller.noFail = noFail;
+                if (videoBG != null) videoBG.timeUpdateMode = videoTimeUpdateMode;
             }
             public void RestoreAudioSources()
             {
