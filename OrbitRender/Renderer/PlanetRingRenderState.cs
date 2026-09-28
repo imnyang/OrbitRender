@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Reflection;
 using UnityEngine;
 
@@ -44,6 +45,50 @@ namespace OrbitRender.Renderer
                 ? null
                 : RingComponentField.FieldType.GetField("line", InstanceMembers);
 
+        // Apply() re-reads these members every rendered frame (LateUpdate) so
+        // a game-side Revive() cannot flash a ring back into view for even a
+        // single frame. FieldInfo/PropertyInfo GetValue/SetValue are
+        // comparatively slow (boxing + type checks on every call); compiling
+        // them once into delegates keeps the exact same behavior while
+        // removing that reflection overhead from the per-frame path, which
+        // matters most on levels with many planets and long renders.
+        private static readonly Func<object, object> GetRing = CreateFieldGetter(RingField);
+        private static readonly Func<object, object> GetRingComponent = CreateFieldGetter(RingComponentField);
+        private static readonly Func<object, object> GetRingLine = CreateFieldGetter(RingLineField);
+        private static readonly Func<object, object> GetRingColor = CreatePropertyGetter(RingColorProperty);
+        private static readonly Action<object, object> SetRingColor = CreatePropertySetter(RingColorProperty);
+
+        private static Func<object, object> CreateFieldGetter(FieldInfo field)
+        {
+            if (field == null) return null;
+            var target = Expression.Parameter(typeof(object), "target");
+            var instance = Expression.Convert(target, field.DeclaringType);
+            var access = Expression.Field(instance, field);
+            var body = Expression.Convert(access, typeof(object));
+            return Expression.Lambda<Func<object, object>>(body, target).Compile();
+        }
+
+        private static Func<object, object> CreatePropertyGetter(PropertyInfo property)
+        {
+            if (property == null || !property.CanRead) return null;
+            var target = Expression.Parameter(typeof(object), "target");
+            var instance = Expression.Convert(target, property.DeclaringType);
+            var access = Expression.Property(instance, property);
+            var body = Expression.Convert(access, typeof(object));
+            return Expression.Lambda<Func<object, object>>(body, target).Compile();
+        }
+
+        private static Action<object, object> CreatePropertySetter(PropertyInfo property)
+        {
+            if (property == null || !property.CanWrite) return null;
+            var target = Expression.Parameter(typeof(object), "target");
+            var value = Expression.Parameter(typeof(object), "value");
+            var instance = Expression.Convert(target, property.DeclaringType);
+            var access = Expression.Property(instance, property);
+            var assign = Expression.Assign(access, Expression.Convert(value, property.PropertyType));
+            return Expression.Lambda<Action<object, object>>(assign, target, value).Compile();
+        }
+
         private readonly List<PlanetRenderer> planets = new List<PlanetRenderer>();
         private readonly HashSet<PlanetRenderer> knownPlanets = new HashSet<PlanetRenderer>();
         private readonly List<RendererSnapshot> renderers = new List<RendererSnapshot>();
@@ -82,14 +127,14 @@ namespace OrbitRender.Renderer
             {
                 try
                 {
-                    if (RingField != null)
-                        AddRenderer(RingField.GetValue(planet) as UnityEngine.Renderer);
+                    if (GetRing != null)
+                        AddRenderer(GetRing(planet) as UnityEngine.Renderer);
 
-                    if (RingComponentField == null) continue;
-                    var component = RingComponentField.GetValue(planet);
+                    if (GetRingComponent == null) continue;
+                    var component = GetRingComponent(planet);
                     AddRingComponent(component);
-                    if (component != null && RingLineField != null)
-                        AddRenderer(RingLineField.GetValue(component) as UnityEngine.Renderer);
+                    if (component != null && GetRingLine != null)
+                        AddRenderer(GetRingLine(component) as UnityEngine.Renderer);
                 }
                 catch
                 {
@@ -125,12 +170,12 @@ namespace OrbitRender.Renderer
                 Component = component,
                 ColorProperty = RingColorProperty
             };
-            if (snapshot.ColorProperty != null && snapshot.ColorProperty.CanRead)
+            if (GetRingColor != null)
             {
                 try
                 {
-                    snapshot.Color = (Color)snapshot.ColorProperty.GetValue(component, null);
-                    snapshot.HasColor = snapshot.ColorProperty.CanWrite;
+                    snapshot.Color = (Color)GetRingColor(component);
+                    snapshot.HasColor = SetRingColor != null;
                 }
                 catch
                 {
@@ -169,8 +214,8 @@ namespace OrbitRender.Renderer
                 if (!snapshot.HasColor || snapshot.Component == null) continue;
                 try
                 {
-                    var color = (Color)snapshot.ColorProperty.GetValue(snapshot.Component, null);
-                    snapshot.ColorProperty.SetValue(snapshot.Component, Transparent(color), null);
+                    var color = (Color)GetRingColor(snapshot.Component);
+                    SetRingColor(snapshot.Component, Transparent(color));
                 }
                 catch { /* An optional ring implementation changed or vanished. */ }
             }
@@ -199,7 +244,7 @@ namespace OrbitRender.Renderer
             {
                 var snapshot = ringComponents[i];
                 if (!snapshot.HasColor || snapshot.Component == null) continue;
-                try { snapshot.ColorProperty.SetValue(snapshot.Component, snapshot.Color, null); }
+                try { SetRingColor(snapshot.Component, snapshot.Color); }
                 catch { /* The component may have been destroyed with the level. */ }
             }
 
