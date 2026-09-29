@@ -64,10 +64,11 @@ namespace OrbitRender.UI
             UguiFactory.Anchor(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f),
                 new Vector2(24f, -62f), new Vector2(-24f, -16f));
 
-            var viewport = UguiFactory.Image(panel.transform, "Viewport", new Color(1f, 1f, 1f, .001f));
-            UguiFactory.Anchor(viewport.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,
+            var scrollView = UguiFactory.New(panel.transform, "Scroll View", typeof(RectTransform), typeof(ScrollRect));
+            UguiFactory.Anchor(scrollView.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,
                 new Vector2(24f, 82f), new Vector2(-24f, -68f));
-            viewport.AddComponent<Mask>().showMaskGraphic = false;
+            var viewport = UguiFactory.New(scrollView.transform, "Viewport", typeof(RectTransform), typeof(RectMask2D));
+            UguiFactory.Stretch(viewport.GetComponent<RectTransform>());
             var body = UguiFactory.New(viewport.transform, "Content", typeof(RectTransform),
                 typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
             content = body.GetComponent<RectTransform>();
@@ -78,7 +79,7 @@ namespace OrbitRender.UI
             layout.childControlHeight = true; layout.childControlWidth = true;
             layout.childForceExpandHeight = false; layout.childForceExpandWidth = true;
             body.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-            scrollRect = viewport.AddComponent<ScrollRect>();
+            scrollRect = scrollView.GetComponent<ScrollRect>();
             scrollRect.viewport = viewport.GetComponent<RectTransform>(); scrollRect.content = content;
             scrollRect.horizontal = false; scrollRect.scrollSensitivity = 28f;
 
@@ -106,7 +107,11 @@ namespace OrbitRender.UI
         {
             if (content == null || draft == null) return;
             var position = preserveScroll && scrollRect != null ? scrollRect.verticalNormalizedPosition : 1f;
-            for (var i = content.childCount - 1; i >= 0; i--) UnityEngine.Object.Destroy(content.GetChild(i).gameObject);
+            for (var i = content.childCount - 1; i >= 0; i--)
+            {
+                content.GetChild(i).gameObject.SetActive(false);
+                UnityEngine.Object.Destroy(content.GetChild(i).gameObject);
+            }
             AddLabel(Localization.Get("choose-the-settings-for-this-video-export"), 20, 40f, UguiFactory.Muted);
             AddDropdown(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
                 "FullHD", "QHD", "UHD 4K" }, (int)draft.Preset, value => {
@@ -166,7 +171,10 @@ namespace OrbitRender.UI
                 AddDropdown(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
                     (int)draft.BitDepth, v => draft.BitDepth = (VideoBitDepth)v);
             }
-            Canvas.ForceUpdateCanvases(); if (scrollRect != null) scrollRect.verticalNormalizedPosition = position;
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            content.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, LayoutUtility.GetPreferredHeight(content));
+            Canvas.ForceUpdateCanvases();
+            if (scrollRect != null) scrollRect.verticalNormalizedPosition = position;
             Refresh(RendererController.Instance);
         }
 
