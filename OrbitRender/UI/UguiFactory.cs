@@ -18,6 +18,8 @@ namespace OrbitRender.UI
         internal static readonly Color Muted = new Color(0.69f, 0.68f, 0.72f, 1f);
         internal static readonly Color Error = new Color(1f, 0.55f, 0.55f, 1f);
         private static Font font;
+        private static Sprite roundedSprite;
+        private static Sprite largeRoundedSprite;
 
         internal static GameObject Canvas(string name, int sortingOrder)
         {
@@ -66,6 +68,7 @@ namespace OrbitRender.UI
         internal static Button Button(Transform parent, string caption, Action action, bool primary = false)
         {
             var go = Image(parent, "Button", primary ? Accent : Control, true);
+            Round(go.GetComponent<Image>());
             var button = go.AddComponent<Button>();
             var colors = button.colors;
             colors.normalColor = Color.white;
@@ -83,6 +86,7 @@ namespace OrbitRender.UI
         internal static InputField Input(Transform parent, string value, Action<string> changed)
         {
             var go = Image(parent, "Input", new Color(0.10f, 0.09f, 0.12f, 1f), true);
+            Round(go.GetComponent<Image>());
             var input = go.AddComponent<InputField>();
             var text = Text(go.transform, value, 20);
             SetOffsets(text.rectTransform, 10f, 8f, 10f, 8f);
@@ -97,23 +101,33 @@ namespace OrbitRender.UI
             var go = New(parent, "Toggle", typeof(Toggle), typeof(LayoutElement));
             go.GetComponent<LayoutElement>().preferredHeight = 42f;
             var toggle = go.GetComponent<Toggle>();
-            var box = Image(go.transform, "Box", Control, true).GetComponent<Image>();
-            Anchor(box.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
-                new Vector2(4f, -14f), new Vector2(32f, 14f));
-            var mark = Image(box.transform, "Checkmark", Accent).GetComponent<Image>();
-            SetOffsets(mark.rectTransform, 5f, 5f, 5f, 5f);
-            toggle.targetGraphic = box;
-            toggle.graphic = mark;
+            var track = Image(go.transform, "Track", Control, true).GetComponent<Image>();
+            Round(track);
+            Anchor(track.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
+                new Vector2(-52f, -13f), new Vector2(-4f, 13f));
+            var knob = Image(track.transform, "Knob", Foreground).GetComponent<Image>();
+            Round(knob);
+            knob.rectTransform.anchorMin = knob.rectTransform.anchorMax = new Vector2(0f, .5f);
+            knob.rectTransform.sizeDelta = new Vector2(20f, 20f);
+            toggle.targetGraphic = track;
+            toggle.graphic = null;
             var label = Text(go.transform, caption, 20);
-            SetOffsets(label.rectTransform, 44f, 0f, 0f, 0f);
+            SetOffsets(label.rectTransform, 4f, 0f, 62f, 0f);
+            Action<bool> refresh = selected => {
+                track.color = selected ? Accent : Control;
+                knob.color = selected ? new Color(.13f, .11f, .15f, 1f) : Foreground;
+                knob.rectTransform.anchoredPosition = new Vector2(selected ? 37f : 11f, 0f);
+            };
             toggle.isOn = value;
-            if (changed != null) toggle.onValueChanged.AddListener(v => changed(v));
+            refresh(value);
+            toggle.onValueChanged.AddListener(v => { refresh(v); if (changed != null) changed(v); });
             return toggle;
         }
 
         internal static Dropdown Dropdown(Transform parent, string[] values, int selected, Action<int> changed)
         {
             var go = Image(parent, "Dropdown", Control, true);
+            Round(go.GetComponent<Image>());
             var dropdown = go.AddComponent<Dropdown>();
             var label = Text(go.transform, string.Empty, 19);
             SetOffsets(label.rectTransform, 12f, 4f, 30f, 4f);
@@ -154,6 +168,7 @@ namespace OrbitRender.UI
         {
             var go = New(parent, "Slider", typeof(Slider));
             var background = Image(go.transform, "Background", Backdrop).GetComponent<Image>();
+            Round(background);
             Anchor(background.rectTransform, new Vector2(0f, .5f), new Vector2(1f, .5f),
                 new Vector2(0f, -4f), new Vector2(0f, 4f));
             var fillArea = New(go.transform, "Fill Area", typeof(RectTransform));
@@ -161,6 +176,7 @@ namespace OrbitRender.UI
             var fill = Image(fillArea.transform, "Fill", Accent).GetComponent<Image>();
             Stretch(fill.rectTransform);
             var handle = Image(go.transform, "Handle", Foreground, true).GetComponent<Image>();
+            Round(handle);
             var handleRect = handle.rectTransform;
             handleRect.sizeDelta = new Vector2(18f, 28f);
             var slider = go.GetComponent<Slider>();
@@ -191,6 +207,13 @@ namespace OrbitRender.UI
                 ?? component.gameObject.AddComponent<LayoutElement>();
             element.preferredWidth = width;
             if (height >= 0f) element.preferredHeight = height;
+        }
+
+        internal static void Round(Image image, bool large = false)
+        {
+            if (image == null) return;
+            image.sprite = large ? LargeRoundedSprite : RoundedSprite;
+            image.type = UnityEngine.UI.Image.Type.Sliced;
         }
 
         internal static GameObject New(Transform parent, string name, params Type[] components)
@@ -225,6 +248,33 @@ namespace OrbitRender.UI
         }
 
         private static Font Font => font != null ? font : (font = Resources.GetBuiltinResource<Font>("Arial.ttf"));
+
+        private static Sprite RoundedSprite => roundedSprite != null ? roundedSprite
+            : (roundedSprite = CreateRoundedSprite(32, 7));
+        private static Sprite LargeRoundedSprite => largeRoundedSprite != null ? largeRoundedSprite
+            : (largeRoundedSprite = CreateRoundedSprite(48, 12));
+
+        private static Sprite CreateRoundedSprite(int size, int radius)
+        {
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) {
+                name = "OrbitRender uGUI rounded mask",
+                hideFlags = HideFlags.DontUnloadUnusedAsset,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+            for (var y = 0; y < size; y++)
+                for (var x = 0; x < size; x++)
+                {
+                    var px = x + .5f;
+                    var py = y + .5f;
+                    var dx = Mathf.Max(Mathf.Max(radius - px, 0f), px - (size - radius));
+                    var dy = Mathf.Max(Mathf.Max(radius - py, 0f), py - (size - radius));
+                    texture.SetPixel(x, y, dx * dx + dy * dy <= radius * radius ? Color.white : Color.clear);
+                }
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(.5f, .5f),
+                100f, 0u, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
+        }
 
         private static void EnsureEventSystem()
         {

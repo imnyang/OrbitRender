@@ -58,6 +58,7 @@ namespace OrbitRender.UI
             var dimmer = UguiFactory.Image(canvasObject.transform, "Dimmer", new Color(0f, 0f, 0f, .72f), true);
             UguiFactory.Stretch(dimmer.GetComponent<RectTransform>());
             var panel = UguiFactory.Image(canvasObject.transform, "Panel", UguiFactory.Surface, true);
+            UguiFactory.Round(panel.GetComponent<Image>(), true);
             UguiFactory.Anchor(panel.GetComponent<RectTransform>(), new Vector2(.5f, .5f), new Vector2(.5f, .5f),
                 new Vector2(-380f, -340f), new Vector2(380f, 340f));
             var title = UguiFactory.Text(panel.transform, Localization.Get("export-video"), 28);
@@ -67,21 +68,36 @@ namespace OrbitRender.UI
             var scrollView = UguiFactory.New(panel.transform, "Scroll View", typeof(RectTransform), typeof(ScrollRect));
             UguiFactory.Anchor(scrollView.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,
                 new Vector2(24f, 82f), new Vector2(-24f, -68f));
-            var viewport = UguiFactory.New(scrollView.transform, "Viewport", typeof(RectTransform), typeof(RectMask2D));
+            var viewport = UguiFactory.Image(scrollView.transform, "Viewport", new Color(1f, 1f, 1f, .001f), true);
+            viewport.AddComponent<RectMask2D>();
             UguiFactory.Stretch(viewport.GetComponent<RectTransform>());
-            var body = UguiFactory.New(viewport.transform, "Content", typeof(RectTransform),
-                typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+            viewport.GetComponent<RectTransform>().offsetMax = new Vector2(-18f, 0f);
+            var body = UguiFactory.New(viewport.transform, "Content", typeof(RectTransform), typeof(VerticalLayoutGroup));
             content = body.GetComponent<RectTransform>();
             content.anchorMin = new Vector2(0f, 1f); content.anchorMax = new Vector2(1f, 1f);
-            content.pivot = new Vector2(.5f, 1f); content.offsetMin = Vector2.zero; content.offsetMax = Vector2.zero;
+            content.pivot = new Vector2(.5f, 1f); content.anchoredPosition = Vector2.zero; content.sizeDelta = Vector2.zero;
             var layout = body.GetComponent<VerticalLayoutGroup>();
             layout.spacing = 8f; layout.padding = new RectOffset(4, 14, 4, 10);
             layout.childControlHeight = true; layout.childControlWidth = true;
             layout.childForceExpandHeight = false; layout.childForceExpandWidth = true;
-            body.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             scrollRect = scrollView.GetComponent<ScrollRect>();
             scrollRect.viewport = viewport.GetComponent<RectTransform>(); scrollRect.content = content;
-            scrollRect.horizontal = false; scrollRect.scrollSensitivity = 28f;
+            scrollRect.horizontal = false; scrollRect.vertical = true; scrollRect.scrollSensitivity = 38f;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+
+            var scrollbarObject = UguiFactory.Image(scrollView.transform, "Scrollbar", UguiFactory.Backdrop, true);
+            UguiFactory.Round(scrollbarObject.GetComponent<Image>());
+            UguiFactory.Anchor(scrollbarObject.GetComponent<RectTransform>(), new Vector2(1f, 0f), Vector2.one,
+                new Vector2(-10f, 2f), new Vector2(0f, -2f));
+            var scrollbar = scrollbarObject.AddComponent<Scrollbar>();
+            scrollbar.direction = Scrollbar.Direction.BottomToTop;
+            var handle = UguiFactory.Image(scrollbarObject.transform, "Handle", UguiFactory.Accent, true).GetComponent<Image>();
+            UguiFactory.Round(handle);
+            UguiFactory.SetOffsets(handle.rectTransform, 2f, 2f, 2f, 2f);
+            scrollbar.handleRect = handle.rectTransform;
+            scrollbar.targetGraphic = handle;
+            scrollRect.verticalScrollbar = scrollbar;
+            scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
 
             errorText = UguiFactory.Text(panel.transform, string.Empty, 17, TextAnchor.MiddleLeft, UguiFactory.Error);
             UguiFactory.Anchor(errorText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f),
@@ -172,7 +188,10 @@ namespace OrbitRender.UI
                     (int)draft.BitDepth, v => draft.BitDepth = (VideoBitDepth)v);
             }
             LayoutRebuilder.ForceRebuildLayoutImmediate(content);
-            content.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, LayoutUtility.GetPreferredHeight(content));
+            var preferredHeight = Mathf.Max(LayoutUtility.GetPreferredHeight(content),
+                scrollRect.viewport.rect.height + 1f);
+            content.sizeDelta = new Vector2(0f, preferredHeight);
+            content.anchoredPosition = Vector2.zero;
             Canvas.ForceUpdateCanvases();
             if (scrollRect != null) scrollRect.verticalNormalizedPosition = position;
             Refresh(RendererController.Instance);

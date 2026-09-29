@@ -76,6 +76,7 @@ namespace OrbitRender.UI
         private static GameObject Card(float width, float height)
         {
             var card = UguiFactory.Image(canvasObject.transform, "Card", UguiFactory.Surface, true);
+            UguiFactory.Round(card.GetComponent<Image>(), true);
             UguiFactory.Anchor(card.GetComponent<RectTransform>(), new Vector2(.5f, .5f), new Vector2(.5f, .5f),
                 new Vector2(-width / 2f, -height / 2f), new Vector2(width / 2f, height / 2f));
             panelObject = card;
