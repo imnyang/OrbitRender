@@ -51,6 +51,7 @@ namespace OrbitRender.Renderer
         public string OutputPath { get; private set; } = "";
         public string FFmpegPath = "";
         internal Texture RenderPreviewTexture => capture != null ? capture.PreviewTexture : null;
+        internal bool ShowPreviewForRun => showPreviewForRun;
         private readonly System.Diagnostics.Stopwatch renderTimer = new System.Diagnostics.Stopwatch();
         public double GenerationFps => renderTimer.Elapsed.TotalSeconds > 0 ? CapturedFrames / renderTimer.Elapsed.TotalSeconds : 0;
         public double ElapsedSeconds => renderTimer.Elapsed.TotalSeconds;
@@ -391,9 +392,8 @@ namespace OrbitRender.Renderer
             if (!useGameNotification || ADOBase.editor == null) return;
             try
             {
-                // This is ADOFAI's own editor notification bar. The fallback
-                // OnGUI toast below remains visible while the render canvas is
-                // temporarily hidden from the captured camera.
+                // This is ADOFAI's own editor notification bar. The uGUI toast
+                // remains available while the render canvas owns presentation.
                 ADOBase.editor.ShowNotification(ToastText, null, seconds);
             }
             catch (Exception ex) { Main.Entry.Logger.Log("Game notification unavailable: " + ex.Message); }
@@ -433,7 +433,7 @@ namespace OrbitRender.Renderer
         }
         private IEnumerator Run()
         {
-            // Start at a frame boundary; OnGUI can run several times per frame.
+            // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
@@ -1172,25 +1172,42 @@ namespace OrbitRender.Renderer
         }
         private void LateUpdate()
         {
-            if (State != RenderState.Rendering) return;
-            try
+            if (State == RenderState.Rendering)
             {
-                var start = System.Diagnostics.Stopwatch.GetTimestamp();
-                bga?.Apply();
-                var next = System.Diagnostics.Stopwatch.GetTimestamp();
-                bgaTicks += next - start;
-                planetRings?.Apply();
-                start = System.Diagnostics.Stopwatch.GetTimestamp();
-                ringTicks += start - next;
-                defaultText?.Apply();
-                next = System.Diagnostics.Stopwatch.GetTimestamp();
-                textTicks += next - start;
-                ApplyFramePacing();
-                next = System.Diagnostics.Stopwatch.GetTimestamp();
-                capture.Bind();
-                cameraBindTicks += System.Diagnostics.Stopwatch.GetTimestamp() - next;
+                try
+                {
+                    var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                    bga?.Apply();
+                    var next = System.Diagnostics.Stopwatch.GetTimestamp();
+                    bgaTicks += next - start;
+                    planetRings?.Apply();
+                    start = System.Diagnostics.Stopwatch.GetTimestamp();
+                    ringTicks += start - next;
+                    defaultText?.Apply();
+                    next = System.Diagnostics.Stopwatch.GetTimestamp();
+                    textTicks += next - start;
+                    ApplyFramePacing();
+                    next = System.Diagnostics.Stopwatch.GetTimestamp();
+                    capture.Bind();
+                    cameraBindTicks += System.Diagnostics.Stopwatch.GetTimestamp() - next;
+                }
+                catch (Exception ex) { Fail(ex); StopAndClean(); }
             }
-            catch (Exception ex) { Fail(ex); StopAndClean(); }
+            else if (State == RenderState.Idle)
+            {
+                Message = Localization.Get("open-a-custom-level-then-render");
+                ToastText = Localization.Get("open-a-custom-level-then-press-f6-to-render");
+            }
+
+            var uiStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            OrbitRender.UI.ExportVideoDialog.Refresh(this);
+            OrbitRender.UI.RendererWindow.Sync(this);
+            var uiElapsed = System.Diagnostics.Stopwatch.GetTimestamp() - uiStart;
+            if (State == RenderState.Rendering)
+            {
+                previewUiTicks += uiElapsed;
+                progressUiTicks += uiElapsed;
+            }
         }
         private void Update()
         {
@@ -1239,58 +1256,6 @@ namespace OrbitRender.Renderer
             activeRpcJob?.Cancel();
             Cleanup();
             activeRpcJob = null;
-        }
-        private void OnGUI()
-        {
-            if (!Main.Enabled) return;
-            if (Busy && Event.current.isKey && Event.current.keyCode == KeyCode.Escape)
-                Event.current.Use();
-            if (State == RenderState.Idle)
-            {
-                Message = Localization.Get("open-a-custom-level-then-render");
-                ToastText = Localization.Get("open-a-custom-level-then-press-f6-to-render");
-            }
-            if (FfmpegInstaller.IsInstallPromptVisible)
-            {
-                if (Event.current.type == EventType.Repaint)
-                    OrbitRender.UI.RendererWindow.DrawBackdrop();
-                OrbitRender.UI.RendererWindow.DrawFfmpegInstallPrompt();
-                if (Event.current.type != EventType.Layout && Event.current.type != EventType.Repaint)
-                    Event.current.Use();
-                return;
-            }
-            if (OrbitRender.UI.ExportVideoDialog.IsOpen)
-            {
-                OrbitRender.UI.ExportVideoDialog.Draw(this);
-                return;
-            }
-            if (State == RenderState.Rendering && Event.current.type == EventType.Repaint)
-            {
-                // IMGUI redraws the window on every Repaint. Skipping a draw
-                // exposes the editor/game frame underneath and makes the preview
-                // alternate between two images while the render is running.
-                var previewStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                if (showPreviewForRun)
-                    OrbitRender.UI.RendererWindow.DrawRenderPreview(RenderPreviewTexture);
-                else
-                    OrbitRender.UI.RendererWindow.DrawBackdrop();
-                previewUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - previewStart;
-            }
-            // Rendering temporarily owns the gameplay cameras and editor
-            // overlays. Cover the presentation surface so a camera or canvas
-            // target change can never flash through to the player window.
-            if (Busy && State != RenderState.Rendering && Event.current.type == EventType.Repaint)
-                OrbitRender.UI.RendererWindow.DrawBackdrop();
-            if (EncoderFallbackPending)
-            {
-                OrbitRender.UI.RendererWindow.DrawEncoderFallbackPrompt(this);
-                return;
-            }
-            if (!ToastVisible) return;
-            var progressStart = System.Diagnostics.Stopwatch.GetTimestamp();
-            OrbitRender.UI.RendererWindow.DrawToast(this);
-            if (State == RenderState.Rendering)
-                progressUiTicks += System.Diagnostics.Stopwatch.GetTimestamp() - progressStart;
         }
         private void MaximizeRenderPerformance()
         {
@@ -1975,6 +1940,8 @@ namespace OrbitRender.Renderer
         private void OnDestroy()
         {
             shuttingDown = true;
+            OrbitRender.UI.RendererWindow.Dispose();
+            OrbitRender.UI.ExportVideoDialog.CloseDialog();
             StopAndClean();
             TryCleanup(DisposePendingSongRequest);
             TryCleanup(DisposeSongRequest);
