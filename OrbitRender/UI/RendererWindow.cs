@@ -10,6 +10,18 @@ namespace OrbitRender.UI
         private static GUIStyle panel, panelBorder;
         private static GUIStyle title, state, message, detail, percent, metricLabel, metricValue, hint, path;
         private static Texture2D backdrop, border, background, progressTrack, progressFill, divider;
+        private static bool toastContentInitialized, toastKorean;
+        private static RenderState toastState;
+        private static readonly GUIContent toastBrand = new GUIContent("OrbitRender");
+        private static readonly GUIContent toastStatus = new GUIContent(), toastTitle = new GUIContent();
+        private static readonly GUIContent toastMessage = new GUIContent(), toastPercent = new GUIContent();
+        private static readonly GUIContent framesLabel = new GUIContent(), speedLabel = new GUIContent(), etaLabel = new GUIContent();
+        private static readonly GUIContent framesValue = new GUIContent(), speedValue = new GUIContent(), etaValue = new GUIContent();
+        private static readonly GUIContent cancelHint = new GUIContent(), cancelButton = new GUIContent();
+        private static readonly GUIContent elapsedLabel = new GUIContent(), elapsedValue = new GUIContent();
+        private static readonly GUIContent outputFile = new GUIContent(), copyButton = new GUIContent(), stageHint = new GUIContent();
+        private static string toastOutputPath;
+        private static double toastElapsedSeconds = double.NaN;
 
         // Renderer UI palette supplied by the user.
         private static readonly Color DarkBackground = Hsl(315f, 21f, 8f);
@@ -41,6 +53,7 @@ namespace OrbitRender.UI
         internal static void DrawToast(RendererController renderer)
         {
             EnsureStyles();
+            RefreshToastContent(renderer);
             bool liveRender = renderer.State == RenderState.Rendering;
             float width = Mathf.Min(liveRender ? 480f : 680f, Screen.width - 40f);
             bool showProgress = renderer.TotalFrames > 0
@@ -58,89 +71,130 @@ namespace OrbitRender.UI
                 top = Screen.height - height - 24f;
             }
             var rect = new Rect(left, top, width, height);
-
-            if (Event.current.type == EventType.Repaint)
-            {
-                panelBorder.Draw(new Rect(rect.x - 1f, rect.y - 1f, rect.width + 2f, rect.height + 2f),
-                    GUIContent.none, 0);
-                panel.Draw(rect, GUIContent.none, 0);
-            }
-
             const float padding = 24f;
             var content = new Rect(rect.x + padding, rect.y + 18f, rect.width - padding * 2f, rect.height - 36f);
+
+            // Fixed-position buttons must keep their control IDs and receive
+            // mouse/key events. Labels and decoration only need Repaint.
+            if (Event.current.type != EventType.Repaint)
+            {
+                DrawToastButtons(renderer, content, showPath);
+                return;
+            }
+
+            SetText(toastMessage, renderer.Message ?? renderer.ToastText);
+            SetText(toastPercent, renderer.ProgressPercentText);
+            SetText(framesValue, renderer.ProgressText);
+            SetText(speedValue, renderer.SpeedText);
+            SetText(etaValue, renderer.EtaText);
+
+            panelBorder.Draw(new Rect(rect.x - 1f, rect.y - 1f, rect.width + 2f, rect.height + 2f),
+                GUIContent.none, 0);
+            panel.Draw(rect, GUIContent.none, 0);
+
             state.normal.textColor = StateColor(renderer.State);
-            GUI.Label(new Rect(content.x, content.y, content.width * 0.55f, 18f), "OrbitRender", title);
+            GUI.Label(new Rect(content.x, content.y, content.width * 0.55f, 18f), toastBrand, title);
             GUI.Label(new Rect(content.x + content.width * 0.55f, content.y,
-                content.width * 0.45f, 18f), StateLabel(renderer.State), state);
+                content.width * 0.45f, 18f), toastStatus, state);
             GUI.Label(new Rect(content.x, content.y + 25f, content.width, 24f),
-                StateTitle(renderer.State), message);
+                toastTitle, message);
             GUI.Label(new Rect(content.x, content.y + 50f, content.width, 22f),
-                renderer.Message ?? renderer.ToastText ?? string.Empty, detail);
+                toastMessage, detail);
 
             if (showProgress)
             {
                 float progress = Mathf.Clamp01((float)renderer.CapturedFrames / renderer.TotalFrames);
                 GUI.Label(new Rect(content.x, content.y + 78f, content.width, 38f),
-                    renderer.ProgressPercentText ?? string.Empty, percent);
+                    toastPercent, percent);
                 var progressRect = new Rect(content.x, content.y + 119f, content.width, 9f);
-                if (Event.current.type == EventType.Repaint)
-                {
-                    GUI.DrawTexture(progressRect, progressTrack, ScaleMode.StretchToFill, false);
-                    if (progress > 0f)
-                        GUI.DrawTexture(new Rect(progressRect.x, progressRect.y,
-                            progressRect.width * progress, progressRect.height), progressFill,
-                            ScaleMode.StretchToFill, false);
-                }
+                GUI.DrawTexture(progressRect, progressTrack, ScaleMode.StretchToFill, false);
+                if (progress > 0f)
+                    GUI.DrawTexture(new Rect(progressRect.x, progressRect.y,
+                        progressRect.width * progress, progressRect.height), progressFill,
+                        ScaleMode.StretchToFill, false);
 
                 var metrics = new Rect(content.x, content.y + 141f, content.width, 43f);
-                DrawMetric(metrics, 0, Localization.Get("frames"),
-                    renderer.ProgressText ?? string.Empty);
-                DrawMetric(metrics, 1, Localization.Get("speed"),
-                    renderer.State == RenderState.Completed
-                        ? Localization.Get("complete")
-                        : renderer.SpeedText ?? string.Empty);
-                DrawMetric(metrics, 2, Localization.Get("eta"),
-                    renderer.State == RenderState.Completed
-                        ? Localization.Get("done")
-                        : renderer.EtaText ?? string.Empty);
+                DrawMetric(metrics, 0, framesLabel, framesValue);
+                DrawMetric(metrics, 1, speedLabel, speedValue);
+                DrawMetric(metrics, 2, etaLabel, etaValue);
 
             }
             else if (showCompleted)
             {
+                if (toastElapsedSeconds != renderer.ElapsedSeconds)
+                {
+                    toastElapsedSeconds = renderer.ElapsedSeconds;
+                    SetText(elapsedValue, FormatElapsed(toastElapsedSeconds));
+                }
                 GUI.Label(new Rect(content.x, content.y + 83f, content.width, 16f),
-                    Localization.Get("time-spent"), metricLabel);
+                    elapsedLabel, metricLabel);
                 GUI.Label(new Rect(content.x, content.y + 99f, content.width, 36f),
-                    FormatElapsed(renderer.ElapsedSeconds), percent);
+                    elapsedValue, percent);
                 if (showPath)
                 {
-                    if (Event.current.type == EventType.Repaint)
-                        GUI.DrawTexture(new Rect(content.x, content.y + 145f, content.width, 1f), divider,
-                            ScaleMode.StretchToFill, false);
+                    if (toastOutputPath != renderer.OutputPath)
+                    {
+                        toastOutputPath = renderer.OutputPath;
+                        SetText(outputFile, CompactPath(toastOutputPath));
+                    }
+                    GUI.DrawTexture(new Rect(content.x, content.y + 145f, content.width, 1f), divider,
+                        ScaleMode.StretchToFill, false);
                     GUI.Label(new Rect(content.x, content.y + 155f, content.width - 118f, 22f),
-                        CompactPath(renderer.OutputPath), path);
-                    if (GUI.Button(new Rect(content.x + content.width - 110f, content.y + 152f, 110f, 28f),
-                        Localization.Get("copy-path"), UiTheme.Button))
-                        GUIUtility.systemCopyBuffer = renderer.OutputPath;
+                        outputFile, path);
                 }
             }
             else
             {
                 GUI.Label(new Rect(content.x, content.y + 83f, content.width, 42f),
-                    Localization.Get("the-render-window-will-update-when-the-next-stage-is-re"), hint);
+                    stageHint, hint);
             }
 
             if (showProgress)
             {
                 GUI.Label(new Rect(content.x, content.y + 201f, content.width - 132f, 22f),
-                    Localization.Get("hold-esc-for-1-second-to-cancel"), hint);
-                if (renderer.State == RenderState.Rendering
-                    && GUI.Button(new Rect(content.x + content.width - 118f, content.y + 198f, 118f, 28f),
-                        Localization.Get("cancel-render"), UiTheme.Button))
-                    renderer.Cancel();
+                    cancelHint, hint);
             }
+            DrawToastButtons(renderer, content, showPath);
         }
 
-        private static void DrawMetric(Rect area, int index, string label, string value)
+        private static void DrawToastButtons(RendererController renderer, Rect content, bool showPath)
+        {
+            if (showPath && GUI.Button(new Rect(content.x + content.width - 110f, content.y + 152f, 110f, 28f),
+                copyButton, UiTheme.Button))
+                GUIUtility.systemCopyBuffer = renderer.OutputPath;
+            if (renderer.State == RenderState.Rendering && renderer.TotalFrames > 0
+                && GUI.Button(new Rect(content.x + content.width - 118f, content.y + 198f, 118f, 28f),
+                    cancelButton, UiTheme.Button))
+                renderer.Cancel();
+        }
+
+        private static void RefreshToastContent(RendererController renderer)
+        {
+            var korean = Localization.IsKorean;
+            if (toastContentInitialized && toastKorean == korean && toastState == renderer.State) return;
+            toastContentInitialized = true;
+            toastKorean = korean;
+            toastState = renderer.State;
+            SetText(toastStatus, StateLabel(toastState));
+            SetText(toastTitle, StateTitle(toastState));
+            SetText(framesLabel, Localization.Get("frames"));
+            SetText(speedLabel, Localization.Get("speed"));
+            SetText(etaLabel, Localization.Get("eta"));
+            SetText(cancelHint, Localization.Get("hold-esc-for-1-second-to-cancel"));
+            SetText(cancelButton, Localization.Get("cancel-render"));
+            SetText(elapsedLabel, Localization.Get("time-spent"));
+            SetText(copyButton, Localization.Get("copy-path"));
+            toastOutputPath = null;
+            toastElapsedSeconds = double.NaN;
+        }
+
+        private static void SetText(GUIContent content, string value)
+        {
+            value = value ?? string.Empty;
+            if (content.text != value) content.text = value;
+        }
+
+        private static void DrawMetric(Rect area, int index, GUIContent label, GUIContent value)
         {
             float width = area.width / 3f;
             var metric = new Rect(area.x + width * index, area.y, width - 8f, area.height);

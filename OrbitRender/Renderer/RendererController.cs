@@ -580,6 +580,9 @@ namespace OrbitRender.Renderer
                 Main.Entry.Logger.Log("BGA mode enabled: hidden renderers=" + bga.HiddenRendererCount);
             }
             State = RenderState.Rendering;
+            // The progress window uses fixed GUI rectangles. Layout is needed
+            // again only when the export dialog returns after cleanup.
+            useGUILayout = false;
             preparationTicks = System.Diagnostics.Stopwatch.GetTimestamp() - preparationStartTicks;
             renderTimer.Start();
             ApplyFramePacing();
@@ -1657,6 +1660,7 @@ namespace OrbitRender.Renderer
         }
         private void Cleanup()
         {
+            useGUILayout = true;
             // Clear patch ownership before calling any normal game reset methods.
             var restore = saved;
             var recoveryEditor = editor;

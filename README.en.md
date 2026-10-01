@@ -112,6 +112,8 @@ GPU readback and FFmpeg encoding are pipelined without spooling raw frames to te
 
 When the frame pool is full, capture completes only the oldest readback and waits for an encoder buffer, keeping later requests in flight. All requests are drained at completion.
 
+Hardware encoders use two FFmpeg input-filter threads to leave CPU capacity for the game. The render progress window caches display text and draws it only on Repaint while its cancel button continues processing input events. Rendering skips unused GUILayout work and restores it on completion, cancellation, or failure. Bitrate, encoder presets, output resolution, and FPS settings are preserved.
+
 Normal gameplay FPS and render completion speed are different measurements because every output frame still needs GPU readback, CPU copying, encoding input, and optional audio muxing. Target FPS drives the game simulation; Video FPS drives the final video stream.
 
 ## Build and test
