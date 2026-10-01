@@ -11,11 +11,14 @@ namespace OrbitRender.UI
     {
         private static GameObject canvasObject;
         private static GameObject backdropObject, panelObject;
+        private static GameObject metrics;
         private static RawImage preview;
-        private static Text state, title, detail, percent, frames, speed, eta, hint, path;
+        private static Text state, title, detail, percent, frames, speed, eta, hint, path, elapsedLabel;
         private static Image progress;
         private static int mode;
         private static RenderState builtRenderState;
+        private static bool builtShowProgress;
+        private static int builtScreenWidth;
 
         internal static void Sync(RendererController renderer)
         {
@@ -29,8 +32,9 @@ namespace OrbitRender.UI
                 : renderer.EncoderFallbackPending ? 2
                 : renderer.Busy || renderer.ToastVisible ? 3 : 0;
             if (nextMode == 0) { Hide(); return; }
-            if (canvasObject == null || mode != nextMode
-                || (nextMode == 3 && builtRenderState != renderer.State)) Build(nextMode, renderer);
+            if (canvasObject == null || mode != nextMode || builtScreenWidth != Screen.width
+                || (nextMode == 3 && (builtRenderState != renderer.State
+                    || builtShowProgress != HasProgress(renderer)))) Build(nextMode, renderer);
             if (nextMode == 1) UpdateFfmpeg();
             else if (nextMode == 3) UpdateRender(renderer);
         }
@@ -38,8 +42,8 @@ namespace OrbitRender.UI
         internal static void Dispose()
         {
             if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
-            canvasObject = null; backdropObject = null; panelObject = null; preview = null;
-            state = title = detail = percent = frames = speed = eta = hint = path = null;
+            canvasObject = null; backdropObject = null; panelObject = null; metrics = null; preview = null;
+            state = title = detail = percent = frames = speed = eta = hint = path = elapsedLabel = null;
             progress = null; mode = 0;
         }
 
@@ -54,6 +58,8 @@ namespace OrbitRender.UI
             Dispose();
             mode = nextMode;
             builtRenderState = renderer.State;
+            builtShowProgress = HasProgress(renderer);
+            builtScreenWidth = Screen.width;
             canvasObject = UguiFactory.Canvas("OrbitRender.RendererWindow", 32750);
             backdropObject = UguiFactory.Image(canvasObject.transform, "Backdrop", UguiFactory.Backdrop,
                 nextMode != 3 || renderer.Busy);
@@ -75,6 +81,7 @@ namespace OrbitRender.UI
 
         private static GameObject Card(float width, float height)
         {
+            width = Mathf.Min(width, Mathf.Max(1f, Screen.width - 40f));
             var card = UguiFactory.Image(canvasObject.transform, "Card", UguiFactory.Surface, true);
             UguiFactory.Round(card.GetComponent<Image>(), true);
             UguiFactory.Anchor(card.GetComponent<RectTransform>(), new Vector2(.5f, .5f), new Vector2(.5f, .5f),
@@ -84,7 +91,7 @@ namespace OrbitRender.UI
         }
 
         private static Text At(Transform parent, string value, int size, float left, float top,
-            float width, float height, Color color, TextAnchor anchor = TextAnchor.MiddleLeft)
+            float width, float height, Color color, TextAnchor anchor = TextAnchor.UpperLeft)
         {
             var text = UguiFactory.Text(parent, value, size, anchor, color);
             var rect = text.rectTransform;
@@ -108,31 +115,56 @@ namespace OrbitRender.UI
         private static void BuildRenderCard(RendererController renderer)
         {
             var live = renderer.State == RenderState.Rendering;
-            var card = Card(live ? 500f : 700f, renderer.State == RenderState.Completed ? 250f : 290f);
+            var completed = renderer.State == RenderState.Completed;
+            var card = Card(live ? 480f : 680f, completed ? 236f : builtShowProgress ? 274f : 176f);
             var rect = card.GetComponent<RectTransform>();
-            if (live) { rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.one; rect.anchoredPosition = new Vector2(-24f, -24f); }
-            At(card.transform, "OrbitRender", 24, 24, 16, 300, 28, UguiFactory.Accent);
-            state = At(card.transform, string.Empty, 17, live ? 320 : 500, 16, live ? 156 : 176, 28,
+            if (live)
+            {
+                rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(1f, 0f);
+                rect.anchoredPosition = new Vector2(-24f, 24f);
+            }
+            var width = rect.rect.width - 48f;
+            At(card.transform, "OrbitRender", 15, 24, 18, width * .55f, 18, UguiFactory.Accent).fontStyle = FontStyle.Bold;
+            state = At(card.transform, string.Empty, 10, 24 + width * .55f, 18, width * .45f, 18,
                 UguiFactory.Accent, TextAnchor.MiddleRight);
-            title = At(card.transform, string.Empty, 23, 24, 50, live ? 452 : 652, 32, UguiFactory.Foreground);
-            detail = At(card.transform, string.Empty, 18, 24, 83, live ? 452 : 652, 34, UguiFactory.Muted);
-            percent = At(card.transform, string.Empty, 42, 24, 119, 300, 50, UguiFactory.Foreground);
+            state.fontStyle = FontStyle.Bold;
+            title = At(card.transform, string.Empty, 13, 24, 43, width, 24, UguiFactory.Foreground);
+            title.fontStyle = FontStyle.Bold;
+            detail = At(card.transform, string.Empty, 11, 24, 68, width, 22, UguiFactory.Muted);
+            elapsedLabel = At(card.transform, Localization.Get("time-spent"), 9, 24, 101, width, 16, UguiFactory.Muted);
+            elapsedLabel.fontStyle = FontStyle.Bold;
+            percent = At(card.transform, string.Empty, 30, 24, completed ? 117 : 96, width, 38,
+                UguiFactory.Foreground, TextAnchor.MiddleLeft);
+            percent.fontStyle = FontStyle.Bold;
             var track = UguiFactory.Image(card.transform, "Progress track", UguiFactory.Backdrop);
             UguiFactory.Anchor(track.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(24f, -180f), new Vector2(-24f, -169f));
-            progress = UguiFactory.Image(track.transform, "Progress", UguiFactory.Accent).GetComponent<Image>();
-            progress.type = Image.Type.Filled; progress.fillMethod = Image.FillMethod.Horizontal; progress.fillOrigin = 0;
-            UguiFactory.Stretch(progress.rectTransform);
-            frames = At(card.transform, string.Empty, 16, 24, 190, live ? 145 : 210, 42, UguiFactory.Foreground);
-            speed = At(card.transform, string.Empty, 16, live ? 178 : 246, 190, live ? 145 : 210, 42, UguiFactory.Foreground);
-            eta = At(card.transform, string.Empty, 16, live ? 332 : 468, 190, live ? 145 : 208, 42, UguiFactory.Foreground);
-            hint = At(card.transform, string.Empty, 15, 24, 238, live ? 316 : 450, 32, UguiFactory.Muted);
-            path = At(card.transform, string.Empty, 16, 24, 190, live ? 300 : 500, 35, UguiFactory.Muted);
+                new Vector2(24f, -146f), new Vector2(-24f, -137f));
+            progress = UguiFactory.ProgressFill(track.transform);
+            metrics = UguiFactory.New(card.transform, "Metrics", typeof(RectTransform));
+            UguiFactory.Stretch(metrics.GetComponent<RectTransform>());
+            var metricWidth = width / 3f;
+            frames = Metric(0, Localization.Get("frames"), metricWidth);
+            speed = Metric(1, Localization.Get("speed"), metricWidth);
+            eta = Metric(2, Localization.Get("eta"), metricWidth);
+            hint = At(card.transform, string.Empty, 10, 24, builtShowProgress ? 219 : 101,
+                builtShowProgress ? width - 132 : width, builtShowProgress ? 22 : 42, UguiFactory.Muted);
+            path = At(card.transform, string.Empty, 10, 24, 173, width - 118, 22, UguiFactory.Muted);
             AtButton(card.transform, Localization.Get("cancel-render"), renderer.Cancel, false,
-                live ? 352 : 538, 238, 124, 36);
+                24 + width - 118, 216, 118, 28);
             AtButton(card.transform, Localization.Get("copy-path"), () => GUIUtility.systemCopyBuffer = renderer.OutputPath,
-                false, live ? 352 : 538, 190, 124, 36);
+                false, 24 + width - 110, 170, 110, 28);
         }
+
+        private static Text Metric(int index, string label, float width)
+        {
+            At(metrics.transform, label, 9, 24 + width * index, 159, width - 8, 16,
+                UguiFactory.Muted).fontStyle = FontStyle.Bold;
+            return At(metrics.transform, string.Empty, 11, 24 + width * index, 176, width - 8, 24,
+                UguiFactory.Foreground);
+        }
+
+        private static bool HasProgress(RendererController renderer) => renderer.TotalFrames > 0
+            && (renderer.State == RenderState.Rendering || renderer.State == RenderState.Finishing);
 
         private static void UpdateRender(RendererController renderer)
         {
@@ -150,11 +182,12 @@ namespace OrbitRender.UI
             state.text = StateLabel(renderer.State); state.color = StateColor(renderer.State);
             title.text = StateTitle(renderer.State);
             detail.text = renderer.Message ?? renderer.ToastText ?? string.Empty;
-            var showProgress = renderer.TotalFrames > 0 && (renderer.State == RenderState.Rendering || renderer.State == RenderState.Finishing);
+            var showProgress = HasProgress(renderer);
             var completed = renderer.State == RenderState.Completed;
             percent.gameObject.SetActive(showProgress || completed);
             progress.transform.parent.gameObject.SetActive(showProgress);
-            frames.gameObject.SetActive(showProgress); speed.gameObject.SetActive(showProgress); eta.gameObject.SetActive(showProgress);
+            metrics.SetActive(showProgress);
+            elapsedLabel.gameObject.SetActive(completed);
             hint.gameObject.SetActive(showProgress || (!completed && !showProgress));
             path.gameObject.SetActive(completed && !string.IsNullOrEmpty(renderer.OutputPath));
             var buttons = panelObject.GetComponentsInChildren<Button>(true);
@@ -162,16 +195,16 @@ namespace OrbitRender.UI
             if (buttons.Length > 1) buttons[1].gameObject.SetActive(path.gameObject.activeSelf);
             if (showProgress)
             {
-                progress.fillAmount = Mathf.Clamp01((float)renderer.CapturedFrames / renderer.TotalFrames);
+                UguiFactory.SetProgress(progress, (float)renderer.CapturedFrames / renderer.TotalFrames);
                 percent.text = renderer.ProgressPercentText ?? string.Empty;
-                frames.text = Localization.Get("frames") + "\n" + (renderer.ProgressText ?? string.Empty);
-                speed.text = Localization.Get("speed") + "\n" + (renderer.SpeedText ?? string.Empty);
-                eta.text = Localization.Get("eta") + "\n" + (renderer.EtaText ?? string.Empty);
+                frames.text = renderer.ProgressText ?? string.Empty;
+                speed.text = renderer.SpeedText ?? string.Empty;
+                eta.text = renderer.EtaText ?? string.Empty;
                 hint.text = Localization.Get("hold-esc-for-1-second-to-cancel");
             }
             else if (completed)
             {
-                percent.text = Localization.Get("time-spent") + "  " + FormatElapsed(renderer.ElapsedSeconds);
+                percent.text = FormatElapsed(renderer.ElapsedSeconds);
                 path.text = CompactPath(renderer.OutputPath);
             }
             else hint.text = Localization.Get("the-render-window-will-update-when-the-next-stage-is-re");
@@ -179,34 +212,38 @@ namespace OrbitRender.UI
 
         private static void BuildEncoderPrompt(RendererController renderer)
         {
-            var card = Card(760f, 250f);
-            At(card.transform, Localization.Get("encoder-confirmation"), 25, 24, 18, 712, 30, UguiFactory.Accent);
-            At(card.transform, Localization.Get("the-selected-hardware-encoder-could-not-be-initialized"), 20,
-                24, 55, 712, 36, UguiFactory.Foreground);
-            At(card.transform, renderer.EncoderFallbackReason ?? string.Empty, 17, 24, 94, 712, 48, UguiFactory.Muted);
-            At(card.transform, Localization.Get("use-software-encoder-for-this-render-your-saved-encoder"), 17,
-                24, 143, 712, 32, UguiFactory.Muted);
+            var card = Card(760f, 230f);
+            var width = card.GetComponent<RectTransform>().rect.width - 48f;
+            At(card.transform, Localization.Get("encoder-confirmation"), 15, 24, 18, width, 24,
+                UguiFactory.Accent).fontStyle = FontStyle.Bold;
+            At(card.transform, Localization.Get("the-selected-hardware-encoder-could-not-be-initialized"), 13,
+                24, 52, width, 38, UguiFactory.Foreground).fontStyle = FontStyle.Bold;
+            At(card.transform, renderer.EncoderFallbackReason ?? string.Empty, 11, 24, 94, width, 54, UguiFactory.Muted);
+            At(card.transform, Localization.Get("use-software-encoder-for-this-render-your-saved-encoder"), 11,
+                24, 150, width, 28, UguiFactory.Muted);
             AtButton(card.transform, Localization.Get("use-software-and-continue"), renderer.ConfirmEncoderFallback,
-                true, 24, 190, 320, 38);
+                true, 24, 188, 310, 34);
             AtButton(card.transform, Localization.Get("cancel-render"), renderer.RejectEncoderFallback,
-                false, 360, 190, 170, 38);
+                false, 350, 188, 160, 34);
         }
 
         private static void BuildFfmpegPrompt()
         {
-            var card = Card(760f, 270f);
-            state = At(card.transform, string.Empty, 25, 24, 18, 712, 30, UguiFactory.Accent);
-            title = At(card.transform, string.Empty, 20, 24, 55, 712, 44, UguiFactory.Foreground);
-            detail = At(card.transform, string.Empty, 17, 24, 100, 712, 54, UguiFactory.Muted);
+            var card = Card(760f, FfmpegInstaller.IsDownloading ? 270f : 238f);
+            var width = card.GetComponent<RectTransform>().rect.width - 48f;
+            state = At(card.transform, string.Empty, 15, 24, 18, width, 24, UguiFactory.Accent);
+            state.fontStyle = FontStyle.Bold;
+            title = At(card.transform, string.Empty, 13, 24, 52, width, 40, UguiFactory.Foreground);
+            title.fontStyle = FontStyle.Bold;
+            detail = At(card.transform, string.Empty, 11, 24, 100, width, 52, UguiFactory.Muted);
             var track = UguiFactory.Image(card.transform, "Progress track", UguiFactory.Backdrop);
             UguiFactory.Anchor(track.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(24f, -178f), new Vector2(-24f, -164f));
-            progress = UguiFactory.Image(track.transform, "Progress", UguiFactory.Accent).GetComponent<Image>();
-            progress.type = Image.Type.Filled; progress.fillMethod = Image.FillMethod.Horizontal; UguiFactory.Stretch(progress.rectTransform);
-            percent = At(card.transform, string.Empty, 16, 24, 184, 350, 28, UguiFactory.Muted);
-            path = At(card.transform, string.Empty, 16, 386, 184, 350, 28, UguiFactory.Muted, TextAnchor.MiddleRight);
-            AtButton(card.transform, Localization.Get("install-ffmpeg"), FfmpegInstaller.ConfirmInstall, true, 24, 212, 310, 38);
-            AtButton(card.transform, Localization.Get("not-now"), FfmpegInstaller.DeclineInstall, false, 350, 212, 170, 38);
+                new Vector2(24f, -174f), new Vector2(-24f, -162f));
+            progress = UguiFactory.ProgressFill(track.transform);
+            percent = At(card.transform, string.Empty, 11, 24, 182, width * .52f, 20, UguiFactory.Muted);
+            path = At(card.transform, string.Empty, 11, 24 + width * .52f, 182, width * .48f, 20, UguiFactory.Muted);
+            AtButton(card.transform, Localization.Get("install-ffmpeg"), FfmpegInstaller.ConfirmInstall, true, 24, 176, 310, 34);
+            AtButton(card.transform, Localization.Get("not-now"), FfmpegInstaller.DeclineInstall, false, 350, 176, 160, 34);
         }
 
         private static void UpdateFfmpeg()
@@ -214,6 +251,8 @@ namespace OrbitRender.UI
             canvasObject.SetActive(true);
             var downloading = FfmpegInstaller.IsDownloading;
             var waiting = FfmpegInstaller.IsAwaitingConsent;
+            panelObject.GetComponent<RectTransform>().SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,
+                downloading ? 270f : 238f);
             state.text = waiting ? Localization.Get("ffmpeg-installation") : Localization.Get("installing-ffmpeg");
             title.text = waiting ? Localization.Get("orbitrender-needs-ffmpeg-to-export-videos-download-the")
                 : Localization.Get("downloading-ffmpeg-for-this-platform-the-renderer-will");
@@ -224,8 +263,8 @@ namespace OrbitRender.UI
             var buttons = panelObject.GetComponentsInChildren<Button>(true);
             foreach (var button in buttons) button.gameObject.SetActive(waiting);
             if (!downloading) return;
-            progress.fillAmount = FfmpegInstaller.HasDownloadSize ? Mathf.Clamp01((float)FfmpegInstaller.Progress)
-                : Mathf.PingPong(Time.unscaledTime, 1f);
+            UguiFactory.SetProgress(progress, FfmpegInstaller.HasDownloadSize ? (float)FfmpegInstaller.Progress
+                : Mathf.PingPong(Time.unscaledTime, 1f));
             percent.text = FfmpegInstaller.HasDownloadSize
                 ? Localization.FormatWithCurrentCulture("ffmpeg-progress-percent", FfmpegInstaller.Progress * 100d)
                 : Localization.Get("ffmpeg-progress-waiting-for-size");

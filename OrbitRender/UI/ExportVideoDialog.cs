@@ -17,6 +17,7 @@ namespace OrbitRender.UI
         private static bool visibleComponentsExpanded = true;
         private static bool encodingExpanded;
         private static GameObject canvasObject;
+        private static RectTransform panelRect;
         private static RectTransform content;
         private static ScrollRect scrollRect;
         private static Text errorText;
@@ -40,6 +41,7 @@ namespace OrbitRender.UI
         internal static void Refresh(RendererController renderer)
         {
             if (!open || canvasObject == null) return;
+            RefreshLayout();
             if (!string.IsNullOrEmpty(AudioPreview.ErrorMessage)) error = AudioPreview.ErrorMessage;
             if (errorText != null)
             {
@@ -59,15 +61,19 @@ namespace OrbitRender.UI
             UguiFactory.Stretch(dimmer.GetComponent<RectTransform>());
             var panel = UguiFactory.Image(canvasObject.transform, "Panel", UguiFactory.Surface, true);
             UguiFactory.Round(panel.GetComponent<Image>(), true);
-            UguiFactory.Anchor(panel.GetComponent<RectTransform>(), new Vector2(.5f, .5f), new Vector2(.5f, .5f),
-                new Vector2(-380f, -340f), new Vector2(380f, 340f));
-            var title = UguiFactory.Text(panel.transform, Localization.Get("export-video"), 28);
+            panelRect = panel.GetComponent<RectTransform>();
+            UguiFactory.Anchor(panelRect, new Vector2(.5f, .5f), new Vector2(.5f, .5f),
+                new Vector2(-UiLayout.ExportWidth / 2f, -UiLayout.ExportHeight / 2f),
+                new Vector2(UiLayout.ExportWidth / 2f, UiLayout.ExportHeight / 2f));
+            RefreshLayout();
+            var title = UguiFactory.Text(panel.transform, Localization.Get("export-video"), UiLayout.TitleFontSize);
+            title.fontStyle = FontStyle.Bold;
             UguiFactory.Anchor(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(24f, -62f), new Vector2(-24f, -16f));
+                new Vector2(22f, -44f), new Vector2(-22f, -20f));
 
             var scrollView = UguiFactory.New(panel.transform, "Scroll View", typeof(RectTransform), typeof(ScrollRect));
             UguiFactory.Anchor(scrollView.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,
-                new Vector2(24f, 82f), new Vector2(-24f, -68f));
+                new Vector2(22f, 84f), new Vector2(-22f, -52f));
             var viewport = UguiFactory.Image(scrollView.transform, "Viewport", new Color(1f, 1f, 1f, .001f), true);
             viewport.AddComponent<RectMask2D>();
             UguiFactory.Stretch(viewport.GetComponent<RectTransform>());
@@ -77,7 +83,7 @@ namespace OrbitRender.UI
             content.anchorMin = new Vector2(0f, 1f); content.anchorMax = new Vector2(1f, 1f);
             content.pivot = new Vector2(.5f, 1f); content.anchoredPosition = Vector2.zero; content.sizeDelta = Vector2.zero;
             var layout = body.GetComponent<VerticalLayoutGroup>();
-            layout.spacing = 8f; layout.padding = new RectOffset(4, 14, 4, 10);
+            layout.spacing = 4f; layout.padding = new RectOffset(4, 14, 4, 10);
             layout.childControlHeight = true; layout.childControlWidth = true;
             layout.childForceExpandHeight = false; layout.childForceExpandWidth = true;
             scrollRect = scrollView.GetComponent<ScrollRect>();
@@ -99,24 +105,39 @@ namespace OrbitRender.UI
             scrollRect.verticalScrollbar = scrollbar;
             scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
 
-            errorText = UguiFactory.Text(panel.transform, string.Empty, 17, TextAnchor.MiddleLeft, UguiFactory.Error);
+            errorText = UguiFactory.Text(panel.transform, string.Empty, UiLayout.LabelFontSize, TextAnchor.MiddleLeft, UguiFactory.Error);
             UguiFactory.Anchor(errorText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f),
-                new Vector2(24f, 51f), new Vector2(-24f, 78f));
+                new Vector2(22f, 56f), new Vector2(-22f, 80f));
             var footer = UguiFactory.New(panel.transform, "Footer", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             UguiFactory.Anchor(footer.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f),
-                new Vector2(24f, 12f), new Vector2(-24f, 48f));
+                new Vector2(22f, 20f), new Vector2(-22f, 54f));
             var footerLayout = footer.GetComponent<HorizontalLayoutGroup>();
             footerLayout.spacing = 10f; footerLayout.childForceExpandHeight = true; footerLayout.childForceExpandWidth = false;
+            footerLayout.childControlHeight = true; footerLayout.childControlWidth = true;
             var cancel = UguiFactory.Button(footer.transform, Localization.Get("cancel"), Close); UguiFactory.Preferred(cancel, 120f);
             UguiFactory.New(footer.transform, "Spacer", typeof(LayoutElement)).GetComponent<LayoutElement>().flexibleWidth = 1f;
             if (GetSelectedTileRange().Length >= 2)
             {
                 var selection = UguiFactory.Button(footer.transform, Localization.Get("export-video-selection"),
-                    () => Confirm(RendererController.Instance, true)); UguiFactory.Preferred(selection, 210f);
+                    () => Confirm(RendererController.Instance, true)); UguiFactory.Preferred(selection, 190f);
             }
             var export = UguiFactory.Button(footer.transform, Localization.Get("export-video"),
-                () => Confirm(RendererController.Instance, false), true); UguiFactory.Preferred(export, 160f);
+                () => Confirm(RendererController.Instance, false), true); UguiFactory.Preferred(export, 150f);
             RebuildContent(false);
+        }
+
+        private static void RefreshLayout()
+        {
+            if (panelRect == null) return;
+            var layout = UiLayout.ExportDialog(Screen.width, Screen.height, Screen.dpi);
+            var scaler = canvasObject.GetComponent<CanvasScaler>();
+            var size = new Vector2(layout.Width, layout.Height);
+            if (scaler.scaleFactor == layout.Scale && panelRect.sizeDelta == size) return;
+            var position = scrollRect != null ? scrollRect.verticalNormalizedPosition : 1f;
+            scaler.scaleFactor = layout.Scale;
+            canvasObject.GetComponent<Canvas>().scaleFactor = layout.Scale;
+            panelRect.sizeDelta = size;
+            if (content != null) UpdateContentLayout(position);
         }
 
         private static void RebuildContent(bool preserveScroll = true)
@@ -128,8 +149,8 @@ namespace OrbitRender.UI
                 content.GetChild(i).gameObject.SetActive(false);
                 UnityEngine.Object.Destroy(content.GetChild(i).gameObject);
             }
-            AddLabel(Localization.Get("choose-the-settings-for-this-video-export"), 20, 40f, UguiFactory.Muted);
-            AddDropdown(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
+            AddLabel(Localization.Get("choose-the-settings-for-this-video-export"), UiLayout.LabelFontSize, 26f, UguiFactory.Muted);
+            AddToolbar(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
                 "FullHD", "QHD", "UHD 4K" }, (int)draft.Preset, value => {
                     draft.Preset = (RendererPreset)value; if (draft.Preset != RendererPreset.Custom) draft.ApplyPreset(); RebuildContent();
                 });
@@ -138,7 +159,7 @@ namespace OrbitRender.UI
                     new Field(Localization.Get("height"), draft.HeightText, v => draft.HeightText = v),
                     new Field(Localization.Get("bitrate") + " (Mbps)", draft.BitrateText, v => draft.BitrateText = v) });
             else AddLabel(Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText,
-                draft.VideoFpsText, draft.BitrateText), 18, 34f, UguiFactory.Muted);
+                draft.VideoFpsText, draft.BitrateText), UiLayout.LabelFontSize, 22f, UguiFactory.Muted);
             AddInputRow(new[] { new Field(Localization.Get("ingame-fps"), draft.FpsText, v => draft.FpsText = v),
                 new Field(Localization.Get("video-fps"), draft.VideoFpsText, v => draft.VideoFpsText = v) });
 
@@ -149,12 +170,14 @@ namespace OrbitRender.UI
                 AddInputRow(new[] { new Field(Localization.Get("end-delay-seconds"), draft.EndDelayText, v => draft.EndDelayText = v) });
                 AddToggle(Localization.Get("capture-audio"), draft.CaptureAudio, v => draft.CaptureAudio = v);
                 AddAudioGain();
-                var preview = UguiFactory.Button(content, string.Empty, () => {
+                var previewRow = UguiFactory.Row(content, 34f);
+                previewRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+                var preview = UguiFactory.Button(previewRow.transform, string.Empty, () => {
                     var wasPlaying = AudioPreview.IsActive; var playing = AudioPreview.Toggle(draft.AudioGainDb);
                     error = !wasPlaying && !playing ? AudioPreview.ErrorMessage ?? Localization.Get("audio-preview-unavailable") : string.Empty;
                     Refresh(RendererController.Instance);
                 });
-                UguiFactory.Preferred(preview, 0f, 40f); audioPreviewText = preview.GetComponentInChildren<Text>();
+                UguiFactory.Preferred(preview, 150f, 34f); audioPreviewText = preview.GetComponentInChildren<Text>();
                 AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
                 AddToggle(Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), draft.BgaMode, v => draft.BgaMode = v);
                 AddToggle(Localization.Get("open-output-folder-after-render"), draft.OpenOutputFolder, v => draft.OpenOutputFolder = v);
@@ -174,19 +197,26 @@ namespace OrbitRender.UI
                 () => { encodingExpanded = !encodingExpanded; RebuildContent(); });
             if (encodingExpanded)
             {
-                AddDropdown(Localization.Get("encoding-speed"), new[] { Localization.Get("maximum"),
+                AddToolbar(Localization.Get("encoding-speed"), new[] { Localization.Get("maximum"),
                     Localization.Get("balanced"), Localization.Get("quality") }, (int)draft.Encoding,
                     v => draft.Encoding = (EncoderSpeed)v);
                 var encoders = new[] { VideoEncoder.Auto, VideoEncoder.NvidiaNvenc, VideoEncoder.IntelQsv,
                     VideoEncoder.AmdAmf, VideoEncoder.Software };
-                AddDropdown(Localization.Get("video-encoder"), new[] { Localization.Get("auto"), "NVIDIA NVENC",
+                AddToolbar(Localization.Get("video-encoder"), new[] { Localization.Get("auto"), "NVIDIA NVENC",
                     "Intel QSV", "AMD AMF", Localization.Get("software") }, Array.IndexOf(encoders, draft.Encoder),
                     v => draft.Encoder = encoders[v]);
-                AddDropdown(Localization.Get("video-codec"), new[] { "H.264", "H.265", "VP9", "AV1" },
+                AddToolbar(Localization.Get("video-codec"), new[] { "H.264", "H.265", "VP9", "AV1" },
                     (int)draft.Codec, v => draft.Codec = (VideoCodec)v);
-                AddDropdown(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
+                AddToolbar(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
                     (int)draft.BitDepth, v => draft.BitDepth = (VideoBitDepth)v);
             }
+            UpdateContentLayout(position);
+            Refresh(RendererController.Instance);
+        }
+
+        private static void UpdateContentLayout(float position)
+        {
+            Canvas.ForceUpdateCanvases();
             LayoutRebuilder.ForceRebuildLayoutImmediate(content);
             var preferredHeight = Mathf.Max(LayoutUtility.GetPreferredHeight(content),
                 scrollRect.viewport.rect.height + 1f);
@@ -194,14 +224,13 @@ namespace OrbitRender.UI
             content.anchoredPosition = Vector2.zero;
             Canvas.ForceUpdateCanvases();
             if (scrollRect != null) scrollRect.verticalNormalizedPosition = position;
-            Refresh(RendererController.Instance);
         }
 
         private static void AddAudioGain()
         {
-            var row = UguiFactory.Row(content, 52f);
-            var label = UguiFactory.Text(row.transform, Localization.Get("audio-volume-db"), 18); UguiFactory.Preferred(label, 180f);
-            var valueLabel = UguiFactory.Text(row.transform, string.Empty, 18, TextAnchor.MiddleRight); UguiFactory.Preferred(valueLabel, 125f);
+            var row = UguiFactory.Row(content);
+            var label = UguiFactory.Text(row.transform, Localization.Get("audio-volume-db")); UguiFactory.Preferred(label, 175f);
+            var valueLabel = UguiFactory.Text(row.transform, string.Empty, UiLayout.LabelFontSize, TextAnchor.MiddleRight); UguiFactory.Preferred(valueLabel, 125f);
             Action<float> update = value => { draft.AudioGainDb = RendererSettings.ClampAudioGainDb(value);
                 draft.AudioGainDbText = draft.AudioGainDb.ToString("0.#", CultureInfo.InvariantCulture);
                 var percent = draft.AudioGainDb <= RendererSettings.MinAudioGainDb ? 0f : Mathf.Pow(10f, draft.AudioGainDb / 20f) * 100f;
@@ -211,17 +240,19 @@ namespace OrbitRender.UI
                 draft.AudioGainDb, update); UguiFactory.Preferred(slider, 250f); update(draft.AudioGainDb);
         }
 
-        private static void AddDropdown(string label, string[] options, int value, Action<int> changed)
-        { var row = UguiFactory.Row(content, 46f); var text = UguiFactory.Text(row.transform, label, 18);
-            UguiFactory.Preferred(text, 210f); UguiFactory.Dropdown(row.transform, options, Mathf.Max(0, value), changed); }
+        private static void AddToolbar(string label, string[] options, int value, Action<int> changed)
+        { AddLabel(label, UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
+            UguiFactory.Toolbar(content, options, Mathf.Max(0, value), changed); }
         private static void AddInputRow(Field[] fields)
-        { var row = UguiFactory.Row(content, 48f); foreach (var field in fields) { var label = UguiFactory.Text(row.transform,
-                field.Label, 17, TextAnchor.MiddleRight, UguiFactory.Muted); UguiFactory.Preferred(label, 100f);
+        { var row = UguiFactory.Row(content); foreach (var field in fields) { var label = UguiFactory.Text(row.transform,
+                field.Label, UiLayout.LabelFontSize, TextAnchor.MiddleRight, UguiFactory.Muted); UguiFactory.Preferred(label, 100f);
                 var input = UguiFactory.Input(row.transform, field.Value, field.Changed); UguiFactory.Preferred(input, 110f); } }
         private static void AddToggle(string label, bool value, Action<bool> changed) => UguiFactory.Toggle(content, label, value, changed);
         private static void AddSection(string title, bool expanded, Action action)
         { var button = UguiFactory.Button(content, (expanded ? "▼  " : "▶  ") + title, action);
-            UguiFactory.Preferred(button, 0f, 42f); button.GetComponentInChildren<Text>().alignment = TextAnchor.MiddleLeft; }
+            UguiFactory.Preferred(button, 0f, 34f);
+            var label = button.GetComponentInChildren<Text>(); label.alignment = TextAnchor.MiddleLeft;
+            UguiFactory.SetOffsets(label.rectTransform, 12f, 0f, 12f, 0f); }
         private static void AddLabel(string value, int size, float height, Color color)
         { var label = UguiFactory.Text(content, value, size, TextAnchor.MiddleLeft, color); UguiFactory.Preferred(label, 0f, height); }
 
@@ -240,7 +271,7 @@ namespace OrbitRender.UI
             ? editor.selectedFloors.Where(f => f != null).Select(f => f.seqID).Distinct().OrderBy(id => id).ToArray() : new int[0];
         private static void Close()
         { AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
-            canvasObject = null; content = null; scrollRect = null; errorText = null; audioPreviewText = null;
+            canvasObject = null; panelRect = null; content = null; scrollRect = null; errorText = null; audioPreviewText = null;
             editor = null; draft = null; error = string.Empty; }
 
         private sealed class Field

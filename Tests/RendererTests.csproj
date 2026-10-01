@@ -10,6 +10,8 @@
   <Reference Include="mscorlib"><Private>false</Private></Reference>
   <Reference Include="System"><Private>false</Private></Reference><Reference Include="System.Core"><Private>false</Private></Reference>
   <Compile Include="Program.cs"/>
+  <Compile Include="UiLayoutTests.cs"/>
+  <Compile Include="..\OrbitRender\UI\UiLayout.cs" Link="UiLayout.cs"/>
   <Compile Include="..\OrbitRender\VideoCodec.cs" Link="VideoCodec.cs"/>
   <Compile Include="..\OrbitRender\Renderer\RenderClock.cs" Link="RenderClock.cs"/>
   <Compile Include="..\OrbitRender\Renderer\FFmpegEncoder.cs" Link="FFmpegEncoder.cs"/>

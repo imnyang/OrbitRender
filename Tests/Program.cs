@@ -14,6 +14,12 @@ internal static class Program
     {
         try
         {
+            UiLayoutTests.Run();
+            if (args.Length == 1 && args[0] == "--ui-layout")
+            {
+                Console.WriteLine("UI layout tests passed.");
+                return 0;
+            }
             if (args.Length != 2) throw new ArgumentException("Pass ffmpeg.exe and a test output directory.");
             Directory.CreateDirectory(args[1]);
             var clock = new RenderClock();

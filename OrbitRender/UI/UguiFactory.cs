@@ -32,10 +32,10 @@ namespace OrbitRender.UI
             canvas.overrideSorting = true;
             canvas.sortingOrder = sortingOrder;
             var scaler = root.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            scaler.matchWidthOrHeight = 0.5f;
+            // Progress cards and prompts used screen pixels in IMGUI. The export
+            // dialog applies its own DPI/height scale without depending on aspect ratio.
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+            scaler.scaleFactor = 1f;
             Stretch(root.GetComponent<RectTransform>());
             return root;
         }
@@ -49,7 +49,25 @@ namespace OrbitRender.UI
             return go;
         }
 
-        internal static Text Text(Transform parent, string value, int size = 22,
+        internal static Image ProgressFill(Transform parent)
+        {
+            var fill = Image(parent, "Progress", Accent).GetComponent<Image>();
+            SetProgress(fill, 0f);
+            return fill;
+        }
+
+        internal static void SetProgress(Image fill, float value)
+        {
+            // Sprite-less Images always draw a full quad, ignoring fillAmount.
+            // Size that quad relative to the track so it also follows resizing.
+            var rect = fill.rectTransform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = new Vector2(Mathf.Clamp01(value), 1f);
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
+        internal static Text Text(Transform parent, string value, int size = UiLayout.LabelFontSize,
             TextAnchor anchor = TextAnchor.MiddleLeft, Color? color = null)
         {
             var go = New(parent, "Text", typeof(Text));
@@ -77,8 +95,9 @@ namespace OrbitRender.UI
             colors.selectedColor = colors.highlightedColor;
             button.colors = colors;
             if (action != null) button.onClick.AddListener(() => action());
-            var label = Text(go.transform, caption, 20, TextAnchor.MiddleCenter,
+            var label = Text(go.transform, caption, UiLayout.LabelFontSize, TextAnchor.MiddleCenter,
                 primary ? new Color(0.10f, 0.09f, 0.12f, 1f) : Foreground);
+            label.fontStyle = FontStyle.Bold;
             Stretch(label.rectTransform);
             return button;
         }
@@ -88,8 +107,8 @@ namespace OrbitRender.UI
             var go = Image(parent, "Input", new Color(0.10f, 0.09f, 0.12f, 1f), true);
             Round(go.GetComponent<Image>());
             var input = go.AddComponent<InputField>();
-            var text = Text(go.transform, value, 20);
-            SetOffsets(text.rectTransform, 10f, 8f, 10f, 8f);
+            var text = Text(go.transform, value);
+            SetOffsets(text.rectTransform, 9f, 6f, 9f, 6f);
             input.textComponent = text;
             input.text = value ?? string.Empty;
             if (changed != null) input.onValueChanged.AddListener(value2 => changed(value2));
@@ -99,24 +118,24 @@ namespace OrbitRender.UI
         internal static Toggle Toggle(Transform parent, string caption, bool value, Action<bool> changed)
         {
             var go = New(parent, "Toggle", typeof(Toggle), typeof(LayoutElement));
-            go.GetComponent<LayoutElement>().preferredHeight = 42f;
+            go.GetComponent<LayoutElement>().preferredHeight = 36f;
             var toggle = go.GetComponent<Toggle>();
             var track = Image(go.transform, "Track", Control, true).GetComponent<Image>();
             Round(track);
             Anchor(track.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
-                new Vector2(-52f, -13f), new Vector2(-4f, 13f));
+                new Vector2(-42f, -10f), new Vector2(-4f, 10f));
             var knob = Image(track.transform, "Knob", Foreground).GetComponent<Image>();
             Round(knob);
             knob.rectTransform.anchorMin = knob.rectTransform.anchorMax = new Vector2(0f, .5f);
-            knob.rectTransform.sizeDelta = new Vector2(20f, 20f);
+            knob.rectTransform.sizeDelta = new Vector2(14f, 14f);
             toggle.targetGraphic = track;
             toggle.graphic = null;
-            var label = Text(go.transform, caption, 20);
-            SetOffsets(label.rectTransform, 4f, 0f, 62f, 0f);
+            var label = Text(go.transform, caption);
+            SetOffsets(label.rectTransform, 2f, 0f, 56f, 0f);
             Action<bool> refresh = selected => {
                 track.color = selected ? Accent : Control;
                 knob.color = selected ? new Color(.13f, .11f, .15f, 1f) : Foreground;
-                knob.rectTransform.anchoredPosition = new Vector2(selected ? 37f : 11f, 0f);
+                knob.rectTransform.anchoredPosition = new Vector2(selected ? 28f : 10f, 0f);
             };
             toggle.isOn = value;
             refresh(value);
@@ -129,7 +148,7 @@ namespace OrbitRender.UI
             var go = Image(parent, "Dropdown", Control, true);
             Round(go.GetComponent<Image>());
             var dropdown = go.AddComponent<Dropdown>();
-            var label = Text(go.transform, string.Empty, 19);
+            var label = Text(go.transform, string.Empty);
             SetOffsets(label.rectTransform, 12f, 4f, 30f, 4f);
             dropdown.captionText = label;
             dropdown.options.Clear();
@@ -150,7 +169,7 @@ namespace OrbitRender.UI
             var itemCheck = Image(item.transform, "Item Checkmark", Accent).GetComponent<Image>();
             Anchor(itemCheck.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
                 new Vector2(8f, -7f), new Vector2(22f, 7f));
-            var itemLabel = Text(item.transform, string.Empty, 18);
+            var itemLabel = Text(item.transform, string.Empty);
             SetOffsets(itemLabel.rectTransform, 30f, 0f, 4f, 0f);
             var itemToggle = item.GetComponent<Toggle>();
             itemToggle.targetGraphic = itemBackground;
@@ -162,6 +181,35 @@ namespace OrbitRender.UI
             dropdown.RefreshShownValue();
             if (changed != null) dropdown.onValueChanged.AddListener(v => changed(v));
             return dropdown;
+        }
+
+        internal static GameObject Toolbar(Transform parent, string[] values, int selected, Action<int> changed)
+        {
+            var row = Row(parent, 32f);
+            row.GetComponent<HorizontalLayoutGroup>().spacing = 4f;
+            var buttons = new Button[values.Length];
+            Action<int> refresh = value => {
+                for (var i = 0; i < buttons.Length; i++)
+                {
+                    buttons[i].GetComponent<Image>().color = i == value ? Accent : Control;
+                    buttons[i].GetComponentInChildren<Text>().color = i == value
+                        ? new Color(0.10f, 0.09f, 0.12f, 1f) : Foreground;
+                }
+            };
+            for (var i = 0; i < values.Length; i++)
+            {
+                var index = i;
+                buttons[i] = Button(row.transform, values[i], () => {
+                    refresh(index);
+                    if (changed != null) changed(index);
+                });
+                var colors = buttons[i].colors;
+                colors.selectedColor = Color.white;
+                buttons[i].colors = colors;
+                Preferred(buttons[i], 0f);
+            }
+            refresh(Mathf.Clamp(selected, 0, values.Length - 1));
+            return row;
         }
 
         internal static Slider Slider(Transform parent, float min, float max, float value, Action<float> changed)
@@ -178,7 +226,7 @@ namespace OrbitRender.UI
             var handle = Image(go.transform, "Handle", Foreground, true).GetComponent<Image>();
             Round(handle);
             var handleRect = handle.rectTransform;
-            handleRect.sizeDelta = new Vector2(18f, 28f);
+            handleRect.sizeDelta = new Vector2(12f, 20f);
             var slider = go.GetComponent<Slider>();
             slider.fillRect = fill.rectTransform;
             slider.handleRect = handleRect;
@@ -190,11 +238,13 @@ namespace OrbitRender.UI
             return slider;
         }
 
-        internal static GameObject Row(Transform parent, float height = 44f)
+        internal static GameObject Row(Transform parent, float height = 30f)
         {
             var row = New(parent, "Row", typeof(HorizontalLayoutGroup), typeof(LayoutElement));
             var layout = row.GetComponent<HorizontalLayoutGroup>();
-            layout.spacing = 10f;
+            layout.spacing = 8f;
+            layout.childControlHeight = true;
+            layout.childControlWidth = true;
             layout.childForceExpandHeight = true;
             layout.childForceExpandWidth = true;
             row.GetComponent<LayoutElement>().preferredHeight = height;
