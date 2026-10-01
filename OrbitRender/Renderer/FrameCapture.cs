@@ -519,7 +519,9 @@ namespace OrbitRender.Renderer
                 long waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 // Never yield a Unity frame under backpressure: that would advance
                 // tweens/particles while the song clock and output frame stand still.
-                Drain(true);
+                // Release only the oldest readback. Later requests can remain
+                // in flight while the writer returns the next free buffer.
+                Drain(true, 1);
                 var rentStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 buffer = encoder.Rent();
                 encoderBufferWaitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - rentStart;
@@ -620,9 +622,9 @@ namespace OrbitRender.Renderer
             }
             return customFrameHold;
         }
-        public void Drain(bool wait)
+        public void Drain(bool wait, int maxFrames = int.MaxValue)
         {
-            while (pending.Count > 0)
+            while (pending.Count > 0 && maxFrames-- > 0)
             {
                 var frame = pending.Peek();
                 if (!frame.Ready && wait)

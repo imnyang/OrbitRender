@@ -110,6 +110,8 @@ console.log(job);
 
 GPU readback and FFmpeg encoding are pipelined without spooling raw frames to temporary disk files. Completion logs separate game-frame time, readback wait/copy time, encoder backpressure, audio capture, and final mux time. Bitrate and quality are not silently reduced.
 
+When the frame pool is full, capture completes only the oldest readback and waits for an encoder buffer, keeping later requests in flight. All requests are drained at completion.
+
 Normal gameplay FPS and render completion speed are different measurements because every output frame still needs GPU readback, CPU copying, encoding input, and optional audio muxing. Target FPS drives the game simulation; Video FPS drives the final video stream.
 
 ## Build and test
