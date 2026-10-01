@@ -91,7 +91,6 @@ eta = ETA
 done = Done
 time-spent = TIME SPENT
 copy-path = Copy path
-the-render-window-will-update-when-the-next-stage-is-re = The render window will update when the next stage is ready.
 hold-esc-for-1-second-to-cancel = Hold Esc for 1 second to cancel
 cancel-render = Cancel render
 preparing = PREPARING

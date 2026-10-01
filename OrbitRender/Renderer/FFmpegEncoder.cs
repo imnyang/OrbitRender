@@ -17,6 +17,7 @@ namespace OrbitRender.Renderer
     {
         private const double MinAudioGainDb = -60.0;
         private const double MaxAudioGainDb = 12.0;
+        private const int HardwareFilterThreads = 2;
         internal sealed class Frame
         {
             public readonly byte[] Bytes;
@@ -120,7 +121,12 @@ namespace OrbitRender.Renderer
             var encoderOptions = BuildEncoderOptions(codec, preset, rateControl, isHardwareEncoder, pixelFormat);
             process = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable,
-                Arguments = "-hide_banner -loglevel warning -nostdin -n -f rawvideo -pixel_format "
+                // RGB conversion needs a small filter pool alongside Unity.
+                // Encoder presets/rate control and software encoder threads
+                // remain independent of these preprocessing threads.
+                Arguments = "-hide_banner -loglevel warning -nostdin -n"
+                    + (isHardwareEncoder ? " -filter_threads " + HardwareFilterThreads : "")
+                    + " -f rawvideo -pixel_format "
                     + (rawPixelFormat == RawVideoPixelFormat.Rgb24 ? "rgb24" : "rgba") + " -video_size "
                     + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf vflip "
                     + encoderOptions + " -pix_fmt " + pixelFormat

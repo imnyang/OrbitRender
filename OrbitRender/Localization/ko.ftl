@@ -91,7 +91,6 @@ eta = 예상 시간
 done = 완료
 time-spent = 걸린 시간
 copy-path = 경로 복사
-the-render-window-will-update-when-the-next-stage-is-re = 다음 단계가 준비되면 렌더 상태가 업데이트됩니다.
 hold-esc-for-1-second-to-cancel = 취소하려면 Esc를 1초간 누르세요
 cancel-render = 렌더 취소
 preparing = 준비 중

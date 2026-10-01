@@ -207,7 +207,6 @@ namespace OrbitRender.UI
                 percent.text = FormatElapsed(renderer.ElapsedSeconds);
                 path.text = CompactPath(renderer.OutputPath);
             }
-            else hint.text = Localization.Get("the-render-window-will-update-when-the-next-stage-is-re");
         }
 
         private static void BuildEncoderPrompt(RendererController renderer)
