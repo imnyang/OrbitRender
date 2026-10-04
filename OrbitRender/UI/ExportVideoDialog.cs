@@ -13,9 +13,11 @@ namespace OrbitRender.UI
         private static scnEditor editor;
         private static Draft draft;
         private static string error;
-        private static bool renderOptionsExpanded = true;
-        private static bool visibleComponentsExpanded = true;
-        private static bool encodingExpanded;
+        private static int selectedTab;
+        private static Text filenamePreviewText;
+        private static bool filenameHelpVisible;
+        private static DateTime filenamePreviewTime;
+        private static string filenamePreviewId;
         private static GameObject canvasObject;
         private static RectTransform panelRect;
         private static RectTransform content;
@@ -34,6 +36,10 @@ namespace OrbitRender.UI
             Close();
             editor = owner;
             draft = Draft.From(Main.Settings);
+            selectedTab = 0;
+            filenameHelpVisible = false;
+            filenamePreviewTime = DateTime.Now;
+            filenamePreviewId = Guid.NewGuid().ToString("N").Substring(0, 6);
             error = string.Empty;
             open = true;
             editor.ShowFileActionsPanel(false);
@@ -54,6 +60,11 @@ namespace OrbitRender.UI
             }
             if (audioPreviewText != null)
                 audioPreviewText.text = SettingsUi.AudioPreviewCaption;
+            if (filenamePreviewText != null)
+                filenamePreviewText.text = filenameHelpVisible ? Localization.Get("filename-format-help")
+                    : Localization.Format("export-filename-preview", OutputFormat.FileName(draft.FileNameFormat,
+                        ADOBase.controller != null ? ADOBase.controller.levelName : "Level",
+                        filenamePreviewTime, filenamePreviewId) + OutputFormat.Extension(draft.Container, draft.Codec));
         }
 
         private static void BuildCanvas()
@@ -73,9 +84,15 @@ namespace OrbitRender.UI
             UguiFactory.Anchor(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f),
                 new Vector2(22f, -44f), new Vector2(-22f, -20f));
 
+            var tabs = UguiFactory.Toolbar(panel.transform, new[] { Localization.Get("export-tab-basic"),
+                Localization.Get("export-tab-game"), Localization.Get("export-tab-advanced") }, selectedTab,
+                value => { selectedTab = value; AudioPreview.Stop(); RebuildContent(false); });
+            UguiFactory.Anchor(tabs.GetComponent<RectTransform>(), new Vector2(0f, 1f), Vector2.one,
+                new Vector2(26f, -92f), new Vector2(-26f, -60f));
+
             var scrollView = UguiFactory.New(panel.transform, "Scroll View", typeof(RectTransform), typeof(ScrollRect));
             UguiFactory.Anchor(scrollView.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,
-                new Vector2(22f, 84f), new Vector2(-22f, -52f));
+                new Vector2(22f, 244f), new Vector2(-22f, -104f));
             var viewport = UguiFactory.Image(scrollView.transform, "Viewport", new Color(1f, 1f, 1f, .001f), true);
             viewport.AddComponent<RectMask2D>();
             UguiFactory.Stretch(viewport.GetComponent<RectTransform>());
@@ -105,7 +122,30 @@ namespace OrbitRender.UI
             scrollbar.handleRect = handle.rectTransform;
             scrollbar.targetGraphic = handle;
             scrollRect.verticalScrollbar = scrollbar;
-            scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+            scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
+
+            var divider = UguiFactory.Image(panel.transform, "Output Divider", UguiFactory.Control);
+            UguiFactory.Anchor(divider.GetComponent<RectTransform>(), Vector2.zero, new Vector2(1f, 0f),
+                new Vector2(26f, 236f), new Vector2(-26f, 237f));
+            var output = UguiFactory.New(panel.transform, "Output Settings", typeof(VerticalLayoutGroup));
+            UguiFactory.Anchor(output.GetComponent<RectTransform>(), Vector2.zero, new Vector2(1f, 0f),
+                new Vector2(26f, 88f), new Vector2(-26f, 228f));
+            var outputLayout = output.GetComponent<VerticalLayoutGroup>();
+            outputLayout.spacing = 4f;
+            outputLayout.childControlHeight = true; outputLayout.childControlWidth = true;
+            outputLayout.childForceExpandHeight = false; outputLayout.childForceExpandWidth = true;
+            AddOutputFields(output.transform);
+            var filenameInfo = UguiFactory.Row(output.transform, 38f);
+            filenameInfo.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            filenamePreviewText = UguiFactory.Text(filenameInfo.transform, string.Empty, 11,
+                TextAnchor.MiddleLeft, UguiFactory.Muted);
+            UguiFactory.Preferred(filenamePreviewText, 0f);
+            filenamePreviewText.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            var help = UguiFactory.TextButton(filenameInfo.transform, Localization.Get("export-filename-help"),
+                () => { filenameHelpVisible = !filenameHelpVisible; Refresh(RendererController.Instance); });
+            UguiFactory.Preferred(help, 90f);
+            UguiFactory.Toggle(output.transform, Localization.Get("save-these-values-as-the-default-renderer-settings"),
+                draft.SaveAsDefault, v => draft.SaveAsDefault = v);
 
             errorText = UguiFactory.Text(panel.transform, string.Empty, UiLayout.LabelFontSize, TextAnchor.MiddleLeft, UguiFactory.Error);
             UguiFactory.Anchor(errorText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f),
@@ -114,17 +154,17 @@ namespace OrbitRender.UI
             UguiFactory.Anchor(footer.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f),
                 new Vector2(22f, 20f), new Vector2(-22f, 54f));
             var footerLayout = footer.GetComponent<HorizontalLayoutGroup>();
-            footerLayout.spacing = 10f; footerLayout.childForceExpandHeight = true; footerLayout.childForceExpandWidth = false;
+            footerLayout.spacing = 10f; footerLayout.childForceExpandHeight = false; footerLayout.childForceExpandWidth = false;
             footerLayout.childControlHeight = true; footerLayout.childControlWidth = true;
-            var cancel = UguiFactory.Button(footer.transform, Localization.Get("cancel"), Close); UguiFactory.Preferred(cancel, 120f);
+            var cancel = UguiFactory.Button(footer.transform, Localization.Get("cancel"), Close); UguiFactory.Preferred(cancel, 120f, 34f);
             UguiFactory.New(footer.transform, "Spacer", typeof(LayoutElement)).GetComponent<LayoutElement>().flexibleWidth = 1f;
             if (GetSelectedTileRange().Length >= 2)
             {
                 var selection = UguiFactory.Button(footer.transform, Localization.Get("export-video-selection"),
-                    () => Confirm(RendererController.Instance, true)); UguiFactory.Preferred(selection, 190f);
+                    () => Confirm(RendererController.Instance, true)); UguiFactory.Preferred(selection, 190f, 34f);
             }
             var export = UguiFactory.Button(footer.transform, Localization.Get("export-video"),
-                () => Confirm(RendererController.Instance, false), true); UguiFactory.Preferred(export, 150f);
+                () => Confirm(RendererController.Instance, false), true); UguiFactory.Preferred(export, 150f, 34f);
             RebuildContent(false);
         }
 
@@ -151,53 +191,46 @@ namespace OrbitRender.UI
                 content.GetChild(i).gameObject.SetActive(false);
                 UnityEngine.Object.Destroy(content.GetChild(i).gameObject);
             }
-            AddLabel(Localization.Get("choose-the-settings-for-this-video-export"), UiLayout.LabelFontSize, 26f, UguiFactory.Muted);
-            AddToolbar(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
-                "FullHD", "QHD", "UHD 4K" }, (int)draft.Preset, value => {
-                    draft.Preset = (RendererPreset)value; if (draft.Preset != RendererPreset.Custom) draft.ApplyPreset(); RebuildContent();
-                });
-            if (draft.Preset == RendererPreset.Custom)
-                AddInputRow(new[] { new Field(Localization.Get("width"), draft.WidthText, v => draft.WidthText = v),
-                    new Field(Localization.Get("height"), draft.HeightText, v => draft.HeightText = v),
-                    new Field(Localization.Get("bitrate") + " (Mbps)", draft.BitrateText, v => draft.BitrateText = v) });
-            else AddLabel(Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText,
-                draft.VideoFpsText, draft.BitrateText), UiLayout.LabelFontSize, 22f, UguiFactory.Muted);
-            AddInputRow(new[] { new Field(Localization.Get("ingame-fps"), draft.FpsText, v => draft.FpsText = v),
-                new Field(Localization.Get("video-fps"), draft.VideoFpsText, v => draft.VideoFpsText = v) });
-
-            AddOutputFields();
-            AddLabel(Localization.Get("filename-format-help"), 11, 38f, UguiFactory.Muted);
-
-            AddToggle(Localization.Get("capture-audio"), draft.CaptureAudio, v => draft.CaptureAudio = v);
-            AddAudioGain();
-
-            AddSection(Localization.Get("encoding"), encodingExpanded,
-                () => { encodingExpanded = !encodingExpanded; RebuildContent(); });
-            if (encodingExpanded)
+            audioPreviewText = null;
+            encoderAvailability = null;
+            if (selectedTab == 0)
             {
+                AddToolbar(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
+                    "FullHD", "QHD", "UHD 4K" }, (int)draft.Preset, value => {
+                        draft.Preset = (RendererPreset)value; if (draft.Preset != RendererPreset.Custom) draft.ApplyPreset(); RebuildContent();
+                    });
+                if (draft.Preset == RendererPreset.Custom)
+                    AddInputRow(new[] { new Field(Localization.Get("width"), draft.WidthText, v => draft.WidthText = v),
+                        new Field(Localization.Get("height"), draft.HeightText, v => draft.HeightText = v),
+                        new Field(Localization.Get("bitrate") + " (Mbps)", draft.BitrateText, v => draft.BitrateText = v) });
+                else AddLabel(Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText,
+                    draft.VideoFpsText, draft.BitrateText), UiLayout.LabelFontSize, 22f, UguiFactory.Muted);
+                AddInputRow(new[] { new Field(Localization.Get("ingame-fps"), draft.FpsText, v => draft.FpsText = v),
+                    new Field(Localization.Get("video-fps"), draft.VideoFpsText, v => draft.VideoFpsText = v) });
+
+                AddHeading(Localization.Get("export-audio"));
+                AddToggle(Localization.Get("capture-audio"), draft.CaptureAudio,
+                    v => { draft.CaptureAudio = v; if (!v) AudioPreview.Stop(); RebuildContent(); });
+                if (draft.CaptureAudio) AddAudioGain();
+            }
+            else if (selectedTab == 2)
+            {
+                AddHeading(Localization.Get("encoding"));
                 AddEncoderDropdown();
                 AddToolbar(Localization.Get("encoding-speed"), new[] { Localization.Get("maximum"),
                     Localization.Get("balanced"), Localization.Get("quality") }, (int)draft.Encoding,
                     v => draft.Encoding = (EncoderSpeed)v);
                 AddToolbar(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
                     (int)draft.BitDepth, v => { draft.BitDepth = (VideoBitDepth)v; RebuildContent(); });
+                AddHeading(Localization.Get("render-options"));
+                AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
+                AddToggle(Localization.Get("open-output-folder-after-render"), draft.OpenOutputFolder, v => draft.OpenOutputFolder = v);
             }
-
-
-            AddSection(Localization.Get("render-options"), renderOptionsExpanded,
-                () => { renderOptionsExpanded = !renderOptionsExpanded; RebuildContent(); });
-            if (renderOptionsExpanded)
+            else
             {
                 AddInputRow(new[] { new Field(Localization.Get("end-delay-seconds"), draft.EndDelayText, v => draft.EndDelayText = v) });
-                AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
                 AddToggle(Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), draft.BgaMode, v => draft.BgaMode = v);
-                AddToggle(Localization.Get("open-output-folder-after-render"), draft.OpenOutputFolder, v => draft.OpenOutputFolder = v);
-                AddToggle(Localization.Get("save-these-values-as-the-default-renderer-settings"), draft.SaveAsDefault, v => draft.SaveAsDefault = v);
-            }
-            AddSection(Localization.Get("visible-components"), visibleComponentsExpanded,
-                () => { visibleComponentsExpanded = !visibleComponentsExpanded; RebuildContent(); });
-            if (visibleComponentsExpanded)
-            {
+                AddHeading(Localization.Get("visible-components"));
                 AddToggle(Localization.Get("show-planet-rings"), draft.ShowPlanetRings, v => draft.ShowPlanetRings = v);
                 AddToggle(Localization.Get("show-song-title"), draft.ShowSongTitle, v => draft.ShowSongTitle = v);
                 AddToggle(Localization.Get("show-countdown"), draft.ShowCountdown, v => draft.ShowCountdown = v);
@@ -213,17 +246,17 @@ namespace OrbitRender.UI
             Canvas.ForceUpdateCanvases();
             LayoutRebuilder.ForceRebuildLayoutImmediate(content);
             var preferredHeight = Mathf.Max(LayoutUtility.GetPreferredHeight(content),
-                scrollRect.viewport.rect.height + 1f);
+                scrollRect.viewport.rect.height);
             content.sizeDelta = new Vector2(0f, preferredHeight);
             content.anchoredPosition = Vector2.zero;
             Canvas.ForceUpdateCanvases();
             if (scrollRect != null) scrollRect.verticalNormalizedPosition = position;
         }
 
-        private static void AddOutputFields()
+        private static void AddOutputFields(Transform parent)
         {
             const float formatWidth = 136f;
-            var labels = UguiFactory.Row(content, 20f);
+            var labels = UguiFactory.Row(parent, 20f);
             labels.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
             var filenameLabel = UguiFactory.Text(labels.transform, Localization.Get("filename-format"));
             UguiFactory.Preferred(filenameLabel, 0f);
@@ -232,7 +265,7 @@ namespace OrbitRender.UI
             UguiFactory.Preferred(formatLabel, formatWidth);
             formatLabel.GetComponent<LayoutElement>().minWidth = formatWidth;
 
-            var fields = UguiFactory.Row(content, 34f);
+            var fields = UguiFactory.Row(parent, 34f);
             fields.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
             var filenameInput = UguiFactory.Input(fields.transform, draft.FileNameFormat, v => draft.FileNameFormat = v);
             UguiFactory.Preferred(filenameInput, 0f, 34f);
@@ -313,11 +346,9 @@ namespace OrbitRender.UI
             }
         }
         private static void AddToggle(string label, bool value, Action<bool> changed) => UguiFactory.Toggle(content, label, value, changed);
-        private static void AddSection(string title, bool expanded, Action action)
-        { var button = UguiFactory.Button(content, (expanded ? "▼  " : "▶  ") + title, action);
-            UguiFactory.Preferred(button, 0f, 34f);
-            var label = button.GetComponentInChildren<Text>(); label.alignment = TextAnchor.MiddleLeft;
-            UguiFactory.SetOffsets(label.rectTransform, 12f, 0f, 12f, 0f); }
+        private static void AddHeading(string title)
+        { var label = UguiFactory.Text(content, title, UiLayout.LabelFontSize);
+            label.fontStyle = FontStyle.Bold; UguiFactory.Preferred(label, 0f, 30f); }
         private static void AddLabel(string value, int size, float height, Color color)
         { var label = UguiFactory.Text(content, value, size, TextAnchor.MiddleLeft, color); UguiFactory.Preferred(label, 0f, height); }
 
@@ -337,6 +368,7 @@ namespace OrbitRender.UI
         private static void Close()
         { AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
             canvasObject = null; panelRect = null; content = null; scrollRect = null; errorText = null; audioPreviewText = null;
+            filenamePreviewText = null;
             encoderAvailability = null; editor = null; draft = null; error = string.Empty; }
 
         private sealed class Field

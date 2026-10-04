@@ -281,7 +281,7 @@ namespace OrbitRender.UI
                 var colors = buttons[i].colors;
                 colors.selectedColor = Color.white;
                 buttons[i].colors = colors;
-                Preferred(buttons[i], 0f);
+                Preferred(buttons[i], 0f, 32f);
             }
             refresh(Mathf.Clamp(selected, 0, values.Length - 1));
             return row;
@@ -333,7 +333,13 @@ namespace OrbitRender.UI
             layout.childControlWidth = true;
             layout.childForceExpandHeight = true;
             layout.childForceExpandWidth = true;
-            row.GetComponent<LayoutElement>().preferredHeight = height;
+            var element = row.GetComponent<LayoutElement>();
+            element.minHeight = height;
+            element.preferredHeight = height;
+            // HorizontalLayoutGroup reports flexible height when its children
+            // fill the row. Override that so a vertical parent cannot stretch
+            // the entire row into unused viewport space.
+            element.flexibleHeight = 0f;
             return row;
         }
 
