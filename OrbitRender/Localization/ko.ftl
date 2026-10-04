@@ -160,3 +160,4 @@ filename-insert-condition = 조건부 출력 예시
 filename-template-help = {date:yyyyMMdd} · |lower · |upper · |trim · |replace:"a","b" · |truncate:40 · |default:"대체값" · {if:bgaMode,"BGA","Gameplay"} (확장자 자동 추가)
 filename-template-error = 파일명 문법 오류: {0}
 filename-help-close = 닫기
+credit-author = 제작: {0}

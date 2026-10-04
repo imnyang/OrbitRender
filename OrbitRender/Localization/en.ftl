@@ -160,3 +160,4 @@ filename-insert-condition = Condition example
 filename-template-help = {date:yyyyMMdd} · |lower · |upper · |trim · |replace:"a","b" · |truncate:40 · |default:"fallback" · {if:bgaMode,"BGA","Gameplay"} (extension added automatically)
 filename-template-error = Filename syntax error: {0}
 filename-help-close = Close
+credit-author = Created by {0}

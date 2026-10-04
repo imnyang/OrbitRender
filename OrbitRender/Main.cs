@@ -239,6 +239,11 @@ namespace OrbitRender
             GUILayout.Space(8f);
             GUILayout.Box(GUIContent.none, GUILayout.ExpandWidth(true), GUILayout.Height(1f));
             DrawOutputSettings();
+            GUILayout.Space(12f);
+            GUILayout.BeginVertical(GUI.skin.box);
+            GUILayout.Label("Credit");
+            GUILayout.Label(Localization.Format("credit-author", Entry.Info.Author));
+            GUILayout.EndVertical();
         }
 
         private static void DrawRenderSettings()
