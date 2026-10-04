@@ -300,13 +300,15 @@ namespace OrbitRender
         private static void DrawEncodingSettings()
         {
             Settings.Encoding = SettingsUi.DrawEncoding(Settings.Encoding);
-            Settings.Encoder = SettingsUi.DrawEncoder(Settings.Encoder);
-            Settings.Codec = SettingsUi.DrawCodec(Settings.Codec);
             Settings.BitDepth = SettingsUi.DrawBitDepth(Settings.BitDepth);
+            Settings.Container = SettingsUi.DrawContainer(Settings.Container);
+            SettingsUi.DrawEncoder(ref Settings.Encoder, ref Settings.Codec, Settings.BitDepth, Settings.Container);
         }
 
         private static void DrawPathSettings()
         {
+            Settings.FileNameFormat = SettingsUi.LabeledField(Localization.Get("filename-format"), Settings.FileNameFormat, 380f);
+            GUILayout.Label(Localization.Get("filename-format-help"));
             DrawPathField(
                 Localization.Get("output-folder"),
                 ref Settings.OutputDirectory,

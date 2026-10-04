@@ -22,6 +22,8 @@ namespace OrbitRender.UI
         private static ScrollRect scrollRect;
         private static Text errorText;
         private static Text audioPreviewText;
+        private static EncoderAvailability.CombinedResult encoderAvailability;
+        private static bool encoderAvailabilityComplete;
 
         internal static bool IsOpen => open;
         internal static void CloseDialog() => Close();
@@ -42,6 +44,8 @@ namespace OrbitRender.UI
         {
             if (!open || canvasObject == null) return;
             RefreshLayout();
+            if (encoderAvailability != null && encoderAvailability.Complete != encoderAvailabilityComplete)
+            { encoderAvailabilityComplete = encoderAvailability.Complete; RebuildContent(); return; }
             if (!string.IsNullOrEmpty(AudioPreview.ErrorMessage)) error = AudioPreview.ErrorMessage;
             if (errorText != null)
             {
@@ -56,7 +60,7 @@ namespace OrbitRender.UI
 
         private static void BuildCanvas()
         {
-            canvasObject = UguiFactory.Canvas("OrbitRender.ExportVideoDialog", 32760);
+            canvasObject = UguiFactory.Canvas("OrbitRender.ExportVideoDialog", 32765);
             var dimmer = UguiFactory.Image(canvasObject.transform, "Dimmer", new Color(0f, 0f, 0f, .72f), true);
             UguiFactory.Stretch(dimmer.GetComponent<RectTransform>());
             var panel = UguiFactory.Image(canvasObject.transform, "Panel", UguiFactory.Surface, true);
@@ -163,21 +167,38 @@ namespace OrbitRender.UI
             AddInputRow(new[] { new Field(Localization.Get("ingame-fps"), draft.FpsText, v => draft.FpsText = v),
                 new Field(Localization.Get("video-fps"), draft.VideoFpsText, v => draft.VideoFpsText = v) });
 
+            AddOutputFields();
+            AddLabel(Localization.Get("filename-format-help"), 11, 38f, UguiFactory.Muted);
+
+            AddToggle(Localization.Get("capture-audio"), draft.CaptureAudio, v => draft.CaptureAudio = v);
+            AddAudioGain();
+            var previewRow = UguiFactory.Row(content, 34f);
+            previewRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            var preview = UguiFactory.Button(previewRow.transform, string.Empty, () => {
+                var wasPlaying = AudioPreview.IsActive; var playing = AudioPreview.Toggle(draft.AudioGainDb);
+                error = !wasPlaying && !playing ? AudioPreview.ErrorMessage ?? Localization.Get("audio-preview-unavailable") : string.Empty;
+                Refresh(RendererController.Instance);
+            });
+            UguiFactory.Preferred(preview, 150f, 34f); audioPreviewText = preview.GetComponentInChildren<Text>();
+
+            AddSection(Localization.Get("encoding"), encodingExpanded,
+                () => { encodingExpanded = !encodingExpanded; RebuildContent(); });
+            if (encodingExpanded)
+            {
+                AddEncoderDropdown();
+                AddToolbar(Localization.Get("encoding-speed"), new[] { Localization.Get("maximum"),
+                    Localization.Get("balanced"), Localization.Get("quality") }, (int)draft.Encoding,
+                    v => draft.Encoding = (EncoderSpeed)v);
+                AddToolbar(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
+                    (int)draft.BitDepth, v => { draft.BitDepth = (VideoBitDepth)v; RebuildContent(); });
+            }
+
+
             AddSection(Localization.Get("render-options"), renderOptionsExpanded,
                 () => { renderOptionsExpanded = !renderOptionsExpanded; RebuildContent(); });
             if (renderOptionsExpanded)
             {
                 AddInputRow(new[] { new Field(Localization.Get("end-delay-seconds"), draft.EndDelayText, v => draft.EndDelayText = v) });
-                AddToggle(Localization.Get("capture-audio"), draft.CaptureAudio, v => draft.CaptureAudio = v);
-                AddAudioGain();
-                var previewRow = UguiFactory.Row(content, 34f);
-                previewRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-                var preview = UguiFactory.Button(previewRow.transform, string.Empty, () => {
-                    var wasPlaying = AudioPreview.IsActive; var playing = AudioPreview.Toggle(draft.AudioGainDb);
-                    error = !wasPlaying && !playing ? AudioPreview.ErrorMessage ?? Localization.Get("audio-preview-unavailable") : string.Empty;
-                    Refresh(RendererController.Instance);
-                });
-                UguiFactory.Preferred(preview, 150f, 34f); audioPreviewText = preview.GetComponentInChildren<Text>();
                 AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
                 AddToggle(Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), draft.BgaMode, v => draft.BgaMode = v);
                 AddToggle(Localization.Get("open-output-folder-after-render"), draft.OpenOutputFolder, v => draft.OpenOutputFolder = v);
@@ -193,23 +214,6 @@ namespace OrbitRender.UI
                 AddToggle(Localization.Get("show-result-text-hit-judgments-stay-hidden"), draft.ShowResultText, v => draft.ShowResultText = v);
                 AddToggle(Localization.Get("show-hit-judgments"), draft.ShowHitJudgments, v => draft.ShowHitJudgments = v);
             }
-            AddSection(Localization.Get("encoding"), encodingExpanded,
-                () => { encodingExpanded = !encodingExpanded; RebuildContent(); });
-            if (encodingExpanded)
-            {
-                AddToolbar(Localization.Get("encoding-speed"), new[] { Localization.Get("maximum"),
-                    Localization.Get("balanced"), Localization.Get("quality") }, (int)draft.Encoding,
-                    v => draft.Encoding = (EncoderSpeed)v);
-                var encoders = new[] { VideoEncoder.Auto, VideoEncoder.NvidiaNvenc, VideoEncoder.IntelQsv,
-                    VideoEncoder.AmdAmf, VideoEncoder.Software };
-                AddToolbar(Localization.Get("video-encoder"), new[] { Localization.Get("auto"), "NVIDIA NVENC",
-                    "Intel QSV", "AMD AMF", Localization.Get("software") }, Array.IndexOf(encoders, draft.Encoder),
-                    v => draft.Encoder = encoders[v]);
-                AddToolbar(Localization.Get("video-codec"), new[] { "H.264", "H.265", "VP9", "AV1" },
-                    (int)draft.Codec, v => draft.Codec = (VideoCodec)v);
-                AddToolbar(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
-                    (int)draft.BitDepth, v => draft.BitDepth = (VideoBitDepth)v);
-            }
             UpdateContentLayout(position);
             Refresh(RendererController.Instance);
         }
@@ -224,6 +228,53 @@ namespace OrbitRender.UI
             content.anchoredPosition = Vector2.zero;
             Canvas.ForceUpdateCanvases();
             if (scrollRect != null) scrollRect.verticalNormalizedPosition = position;
+        }
+
+        private static void AddOutputFields()
+        {
+            const float formatWidth = 136f;
+            var labels = UguiFactory.Row(content, 20f);
+            labels.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            var filenameLabel = UguiFactory.Text(labels.transform, Localization.Get("filename-format"));
+            UguiFactory.Preferred(filenameLabel, 0f);
+            filenameLabel.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            var formatLabel = UguiFactory.Text(labels.transform, Localization.Get("output-format"));
+            UguiFactory.Preferred(formatLabel, formatWidth);
+            formatLabel.GetComponent<LayoutElement>().minWidth = formatWidth;
+
+            var fields = UguiFactory.Row(content, 34f);
+            fields.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            var filenameInput = UguiFactory.Input(fields.transform, draft.FileNameFormat, v => draft.FileNameFormat = v);
+            UguiFactory.Preferred(filenameInput, 0f, 34f);
+            filenameInput.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            var formatDropdown = UguiFactory.Dropdown(fields.transform,
+                new[] { Localization.Get("auto"), ".mp4", ".ts", ".mkv", ".mov" },
+                (int)draft.Container, v => { draft.Container = (VideoContainer)v; RebuildContent(); });
+            UguiFactory.Preferred(formatDropdown, formatWidth, 34f);
+            formatDropdown.GetComponent<LayoutElement>().minWidth = formatWidth;
+        }
+
+        private static void AddEncoderDropdown()
+        {
+            encoderAvailability = SettingsUi.AvailableEncoders(draft.BitDepth, draft.Container);
+            encoderAvailabilityComplete = encoderAvailability.Complete;
+            AddLabel(Localization.Get("video-encoder"), UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
+            var choices = encoderAvailability.Complete ? encoderAvailability.Choices : new EncoderAvailability.Choice[0];
+            var labels = choices.Length > 0 ? choices.Select(SettingsUi.EncoderLabel).ToArray()
+                : new[] { Localization.Get(encoderAvailability.Complete ? "no-compatible-encoders" : "checking-available-encoders") };
+            var selected = choices.Length > 0 ? EncoderAvailability.SelectionIndex(choices, draft.Codec, draft.Encoder) : 0;
+            var separators = Enumerable.Range(1, Math.Max(0, choices.Length - 1))
+                .Where(i => choices[i].Codec != choices[i - 1].Codec).ToArray();
+            if (choices.Length > 0) { draft.Encoder = choices[selected].Encoder; draft.Codec = choices[selected].Codec; }
+            var dropdown = UguiFactory.Dropdown(content, labels, selected, v => {
+                if (v >= choices.Length) return;
+                draft.Encoder = choices[v].Encoder; draft.Codec = choices[v].Codec;
+            }, separators);
+            dropdown.interactable = choices.Length > 0;
+            UguiFactory.Preferred(dropdown, 0f, 34f);
+            var refresh = UguiFactory.Button(content, Localization.Get("refresh-encoders"),
+                () => { EncoderAvailability.Refresh(); RebuildContent(); });
+            UguiFactory.Preferred(refresh, 0f, 30f);
         }
 
         private static void AddAudioGain()
@@ -244,9 +295,22 @@ namespace OrbitRender.UI
         { AddLabel(label, UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
             UguiFactory.Toolbar(content, options, Mathf.Max(0, value), changed); }
         private static void AddInputRow(Field[] fields)
-        { var row = UguiFactory.Row(content); foreach (var field in fields) { var label = UguiFactory.Text(row.transform,
-                field.Label, UiLayout.LabelFontSize, TextAnchor.MiddleRight, UguiFactory.Muted); UguiFactory.Preferred(label, 100f);
-                var input = UguiFactory.Input(row.transform, field.Value, field.Changed); UguiFactory.Preferred(input, 110f); } }
+        {
+            var row = UguiFactory.Row(content);
+            row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            foreach (var field in fields)
+            {
+                var label = UguiFactory.Text(row.transform, field.Label, UiLayout.LabelFontSize,
+                    TextAnchor.MiddleLeft, UguiFactory.Muted);
+                UguiFactory.Preferred(label, 100f);
+                var labelLayout = label.GetComponent<LayoutElement>();
+                labelLayout.minWidth = 100f;
+                labelLayout.flexibleWidth = 0f;
+                var input = UguiFactory.Input(row.transform, field.Value, field.Changed);
+                UguiFactory.Preferred(input, 110f);
+                input.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            }
+        }
         private static void AddToggle(string label, bool value, Action<bool> changed) => UguiFactory.Toggle(content, label, value, changed);
         private static void AddSection(string title, bool expanded, Action action)
         { var button = UguiFactory.Button(content, (expanded ? "▼  " : "▶  ") + title, action);
@@ -272,7 +336,7 @@ namespace OrbitRender.UI
         private static void Close()
         { AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
             canvasObject = null; panelRect = null; content = null; scrollRect = null; errorText = null; audioPreviewText = null;
-            editor = null; draft = null; error = string.Empty; }
+            encoderAvailability = null; editor = null; draft = null; error = string.Empty; }
 
         private sealed class Field
         { internal readonly string Label, Value; internal readonly Action<string> Changed;
@@ -281,6 +345,8 @@ namespace OrbitRender.UI
         private sealed class Draft
         {
             internal RendererPreset Preset;
+            internal VideoContainer Container;
+            internal string FileNameFormat;
             internal string WidthText, HeightText, FpsText, VideoFpsText, BitrateText, EndDelayText, AudioGainDbText;
             internal float AudioGainDb;
             internal bool CaptureAudio, ShowRenderPreview, BgaMode, ShowPlanetRings, ShowSongTitle, ShowCountdown,
@@ -294,7 +360,7 @@ namespace OrbitRender.UI
                 ShowRenderPreview = s.ShowRenderPreview, BgaMode = s.BgaMode, ShowPlanetRings = s.ShowPlanetRings,
                 ShowSongTitle = s.ShowSongTitle, ShowCountdown = s.ShowCountdown, ShowResultText = s.ShowResultText,
                 ShowHitJudgments = s.ShowHitJudgments, OpenOutputFolder = s.OpenOutputFolder, Encoding = s.Encoding,
-                Encoder = s.Encoder, Codec = s.Codec, BitDepth = s.BitDepth };
+                Encoder = s.Encoder, Codec = s.Codec, BitDepth = s.BitDepth, Container = s.Container, FileNameFormat = s.FileNameFormat };
             internal void ApplyPreset() { switch (Preset) { case RendererPreset.Preview: SetVideoValues(1280,720,30,30,8); break;
                 case RendererPreset.QHD: SetVideoValues(2560,1440,60,60,30); break; case RendererPreset.UHD4K: SetVideoValues(3840,2160,60,60,50); break;
                 case RendererPreset.FullHD: SetVideoValues(1920,1080,60,60,18); break; } }
@@ -309,13 +375,13 @@ namespace OrbitRender.UI
                 options=new RenderRequestOptions { Preset=Preset,EndDelaySeconds=endDelay,CaptureAudio=CaptureAudio,AudioGainDb=RendererSettings.ClampAudioGainDb(AudioGainDb),
                     ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
                     ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
-                    OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
+                    Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
                 if(Preset==RendererPreset.Custom){options.Width=width;options.Height=height;options.BitrateMbps=bitrate;} return true; }
             internal void ApplyTo(RendererSettings s, RenderRequestOptions o)
             { s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;s.BitrateMbps=o.BitrateMbps.Value;}
                 s.EndDelaySeconds=o.EndDelaySeconds.Value;s.CaptureAudio=CaptureAudio;s.AudioGainDb=o.AudioGainDb.Value;s.ShowRenderPreview=ShowRenderPreview;s.BgaMode=BgaMode;
                 s.ShowPlanetRings=ShowPlanetRings;s.ShowSongTitle=ShowSongTitle;s.ShowCountdown=ShowCountdown;s.ShowResultText=ShowResultText;s.ShowHitJudgments=ShowHitJudgments;
-                s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }
+                s.Container=Container;s.FileNameFormat=FileNameFormat;s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }
             private void SetVideoValues(int w,int h,int f,int vf,int b){WidthText=w.ToString(CultureInfo.InvariantCulture);HeightText=h.ToString(CultureInfo.InvariantCulture);
                 FpsText=f.ToString(CultureInfo.InvariantCulture);VideoFpsText=vf.ToString(CultureInfo.InvariantCulture);BitrateText=b.ToString(CultureInfo.InvariantCulture);}
             private static bool TryParseFloat(string value,out float result)=>float.TryParse(value,NumberStyles.Float,CultureInfo.InvariantCulture,out result)||float.TryParse(value,NumberStyles.Float,CultureInfo.CurrentCulture,out result);

@@ -20,8 +20,8 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 - 중앙 진행창, 렌더 FPS, 실시간 배율, ETA와 완료 예정 시각 표시
 - Preview, FullHD, QHD, UHD 4K, Custom 프로필
 - 해상도, Target FPS 15–1024 / Video FPS 15–240, 1–200 Mbps 비트레이트, End delay 설정
-- H.264/AVC, H.265/HEVC, VP9, AV1 코덱 선택 지원 (VP9은 WebM, 나머지는 MP4)
-- NVIDIA NVENC, Intel Quick Sync, AMD AMF, 소프트웨어 인코더 선택 및 GPU 자동 감지
+- H.264/AVC, H.265/HEVC, VP9, AV1 코덱 선택 지원 (자동 출력은 VP9 WebM, 나머지 MP4; MP4/TS/MKV/MOV 직접 선택 가능)
+- NVIDIA NVENC, Intel Quick Sync, AMD AMF, 소프트웨어 인코더 드롭다운 선택 및 FFmpeg 실제 인코딩으로 사용 가능 여부 확인
 - 게임 오디오 캡처와 영상·오디오 mux
 - 설정 가능한 출력 폴더
 - BGA Mode: 타일·홀드·타일 이펙트·공·공 파티클·힛사운드 제외
@@ -59,14 +59,19 @@ Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mo
 | Show result text | 켜짐 | 완료/Pure Perfect 문구만 포함 (세부 판정 결과는 숨김) |
 | Show hit judgments | 꺼짐 | 타일을 밟을 때 판정 텍스트 표시 |
 | Encoding speed | Quality | Maximum / Balanced / Quality |
-| Video encoder | Auto | Auto / NvidiaNvenc / IntelQsv / AmdAmf / Software |
-| Video codec | H264 | H264 / H265 / VP9 / AV1 |
+| Video encoder | Auto (H.264) | 인코더와 코덱을 함께 선택 (NVENC H.264, x265 HEVC, AOM AV1 등) |
 | Video bit depth | 8-bit | 8-bit / 10-bit (`yuv420p10le`) |
+| Output format | Auto | Auto / .mp4 / .ts / .mkv / .mov |
+| Filename format | `Render_{level}_{date}_{time}_{id}` | 레벨명, 날짜, 시간, 랜덤 ID; 확장자 자동 추가 |
 | Output folder | `Renders` | 게임 폴더 기준 상대 경로 또는 절대 경로 |
 | Open output folder after render | 켜짐 | 렌더 완료 후 결과 파일이 있는 폴더 열기 |
 | FFmpeg executable | 자동 | 첫 실행 동의 후 설치된 FFmpeg, PATH의 `ffmpeg`, 또는 직접 지정한 경로 |
 
 AV1 소프트웨어 인코더는 엄격한 CBR을 지원하지 않으므로 오디오 포함 렌더에서는 목표 비트레이트 VBR, 무음 렌더에서는 capped-CRF를 사용합니다.
+
+VAAPI도 H.264, HEVC, VP9, AV1을 지원합니다. FFmpeg 기본 VAAPI 장치를 초기화하고 8-bit는 NV12, 10-bit는 P010으로 변환한 뒤 GPU에 업로드합니다. FFmpeg 빌드와 GPU 드라이버가 해당 코덱을 지원하여 실제 인코딩 검사에 성공한 항목만 표시하며, 실패 시 기존 소프트웨어 fallback 확인을 사용합니다. 드라이버별 화질·rate control은 자동 선택합니다. [FFmpeg VAAPI 문서](https://ffmpeg.org/ffmpeg-codecs.html#VAAPI-encoders)
+
+파일명이 중복되면 `_1`, `_2` 등의 번호를 붙이며 파일명에 쓸 수 없는 문자는 정리합니다. 인코더 목록에는 현재 비트 심도와 출력 형식으로 실제 인코딩에 성공한 항목만 표시합니다. FFmpeg나 드라이버를 바꾼 뒤에는 **인코더 다시 확인**을 누르세요. TS는 H.264/H.265를 지원하며, 나머지 코덱·컨테이너 조합의 사용 가능 여부도 FFmpeg로 확인합니다.
 
 렌더 시작 전에 선택한 인코더를 실제 1프레임으로 점검합니다. 하드웨어 인코더가 실패하면 Software encoder로 이번 렌더만 계속할지 확인하며, 동의하지 않으면 설정과 렌더를 변경하지 않고 취소합니다.
 

@@ -140,3 +140,10 @@ ffmpeg-download-size = {0:F1} / {1:F1} MB
 ffmpeg-download-size-unknown = Download size unavailable
 ffmpeg-could-not-be-installed-automatically-value-check = FFmpeg could not be installed automatically: {0}. Check the log or set FFmpeg executable manually.
 ffmpeg-installation-was-skipped-set-ffmpeg-executable-m = FFmpeg installation was skipped. Set FFmpeg executable manually or install it below.
+
+filename-format = Filename format
+filename-format-help = {level}: level name · {date}: yyyy-MM-dd · {time}: HH-mm-ss · {id}: random ID (extension added automatically)
+output-format = Output format
+checking-available-encoders = Checking available encoders…
+no-compatible-encoders = No compatible encoder. Change bit depth or output format.
+refresh-encoders = Refresh encoders

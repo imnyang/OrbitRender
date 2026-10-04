@@ -140,3 +140,10 @@ ffmpeg-download-size = {0:F1} / {1:F1} MB
 ffmpeg-download-size-unknown = 전체 다운로드 크기를 알 수 없음
 ffmpeg-could-not-be-installed-automatically-value-check = FFmpeg를 자동으로 설치할 수 없습니다: {0}. 로그를 확인하거나 FFmpeg 실행 파일을 직접 지정하세요.
 ffmpeg-installation-was-skipped-set-ffmpeg-executable-m = FFmpeg 설치를 건너뛰었습니다. 실행 파일을 직접 지정하거나 아래에서 설치하세요.
+
+filename-format = 파일명 형식
+filename-format-help = {level}: 레벨명 · {date}: 날짜 · {time}: 시간 · {id}: 랜덤 ID (확장자 자동 추가)
+output-format = 출력 형식
+checking-available-encoders = 사용 가능한 인코더 확인 중…
+no-compatible-encoders = 지원하는 인코더가 없습니다. 비트 심도 또는 출력 형식을 변경하세요.
+refresh-encoders = 인코더 다시 확인

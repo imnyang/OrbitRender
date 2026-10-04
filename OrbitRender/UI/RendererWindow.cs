@@ -60,7 +60,7 @@ namespace OrbitRender.UI
             builtRenderState = renderer.State;
             builtShowProgress = HasProgress(renderer);
             builtScreenWidth = Screen.width;
-            canvasObject = UguiFactory.Canvas("OrbitRender.RendererWindow", 32750);
+            canvasObject = UguiFactory.Canvas("OrbitRender.RendererWindow", 32764);
             backdropObject = UguiFactory.Image(canvasObject.transform, "Backdrop", UguiFactory.Backdrop,
                 nextMode != 3 || renderer.Busy);
             UguiFactory.Stretch(backdropObject.GetComponent<RectTransform>());

@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using OrbitRender.Renderer;
 using System.Globalization;
 using UnityEngine;
 
@@ -96,33 +99,45 @@ namespace OrbitRender.UI
             }, dark);
         }
 
-        internal static VideoEncoder DrawEncoder(VideoEncoder value, bool dark = false)
+        private static bool encoderDropdownOpen;
+        internal static EncoderAvailability.CombinedResult AvailableEncoders(VideoBitDepth depth, VideoContainer container)
         {
-            GUILayout.Label(Localization.Get("video-encoder"), dark ? UiTheme.Label : GUI.skin.label);
-            var selected = value == VideoEncoder.Auto ? 0
-                : value == VideoEncoder.NvidiaNvenc ? 1
-                : value == VideoEncoder.IntelQsv ? 2
-                : value == VideoEncoder.AmdAmf ? 3 : 4;
-            selected = DrawToolbar(selected, new[] {
-                Localization.Get("auto"),
-                "NVIDIA NVENC", "Intel QSV", "AMD AMF",
-                Localization.Get("software")
-            }, dark);
-            switch (selected)
-            {
-                case 1: return VideoEncoder.NvidiaNvenc;
-                case 2: return VideoEncoder.IntelQsv;
-                case 3: return VideoEncoder.AmdAmf;
-                case 4: return VideoEncoder.Software;
-                default: return VideoEncoder.Auto;
-            }
+            return EncoderAvailability.GetCombined(RendererController.ResolveFfmpegExecutable(Main.Settings), depth, container);
         }
-
-        internal static VideoCodec DrawCodec(VideoCodec value, bool dark = false)
+        internal static string EncoderLabel(EncoderAvailability.Choice choice)
         {
-            GUILayout.Label(Localization.Get("video-codec"), dark ? UiTheme.Label : GUI.skin.label);
-            return (VideoCodec)DrawToolbar((int)value,
-                new[] { "H.264", "H.265", "VP9", "AV1" }, dark);
+            return choice.Encoder == VideoEncoder.Auto
+                ? Localization.Get("auto") + " (" + VideoCodecCatalog.Get(choice.Codec).DisplayName + ")"
+                : EncoderAvailability.Label(choice.Encoder, choice.Codec);
+        }
+        internal static void DrawEncoder(ref VideoEncoder encoder, ref VideoCodec codec,
+            VideoBitDepth depth, VideoContainer container)
+        {
+            GUILayout.Label(Localization.Get("video-encoder"));
+            if (GUILayout.Button(Localization.Get("refresh-encoders"), GUILayout.Width(180f)))
+                EncoderAvailability.Refresh();
+            var result = AvailableEncoders(depth, container);
+            if (!result.Complete) { GUILayout.Label(Localization.Get("checking-available-encoders")); return; }
+            var choices = result.Choices;
+            if (choices.Length == 0) { GUILayout.Label(Localization.Get("no-compatible-encoders")); return; }
+            var selected = EncoderAvailability.SelectionIndex(choices, codec, encoder);
+            encoder = choices[selected].Encoder; codec = choices[selected].Codec;
+            if (GUILayout.Button(EncoderLabel(choices[selected]) + "  ▼", GUILayout.Width(340f)))
+                encoderDropdownOpen = !encoderDropdownOpen;
+            if (encoderDropdownOpen)
+                for (var i = 0; i < choices.Length; i++)
+                {
+                    var choice = choices[i];
+                    if (i > 0 && choices[i - 1].Codec != choice.Codec)
+                        GUILayout.Box(GUIContent.none, GUILayout.Width(340f), GUILayout.Height(1f));
+                    if (GUILayout.Button(EncoderLabel(choice), GUILayout.Width(340f)))
+                    { encoder = choice.Encoder; codec = choice.Codec; encoderDropdownOpen = false; }
+                }
+        }
+        internal static VideoContainer DrawContainer(VideoContainer value)
+        {
+            GUILayout.Label(Localization.Get("output-format"));
+            return (VideoContainer)DrawToolbar((int)value, new[] { Localization.Get("auto"), ".mp4", ".ts", ".mkv", ".mov" }, false);
         }
 
         internal static VideoBitDepth DrawBitDepth(VideoBitDepth value, bool dark = false)

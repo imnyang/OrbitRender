@@ -20,6 +20,9 @@ namespace OrbitRender.UI
         private static Font font;
         private static Sprite roundedSprite;
         private static Sprite largeRoundedSprite;
+        private static Sprite toggleTrackSprite;
+        private static Sprite circleSprite;
+        private static Sprite sliderTrackSprite;
 
         internal static GameObject Canvas(string name, int sortingOrder)
         {
@@ -31,6 +34,17 @@ namespace OrbitRender.UI
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.overrideSorting = true;
             canvas.sortingOrder = sortingOrder;
+            // Canvas order is compared within a sorting layer. The editor's
+            // UI may use a layer above Default, regardless of our high order.
+            var topLayer = 0;
+            var topLayerValue = int.MinValue;
+            foreach (var layer in SortingLayer.layers)
+            {
+                var value = SortingLayer.GetLayerValueFromID(layer.id);
+                if (value <= topLayerValue) continue;
+                topLayer = layer.id; topLayerValue = value;
+            }
+            canvas.sortingLayerID = topLayer;
             var scaler = root.GetComponent<CanvasScaler>();
             // Progress cards and prompts used screen pixels in IMGUI. The export
             // dialog applies its own DPI/height scale without depending on aspect ratio.
@@ -121,11 +135,12 @@ namespace OrbitRender.UI
             go.GetComponent<LayoutElement>().preferredHeight = 36f;
             var toggle = go.GetComponent<Toggle>();
             var track = Image(go.transform, "Track", Control, true).GetComponent<Image>();
-            Round(track);
+            track.sprite = ToggleTrackSprite;
+            track.type = UnityEngine.UI.Image.Type.Simple;
             Anchor(track.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
                 new Vector2(-42f, -10f), new Vector2(-4f, 10f));
             var knob = Image(track.transform, "Knob", Foreground).GetComponent<Image>();
-            Round(knob);
+            Circle(knob);
             knob.rectTransform.anchorMin = knob.rectTransform.anchorMax = new Vector2(0f, .5f);
             knob.rectTransform.sizeDelta = new Vector2(14f, 14f);
             toggle.targetGraphic = track;
@@ -143,30 +158,69 @@ namespace OrbitRender.UI
             return toggle;
         }
 
-        internal static Dropdown Dropdown(Transform parent, string[] values, int selected, Action<int> changed)
+        internal static Dropdown Dropdown(Transform parent, string[] values, int selected, Action<int> changed,
+            int[] separatorIndices = null)
         {
             var go = Image(parent, "Dropdown", Control, true);
             Round(go.GetComponent<Image>());
-            var dropdown = go.AddComponent<Dropdown>();
+            var dropdown = go.AddComponent<OverlayDropdown>();
+            dropdown.SeparatorIndices = separatorIndices;
+            dropdown.targetGraphic = go.GetComponent<Image>();
             var label = Text(go.transform, string.Empty);
             SetOffsets(label.rectTransform, 12f, 4f, 30f, 4f);
             dropdown.captionText = label;
+            var arrow = Text(go.transform, "▼", 11, TextAnchor.MiddleCenter, Muted);
+            Anchor(arrow.rectTransform, new Vector2(1f, 0f), Vector2.one,
+                new Vector2(-28f, 0f), new Vector2(-6f, 0f));
             dropdown.options.Clear();
             foreach (var value in values) dropdown.options.Add(new Dropdown.OptionData(value));
 
             var template = Image(go.transform, "Template", Surface, true);
+            Round(template.GetComponent<Image>());
             var templateRect = template.GetComponent<RectTransform>();
+            // Set the pivot before the offsets: changing it afterwards moves
+            // the popup down by half its height, leaving a gap below the field.
+            templateRect.pivot = new Vector2(.5f, 1f);
             Anchor(templateRect, new Vector2(0f, 0f), new Vector2(1f, 0f),
-                new Vector2(0f, -220f), new Vector2(0f, 0f));
+                new Vector2(0f, -4f - Mathf.Min(224f, Mathf.Max(32f, values.Length * 32f))), new Vector2(0f, -4f));
             var viewport = Image(template.transform, "Viewport", Color.white);
+            // Clip the option backgrounds to the same rounded silhouette.
+            Round(viewport.GetComponent<Image>());
             Stretch(viewport.GetComponent<RectTransform>());
             viewport.AddComponent<Mask>().showMaskGraphic = false;
             var content = New(viewport.transform, "Content", typeof(RectTransform), typeof(ToggleGroup));
-            Stretch(content.GetComponent<RectTransform>());
+            var contentRect = content.GetComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0f, 1f); contentRect.anchorMax = Vector2.one;
+            contentRect.pivot = new Vector2(.5f, 1f); contentRect.sizeDelta = new Vector2(0f, 32f);
+            var scroll = template.AddComponent<ScrollRect>();
+            scroll.viewport = viewport.GetComponent<RectTransform>(); scroll.content = contentRect;
+            scroll.horizontal = false; scroll.vertical = true; scroll.scrollSensitivity = 32f;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            if (values.Length > 7)
+            {
+                viewport.GetComponent<RectTransform>().offsetMax = new Vector2(-14f, 0f);
+                var scrollbarObject = Image(template.transform, "Scrollbar", Backdrop, true);
+                Round(scrollbarObject.GetComponent<Image>());
+                Anchor(scrollbarObject.GetComponent<RectTransform>(), new Vector2(1f, 0f), Vector2.one,
+                    new Vector2(-10f, 5f), new Vector2(-4f, -5f));
+                var scrollbar = scrollbarObject.AddComponent<Scrollbar>();
+                scrollbar.direction = Scrollbar.Direction.BottomToTop;
+                var handle = Image(scrollbarObject.transform, "Handle", Accent, true).GetComponent<Image>();
+                Round(handle);
+                SetOffsets(handle.rectTransform, 1f, 1f, 1f, 1f);
+                scrollbar.handleRect = handle.rectTransform;
+                scrollbar.targetGraphic = handle;
+                scroll.verticalScrollbar = scrollbar;
+                scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+            }
             var item = New(content.transform, "Item", typeof(Toggle));
+            var itemRect = item.GetComponent<RectTransform>();
+            itemRect.anchorMin = new Vector2(0f, .5f); itemRect.anchorMax = new Vector2(1f, .5f);
+            itemRect.sizeDelta = new Vector2(0f, 32f);
             var itemBackground = Image(item.transform, "Item Background", Control, true).GetComponent<Image>();
             Stretch(itemBackground.rectTransform);
             var itemCheck = Image(item.transform, "Item Checkmark", Accent).GetComponent<Image>();
+            Circle(itemCheck);
             Anchor(itemCheck.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
                 new Vector2(8f, -7f), new Vector2(22f, 7f));
             var itemLabel = Text(item.transform, string.Empty);
@@ -174,6 +228,11 @@ namespace OrbitRender.UI
             var itemToggle = item.GetComponent<Toggle>();
             itemToggle.targetGraphic = itemBackground;
             itemToggle.graphic = itemCheck;
+            var itemColors = itemToggle.colors;
+            itemColors.normalColor = Color.white;
+            itemColors.highlightedColor = new Color(.75f, .68f, .9f, 1f);
+            itemColors.selectedColor = itemColors.highlightedColor;
+            itemToggle.colors = itemColors;
             dropdown.template = templateRect;
             dropdown.itemText = itemLabel;
             template.SetActive(false);
@@ -214,20 +273,31 @@ namespace OrbitRender.UI
 
         internal static Slider Slider(Transform parent, float min, float max, float value, Action<float> changed)
         {
-            var go = New(parent, "Slider", typeof(Slider));
+            // Receive pointer events across the whole control, including the
+            // track and padding around the small handle.
+            var go = Image(parent, "Slider", Color.clear, true);
+            var slider = go.AddComponent<Slider>();
             var background = Image(go.transform, "Background", Backdrop).GetComponent<Image>();
-            Round(background);
+            background.sprite = SliderTrackSprite;
+            background.type = UnityEngine.UI.Image.Type.Sliced;
             Anchor(background.rectTransform, new Vector2(0f, .5f), new Vector2(1f, .5f),
-                new Vector2(0f, -4f), new Vector2(0f, 4f));
+                new Vector2(6f, -2f), new Vector2(-6f, 2f));
             var fillArea = New(go.transform, "Fill Area", typeof(RectTransform));
-            SetOffsets(fillArea.GetComponent<RectTransform>(), 0f, 0f, 0f, 0f);
+            Anchor(fillArea.GetComponent<RectTransform>(), new Vector2(0f, .5f), new Vector2(1f, .5f),
+                new Vector2(6f, -2f), new Vector2(-6f, 2f));
             var fill = Image(fillArea.transform, "Fill", Accent).GetComponent<Image>();
+            fill.sprite = SliderTrackSprite;
+            fill.type = UnityEngine.UI.Image.Type.Sliced;
             Stretch(fill.rectTransform);
-            var handle = Image(go.transform, "Handle", Foreground, true).GetComponent<Image>();
-            Round(handle);
+            // Slider stretches the handle in its non-moving axis. A zero-height
+            // slide area keeps its diameter independent of the layout row height.
+            var handleArea = New(go.transform, "Handle Slide Area", typeof(RectTransform));
+            Anchor(handleArea.GetComponent<RectTransform>(), new Vector2(0f, .5f), new Vector2(1f, .5f),
+                new Vector2(6f, 0f), new Vector2(-6f, 0f));
+            var handle = Image(handleArea.transform, "Handle", Foreground, true).GetComponent<Image>();
+            Circle(handle);
             var handleRect = handle.rectTransform;
-            handleRect.sizeDelta = new Vector2(12f, 20f);
-            var slider = go.GetComponent<Slider>();
+            handleRect.sizeDelta = new Vector2(12f, 12f);
             slider.fillRect = fill.rectTransform;
             slider.handleRect = handleRect;
             slider.targetGraphic = handle;
@@ -266,6 +336,12 @@ namespace OrbitRender.UI
             image.type = UnityEngine.UI.Image.Type.Sliced;
         }
 
+        private static void Circle(Image image)
+        {
+            image.sprite = CircleSprite;
+            image.type = UnityEngine.UI.Image.Type.Simple;
+        }
+
         internal static GameObject New(Transform parent, string name, params Type[] components)
         {
             var go = new GameObject(name, components);
@@ -300,30 +376,49 @@ namespace OrbitRender.UI
         private static Font Font => font != null ? font : (font = Resources.GetBuiltinResource<Font>("Arial.ttf"));
 
         private static Sprite RoundedSprite => roundedSprite != null ? roundedSprite
-            : (roundedSprite = CreateRoundedSprite(32, 7));
+            : (roundedSprite = CreateRoundedSprite(32, 32, 7));
         private static Sprite LargeRoundedSprite => largeRoundedSprite != null ? largeRoundedSprite
-            : (largeRoundedSprite = CreateRoundedSprite(48, 12));
+            : (largeRoundedSprite = CreateRoundedSprite(48, 48, 12));
+        private static Sprite ToggleTrackSprite => toggleTrackSprite != null ? toggleTrackSprite
+            : (toggleTrackSprite = CreateRoundedSprite(38, 20, 10));
+        private static Sprite CircleSprite => circleSprite != null ? circleSprite
+            : (circleSprite = CreateRoundedSprite(14, 14, 7));
+        private static Sprite SliderTrackSprite => sliderTrackSprite != null ? sliderTrackSprite
+            : (sliderTrackSprite = CreateRoundedSprite(16, 4, 2));
 
-        private static Sprite CreateRoundedSprite(int size, int radius)
+        private static Sprite CreateRoundedSprite(int width, int height, int radius)
         {
-            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) {
+            // Four texels per logical pixel preserve curves when the canvas grows.
+            // Mipmaps filter that coverage when displayed at smaller screen sizes.
+            const int density = 4;
+            width *= density;
+            height *= density;
+            radius *= density;
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, true) {
                 name = "OrbitRender uGUI rounded mask",
                 hideFlags = HideFlags.DontUnloadUnusedAsset,
                 wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear
+                filterMode = FilterMode.Trilinear
             };
-            for (var y = 0; y < size; y++)
-                for (var x = 0; x < size; x++)
+            var pixels = new Color[width * height];
+            for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
                 {
                     var px = x + .5f;
                     var py = y + .5f;
-                    var dx = Mathf.Max(Mathf.Max(radius - px, 0f), px - (size - radius));
-                    var dy = Mathf.Max(Mathf.Max(radius - py, 0f), py - (size - radius));
-                    texture.SetPixel(x, y, dx * dx + dy * dy <= radius * radius ? Color.white : Color.clear);
+                    var dx = Mathf.Max(Mathf.Max(radius - px, 0f), px - (width - radius));
+                    var dy = Mathf.Max(Mathf.Max(radius - py, 0f), py - (height - radius));
+                    var alpha = Mathf.Clamp01(radius + .5f - Mathf.Sqrt(dx * dx + dy * dy));
+                    // Keep transparent texels white too, so filtering does not
+                    // introduce dark fringes before the UI shader applies tint.
+                    pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
                 }
-            texture.Apply();
-            return Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(.5f, .5f),
-                100f, 0u, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
+            texture.SetPixels(pixels);
+            texture.Apply(true);
+            var sprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(.5f, .5f),
+                100f * density, 0u, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
+            sprite.hideFlags = HideFlags.DontUnloadUnusedAsset;
+            return sprite;
         }
 
         private static void EnsureEventSystem()
