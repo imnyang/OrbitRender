@@ -263,15 +263,12 @@ namespace OrbitRender
             Settings.CaptureAudio = DrawLocalizedToggle(
                 Localization.Get("capture-audio"), Settings.CaptureAudio);
             Settings.AudioGainDb = SettingsUi.DrawAudioGainSlider(Settings.AudioGainDb,
-                ref localizedAudioGainText, ref localizedAudioGainValue);
-            AudioPreview.SetGain(Settings.AudioGainDb);
-            if (GUILayout.Button(AudioPreview.IsLoading
-                ? Localization.Get("loading-audio-preview")
-                : AudioPreview.IsActive ? Localization.Get("stop-audio-preview")
-                : Localization.Get("preview-audio"), GUILayout.ExpandWidth(false)))
-            {
-                AudioPreview.Toggle(RendererSettings.ClampAudioGainDb(Settings.AudioGainDb));
-            }
+                ref localizedAudioGainText, ref localizedAudioGainValue,
+                preview: () => AudioPreview.Toggle(RendererSettings.ClampAudioGainDb(Settings.AudioGainDb)));
+            // The export dialog owns its per-render preview gain while open.
+            // Repainting the defaults page must not overwrite that value.
+            if (!ExportVideoDialog.IsOpen)
+                AudioPreview.SetGain(Settings.AudioGainDb);
             if (!string.IsNullOrEmpty(AudioPreview.ErrorMessage))
                 GUILayout.Label(AudioPreview.ErrorMessage);
             Settings.ShowRenderPreview = DrawLocalizedToggle(

@@ -18,8 +18,11 @@ namespace OrbitRender.UI
                 GUILayout.Width(width));
         }
 
+        internal static string AudioPreviewCaption => AudioPreview.IsLoading ? "Loading…"
+            : AudioPreview.IsActive ? "Stop" : "Preview";
+
         internal static float DrawAudioGainSlider(float gainDb, ref string gainText,
-            ref float syncedGainDb, bool dark = false)
+            ref float syncedGainDb, bool dark = false, Action preview = null)
         {
             gainDb = RendererSettings.ClampAudioGainDb(gainDb);
             if (gainText == null || float.IsNaN(syncedGainDb)
@@ -31,6 +34,8 @@ namespace OrbitRender.UI
             GUILayout.BeginHorizontal();
             GUILayout.Label(Localization.Get("audio-volume-db"), dark ? UiTheme.Label : GUI.skin.label,
                 GUILayout.Width(dark ? 175f : 190f));
+            if (preview != null && GUILayout.Button(AudioPreviewCaption, dark ? UiTheme.Label : GUI.skin.label,
+                GUILayout.Width(70f))) preview();
             var sliderPosition = gainDb <= 0f
                 ? (gainDb - RendererSettings.MinAudioGainDb) / -RendererSettings.MinAudioGainDb * 0.75f
                 : 0.75f + gainDb / RendererSettings.MaxAudioGainDb * 0.25f;

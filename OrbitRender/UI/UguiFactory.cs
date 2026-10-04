@@ -116,6 +116,22 @@ namespace OrbitRender.UI
             return button;
         }
 
+        internal static Button TextButton(Transform parent, string caption, Action action)
+        {
+            var label = Text(parent, caption);
+            label.raycastTarget = true;
+            var button = label.gameObject.AddComponent<Button>();
+            button.targetGraphic = label;
+            var colors = button.colors;
+            colors.normalColor = Accent;
+            colors.highlightedColor = Foreground;
+            colors.selectedColor = Foreground;
+            colors.pressedColor = Muted;
+            button.colors = colors;
+            if (action != null) button.onClick.AddListener(() => action());
+            return button;
+        }
+
         internal static InputField Input(Transform parent, string value, Action<string> changed)
         {
             var go = Image(parent, "Input", new Color(0.10f, 0.09f, 0.12f, 1f), true);

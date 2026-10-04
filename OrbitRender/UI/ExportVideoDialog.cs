@@ -53,9 +53,7 @@ namespace OrbitRender.UI
                 errorText.gameObject.SetActive(!string.IsNullOrEmpty(error));
             }
             if (audioPreviewText != null)
-                audioPreviewText.text = AudioPreview.IsLoading ? Localization.Get("loading-audio-preview")
-                    : AudioPreview.IsActive ? Localization.Get("stop-audio-preview")
-                    : Localization.Get("preview-audio");
+                audioPreviewText.text = SettingsUi.AudioPreviewCaption;
         }
 
         private static void BuildCanvas()
@@ -172,14 +170,6 @@ namespace OrbitRender.UI
 
             AddToggle(Localization.Get("capture-audio"), draft.CaptureAudio, v => draft.CaptureAudio = v);
             AddAudioGain();
-            var previewRow = UguiFactory.Row(content, 34f);
-            previewRow.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-            var preview = UguiFactory.Button(previewRow.transform, string.Empty, () => {
-                var wasPlaying = AudioPreview.IsActive; var playing = AudioPreview.Toggle(draft.AudioGainDb);
-                error = !wasPlaying && !playing ? AudioPreview.ErrorMessage ?? Localization.Get("audio-preview-unavailable") : string.Empty;
-                Refresh(RendererController.Instance);
-            });
-            UguiFactory.Preferred(preview, 150f, 34f); audioPreviewText = preview.GetComponentInChildren<Text>();
 
             AddSection(Localization.Get("encoding"), encodingExpanded,
                 () => { encodingExpanded = !encodingExpanded; RebuildContent(); });
@@ -280,6 +270,7 @@ namespace OrbitRender.UI
         private static void AddAudioGain()
         {
             var row = UguiFactory.Row(content);
+            row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
             var label = UguiFactory.Text(row.transform, Localization.Get("audio-volume-db")); UguiFactory.Preferred(label, 175f);
             var valueLabel = UguiFactory.Text(row.transform, string.Empty, UiLayout.LabelFontSize, TextAnchor.MiddleRight); UguiFactory.Preferred(valueLabel, 125f);
             Action<float> update = value => { draft.AudioGainDb = RendererSettings.ClampAudioGainDb(value);
@@ -288,7 +279,17 @@ namespace OrbitRender.UI
                 valueLabel.text = percent.ToString("0.#", CultureInfo.InvariantCulture) + "%  " + draft.AudioGainDbText + " dB";
                 AudioPreview.SetGain(draft.AudioGainDb); };
             var slider = UguiFactory.Slider(row.transform, RendererSettings.MinAudioGainDb, RendererSettings.MaxAudioGainDb,
-                draft.AudioGainDb, update); UguiFactory.Preferred(slider, 250f); update(draft.AudioGainDb);
+                draft.AudioGainDb, update); UguiFactory.Preferred(slider, 250f);
+            slider.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            var preview = UguiFactory.TextButton(row.transform, SettingsUi.AudioPreviewCaption, () => {
+                var wasPlaying = AudioPreview.IsActive;
+                var playing = AudioPreview.Toggle(draft.AudioGainDb);
+                error = !wasPlaying && !playing ? AudioPreview.ErrorMessage ?? Localization.Get("audio-preview-unavailable") : string.Empty;
+                Refresh(RendererController.Instance);
+            });
+            UguiFactory.Preferred(preview, 60f);
+            audioPreviewText = preview.GetComponent<Text>();
+            update(draft.AudioGainDb);
         }
 
         private static void AddToolbar(string label, string[] options, int value, Action<int> changed)

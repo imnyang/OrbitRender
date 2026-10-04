@@ -251,6 +251,9 @@ namespace OrbitRender.Renderer
             audioGainDbForRun = RendererSettings.ClampAudioGainDb(
                 activeRpcJob != null ? activeRpcJob.Options?.AudioGainDb ?? settings.AudioGainDb
                 : requestOptions?.AudioGainDb ?? settings.AudioGainDb);
+            Main.Entry.Logger.Log("Render audio: capture=" + captureAudioForRun + ", gain="
+                + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                + " dB.");
             audioRealtimePacing = false;
             audioPacingOrigin = 0.0;
             latePlaySoundSchedules = 0;
@@ -721,7 +724,9 @@ namespace OrbitRender.Renderer
                     audio.Dispose();
                     if (preencodedAudio)
                     {
-                        Main.Entry.Logger.Log("Muxing concurrently encoded AAC audio.");
+                        Main.Entry.Logger.Log("Muxing concurrently encoded AAC audio (gain="
+                            + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                            + " dB).");
                         try { FFmpegEncoder.MuxPreencodedAudio(FFmpegPath, partialPath, audioEncodedPath, muxPath); }
                         catch (Exception ex)
                         {
