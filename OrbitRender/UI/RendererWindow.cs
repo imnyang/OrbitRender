@@ -1,495 +1,291 @@
+using System;
 using System.IO;
 using UnityEngine;
+using UnityEngine.UI;
 using OrbitRender.Renderer;
 
 namespace OrbitRender.UI
 {
+    // Runtime uGUI presentation for rendering, installer and confirmation UI.
     internal static class RendererWindow
     {
-        private static bool initialized;
-        private static GUIStyle panel, panelBorder;
-        private static GUIStyle title, state, message, detail, percent, metricLabel, metricValue, hint, path;
-        private static Texture2D backdrop, border, background, progressTrack, progressFill, divider;
-        private static bool toastContentInitialized, toastKorean;
-        private static RenderState toastState;
-        private static readonly GUIContent toastBrand = new GUIContent("OrbitRender");
-        private static readonly GUIContent toastStatus = new GUIContent(), toastTitle = new GUIContent();
-        private static readonly GUIContent toastMessage = new GUIContent(), toastPercent = new GUIContent();
-        private static readonly GUIContent framesLabel = new GUIContent(), speedLabel = new GUIContent(), etaLabel = new GUIContent();
-        private static readonly GUIContent framesValue = new GUIContent(), speedValue = new GUIContent(), etaValue = new GUIContent();
-        private static readonly GUIContent cancelHint = new GUIContent(), cancelButton = new GUIContent();
-        private static readonly GUIContent elapsedLabel = new GUIContent(), elapsedValue = new GUIContent();
-        private static readonly GUIContent outputFile = new GUIContent(), copyButton = new GUIContent(), stageHint = new GUIContent();
-        private static string toastOutputPath;
-        private static double toastElapsedSeconds = double.NaN;
+        private static GameObject canvasObject;
+        private static GameObject backdropObject, panelObject;
+        private static GameObject metrics;
+        private static RawImage preview;
+        private static Text state, title, detail, percent, frames, speed, eta, hint, path, elapsedLabel;
+        private static Image progress;
+        private static int mode;
+        private static RenderState builtRenderState;
+        private static bool builtShowProgress;
+        private static int builtScreenWidth;
 
-        // Renderer UI palette supplied by the user.
-        private static readonly Color DarkBackground = Hsl(315f, 21f, 8f);
-        private static readonly Color Foreground = Hsl(0f, 0f, 98f);
-        private static readonly Color DarkMuted = Hsl(296f, 18f, 15f);
-        private static readonly Color MutedForeground = Hsl(240f, 5f, 68f);
-        private static readonly Color DarkBorder = Hsl(296f, 18f, 15f);
-        private static readonly Color Ring = Hsl(240f, 4.9f, 83.9f);
-        private static readonly Color Success = Hsl(156f, 54f, 70f);
-        private static readonly Color Warning = Hsl(40f, 82f, 72f);
-
-        internal static void DrawBackdrop()
+        internal static void Sync(RendererController renderer)
         {
-            EnsureStyles();
-            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height),
-                backdrop, ScaleMode.StretchToFill, false);
-        }
-
-        internal static void DrawRenderPreview(Texture preview)
-        {
-            EnsureStyles();
-            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height),
-                backdrop, ScaleMode.StretchToFill, false);
-            if (preview != null)
-                GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height),
-                    preview, ScaleMode.ScaleToFit, false);
-        }
-
-        internal static void DrawToast(RendererController renderer)
-        {
-            EnsureStyles();
-            RefreshToastContent(renderer);
-            bool liveRender = renderer.State == RenderState.Rendering;
-            float width = Mathf.Min(liveRender ? 480f : 680f, Screen.width - 40f);
-            bool showProgress = renderer.TotalFrames > 0
-                && (renderer.State == RenderState.Rendering
-                    || renderer.State == RenderState.Finishing);
-            bool showCompleted = renderer.State == RenderState.Completed;
-            bool showPath = !string.IsNullOrEmpty(renderer.OutputPath)
-                && showCompleted;
-            float height = showCompleted ? 236f : (showProgress ? 274f : 176f);
-            float left = (Screen.width - width) * 0.5f;
-            float top = Mathf.Max(20f, (Screen.height - height) * 0.5f);
-            if (liveRender)
+            if (renderer == null || !Main.Enabled || ExportVideoDialog.IsOpen)
             {
-                left = Screen.width - width - 24f;
-                top = Screen.height - height - 24f;
-            }
-            var rect = new Rect(left, top, width, height);
-            const float padding = 24f;
-            var content = new Rect(rect.x + padding, rect.y + 18f, rect.width - padding * 2f, rect.height - 36f);
-
-            // Fixed-position buttons must keep their control IDs and receive
-            // mouse/key events. Labels and decoration only need Repaint.
-            if (Event.current.type != EventType.Repaint)
-            {
-                DrawToastButtons(renderer, content, showPath);
+                Hide();
+                ExportVideoDialog.Refresh(renderer);
                 return;
             }
+            var nextMode = FfmpegInstaller.IsInstallPromptVisible ? 1
+                : renderer.EncoderFallbackPending ? 2
+                : renderer.Busy || renderer.ToastVisible ? 3 : 0;
+            if (nextMode == 0) { Hide(); return; }
+            if (canvasObject == null || mode != nextMode || builtScreenWidth != Screen.width
+                || (nextMode == 3 && (builtRenderState != renderer.State
+                    || builtShowProgress != HasProgress(renderer)))) Build(nextMode, renderer);
+            if (nextMode == 1) UpdateFfmpeg();
+            else if (nextMode == 3) UpdateRender(renderer);
+        }
 
-            SetText(toastMessage, renderer.Message ?? renderer.ToastText);
-            SetText(toastPercent, renderer.ProgressPercentText);
-            SetText(framesValue, renderer.ProgressText);
-            SetText(speedValue, renderer.SpeedText);
-            SetText(etaValue, renderer.EtaText);
+        internal static void Dispose()
+        {
+            if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
+            canvasObject = null; backdropObject = null; panelObject = null; metrics = null; preview = null;
+            state = title = detail = percent = frames = speed = eta = hint = path = elapsedLabel = null;
+            progress = null; mode = 0;
+        }
 
-            panelBorder.Draw(new Rect(rect.x - 1f, rect.y - 1f, rect.width + 2f, rect.height + 2f),
-                GUIContent.none, 0);
-            panel.Draw(rect, GUIContent.none, 0);
+        private static void Hide()
+        {
+            if (canvasObject != null) canvasObject.SetActive(false);
+            mode = 0;
+        }
 
-            state.normal.textColor = StateColor(renderer.State);
-            GUI.Label(new Rect(content.x, content.y, content.width * 0.55f, 18f), toastBrand, title);
-            GUI.Label(new Rect(content.x + content.width * 0.55f, content.y,
-                content.width * 0.45f, 18f), toastStatus, state);
-            GUI.Label(new Rect(content.x, content.y + 25f, content.width, 24f),
-                toastTitle, message);
-            GUI.Label(new Rect(content.x, content.y + 50f, content.width, 22f),
-                toastMessage, detail);
+        private static void Build(int nextMode, RendererController renderer)
+        {
+            Dispose();
+            mode = nextMode;
+            builtRenderState = renderer.State;
+            builtShowProgress = HasProgress(renderer);
+            builtScreenWidth = Screen.width;
+            canvasObject = UguiFactory.Canvas("OrbitRender.RendererWindow", 32764);
+            backdropObject = UguiFactory.Image(canvasObject.transform, "Backdrop", UguiFactory.Backdrop,
+                nextMode != 3 || renderer.Busy);
+            UguiFactory.Stretch(backdropObject.GetComponent<RectTransform>());
+            if (nextMode == 3)
+            {
+                var previewObject = UguiFactory.New(canvasObject.transform, "RenderPreview", typeof(RawImage));
+                preview = previewObject.GetComponent<RawImage>();
+                preview.color = Color.white;
+                preview.raycastTarget = false;
+                UguiFactory.Stretch(preview.rectTransform);
+                var fitter = previewObject.AddComponent<AspectRatioFitter>();
+                fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+                BuildRenderCard(renderer);
+            }
+            else if (nextMode == 2) BuildEncoderPrompt(renderer);
+            else BuildFfmpegPrompt();
+        }
 
+        private static GameObject Card(float width, float height)
+        {
+            width = Mathf.Min(width, Mathf.Max(1f, Screen.width - 40f));
+            var card = UguiFactory.Image(canvasObject.transform, "Card", UguiFactory.Surface, true);
+            UguiFactory.Round(card.GetComponent<Image>(), true);
+            UguiFactory.Anchor(card.GetComponent<RectTransform>(), new Vector2(.5f, .5f), new Vector2(.5f, .5f),
+                new Vector2(-width / 2f, -height / 2f), new Vector2(width / 2f, height / 2f));
+            panelObject = card;
+            return card;
+        }
+
+        private static Text At(Transform parent, string value, int size, float left, float top,
+            float width, float height, Color color, TextAnchor anchor = TextAnchor.UpperLeft)
+        {
+            var text = UguiFactory.Text(parent, value, size, anchor, color);
+            var rect = text.rectTransform;
+            rect.anchorMin = new Vector2(0f, 1f); rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f); rect.anchoredPosition = new Vector2(left, -top);
+            rect.sizeDelta = new Vector2(width, height);
+            return text;
+        }
+
+        private static Button AtButton(Transform parent, string value, Action action, bool primary,
+            float left, float top, float width, float height)
+        {
+            var button = UguiFactory.Button(parent, value, action, primary);
+            var rect = button.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 1f); rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f); rect.anchoredPosition = new Vector2(left, -top);
+            rect.sizeDelta = new Vector2(width, height);
+            return button;
+        }
+
+        private static void BuildRenderCard(RendererController renderer)
+        {
+            var live = renderer.State == RenderState.Rendering;
+            var completed = renderer.State == RenderState.Completed;
+            var card = Card(live ? 480f : 680f, completed ? 236f : builtShowProgress ? 274f : 176f);
+            var rect = card.GetComponent<RectTransform>();
+            if (live)
+            {
+                rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(1f, 0f);
+                rect.anchoredPosition = new Vector2(-24f, 24f);
+            }
+            var width = rect.rect.width - 48f;
+            At(card.transform, "OrbitRender", 15, 24, 18, width * .55f, 18, UguiFactory.Accent).fontStyle = FontStyle.Bold;
+            state = At(card.transform, string.Empty, 10, 24 + width * .55f, 18, width * .45f, 18,
+                UguiFactory.Accent, TextAnchor.MiddleRight);
+            state.fontStyle = FontStyle.Bold;
+            title = At(card.transform, string.Empty, 13, 24, 43, width, 24, UguiFactory.Foreground);
+            title.fontStyle = FontStyle.Bold;
+            detail = At(card.transform, string.Empty, 11, 24, 68, width, 22, UguiFactory.Muted);
+            elapsedLabel = At(card.transform, Localization.Get("time-spent"), 9, 24, 101, width, 16, UguiFactory.Muted);
+            elapsedLabel.fontStyle = FontStyle.Bold;
+            percent = At(card.transform, string.Empty, 30, 24, completed ? 117 : 96, width, 38,
+                UguiFactory.Foreground, TextAnchor.MiddleLeft);
+            percent.fontStyle = FontStyle.Bold;
+            var track = UguiFactory.Image(card.transform, "Progress track", UguiFactory.Backdrop);
+            UguiFactory.Anchor(track.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f),
+                new Vector2(24f, -146f), new Vector2(-24f, -137f));
+            progress = UguiFactory.ProgressFill(track.transform);
+            metrics = UguiFactory.New(card.transform, "Metrics", typeof(RectTransform));
+            UguiFactory.Stretch(metrics.GetComponent<RectTransform>());
+            var metricWidth = width / 3f;
+            frames = Metric(0, Localization.Get("frames"), metricWidth);
+            speed = Metric(1, Localization.Get("speed"), metricWidth);
+            eta = Metric(2, Localization.Get("eta"), metricWidth);
+            hint = At(card.transform, string.Empty, 10, 24, builtShowProgress ? 219 : 101,
+                builtShowProgress ? width - 132 : width, builtShowProgress ? 22 : 42, UguiFactory.Muted);
+            path = At(card.transform, string.Empty, 10, 24, 173, width - 118, 22, UguiFactory.Muted);
+            AtButton(card.transform, Localization.Get("cancel-render"), renderer.Cancel, false,
+                24 + width - 118, 216, 118, 28);
+            AtButton(card.transform, Localization.Get("copy-path"), () => GUIUtility.systemCopyBuffer = renderer.OutputPath,
+                false, 24 + width - 110, 170, 110, 28);
+        }
+
+        private static Text Metric(int index, string label, float width)
+        {
+            At(metrics.transform, label, 9, 24 + width * index, 159, width - 8, 16,
+                UguiFactory.Muted).fontStyle = FontStyle.Bold;
+            return At(metrics.transform, string.Empty, 11, 24 + width * index, 176, width - 8, 24,
+                UguiFactory.Foreground);
+        }
+
+        private static bool HasProgress(RendererController renderer) => renderer.TotalFrames > 0
+            && (renderer.State == RenderState.Rendering || renderer.State == RenderState.Finishing);
+
+        private static void UpdateRender(RendererController renderer)
+        {
+            canvasObject.SetActive(true);
+            var busyBackdrop = renderer.Busy;
+            backdropObject.SetActive(busyBackdrop);
+            preview.gameObject.SetActive(renderer.State == RenderState.Rendering && renderer.ShowPreviewForRun
+                && renderer.RenderPreviewTexture != null);
+            preview.texture = renderer.RenderPreviewTexture;
+            if (renderer.RenderPreviewTexture != null)
+                preview.GetComponent<AspectRatioFitter>().aspectRatio =
+                    renderer.RenderPreviewTexture.width / (float)Mathf.Max(1, renderer.RenderPreviewTexture.height);
+            panelObject.SetActive(renderer.ToastVisible || renderer.EncoderFallbackPending);
+            if (!panelObject.activeSelf) return;
+            state.text = StateLabel(renderer.State); state.color = StateColor(renderer.State);
+            title.text = StateTitle(renderer.State);
+            detail.text = renderer.Message ?? renderer.ToastText ?? string.Empty;
+            var showProgress = HasProgress(renderer);
+            var completed = renderer.State == RenderState.Completed;
+            percent.gameObject.SetActive(showProgress || completed);
+            progress.transform.parent.gameObject.SetActive(showProgress);
+            metrics.SetActive(showProgress);
+            elapsedLabel.gameObject.SetActive(completed);
+            hint.gameObject.SetActive(showProgress || (!completed && !showProgress));
+            path.gameObject.SetActive(completed && !string.IsNullOrEmpty(renderer.OutputPath));
+            var buttons = panelObject.GetComponentsInChildren<Button>(true);
+            if (buttons.Length > 0) buttons[0].gameObject.SetActive(showProgress && renderer.State == RenderState.Rendering);
+            if (buttons.Length > 1) buttons[1].gameObject.SetActive(path.gameObject.activeSelf);
             if (showProgress)
             {
-                float progress = Mathf.Clamp01((float)renderer.CapturedFrames / renderer.TotalFrames);
-                GUI.Label(new Rect(content.x, content.y + 78f, content.width, 38f),
-                    toastPercent, percent);
-                var progressRect = new Rect(content.x, content.y + 119f, content.width, 9f);
-                GUI.DrawTexture(progressRect, progressTrack, ScaleMode.StretchToFill, false);
-                if (progress > 0f)
-                    GUI.DrawTexture(new Rect(progressRect.x, progressRect.y,
-                        progressRect.width * progress, progressRect.height), progressFill,
-                        ScaleMode.StretchToFill, false);
-
-                var metrics = new Rect(content.x, content.y + 141f, content.width, 43f);
-                DrawMetric(metrics, 0, framesLabel, framesValue);
-                DrawMetric(metrics, 1, speedLabel, speedValue);
-                DrawMetric(metrics, 2, etaLabel, etaValue);
-
+                UguiFactory.SetProgress(progress, (float)renderer.CapturedFrames / renderer.TotalFrames);
+                percent.text = renderer.ProgressPercentText ?? string.Empty;
+                frames.text = renderer.ProgressText ?? string.Empty;
+                speed.text = renderer.SpeedText ?? string.Empty;
+                eta.text = renderer.EtaText ?? string.Empty;
+                hint.text = Localization.Get("hold-esc-for-1-second-to-cancel");
             }
-            else if (showCompleted)
+            else if (completed)
             {
-                if (toastElapsedSeconds != renderer.ElapsedSeconds)
-                {
-                    toastElapsedSeconds = renderer.ElapsedSeconds;
-                    SetText(elapsedValue, FormatElapsed(toastElapsedSeconds));
-                }
-                GUI.Label(new Rect(content.x, content.y + 83f, content.width, 16f),
-                    elapsedLabel, metricLabel);
-                GUI.Label(new Rect(content.x, content.y + 99f, content.width, 36f),
-                    elapsedValue, percent);
-                if (showPath)
-                {
-                    if (toastOutputPath != renderer.OutputPath)
-                    {
-                        toastOutputPath = renderer.OutputPath;
-                        SetText(outputFile, CompactPath(toastOutputPath));
-                    }
-                    GUI.DrawTexture(new Rect(content.x, content.y + 145f, content.width, 1f), divider,
-                        ScaleMode.StretchToFill, false);
-                    GUI.Label(new Rect(content.x, content.y + 155f, content.width - 118f, 22f),
-                        outputFile, path);
-                }
+                percent.text = FormatElapsed(renderer.ElapsedSeconds);
+                path.text = CompactPath(renderer.OutputPath);
             }
-            else
-            {
-                GUI.Label(new Rect(content.x, content.y + 83f, content.width, 42f),
-                    stageHint, hint);
-            }
-
-            if (showProgress)
-            {
-                GUI.Label(new Rect(content.x, content.y + 201f, content.width - 132f, 22f),
-                    cancelHint, hint);
-            }
-            DrawToastButtons(renderer, content, showPath);
         }
 
-        private static void DrawToastButtons(RendererController renderer, Rect content, bool showPath)
+        private static void BuildEncoderPrompt(RendererController renderer)
         {
-            if (showPath && GUI.Button(new Rect(content.x + content.width - 110f, content.y + 152f, 110f, 28f),
-                copyButton, UiTheme.Button))
-                GUIUtility.systemCopyBuffer = renderer.OutputPath;
-            if (renderer.State == RenderState.Rendering && renderer.TotalFrames > 0
-                && GUI.Button(new Rect(content.x + content.width - 118f, content.y + 198f, 118f, 28f),
-                    cancelButton, UiTheme.Button))
-                renderer.Cancel();
+            var card = Card(760f, 230f);
+            var width = card.GetComponent<RectTransform>().rect.width - 48f;
+            At(card.transform, Localization.Get("encoder-confirmation"), 15, 24, 18, width, 24,
+                UguiFactory.Accent).fontStyle = FontStyle.Bold;
+            At(card.transform, Localization.Get("the-selected-hardware-encoder-could-not-be-initialized"), 13,
+                24, 52, width, 38, UguiFactory.Foreground).fontStyle = FontStyle.Bold;
+            At(card.transform, renderer.EncoderFallbackReason ?? string.Empty, 11, 24, 94, width, 54, UguiFactory.Muted);
+            At(card.transform, Localization.Get("use-software-encoder-for-this-render-your-saved-encoder"), 11,
+                24, 150, width, 28, UguiFactory.Muted);
+            AtButton(card.transform, Localization.Get("use-software-and-continue"), renderer.ConfirmEncoderFallback,
+                true, 24, 188, 310, 34);
+            AtButton(card.transform, Localization.Get("cancel-render"), renderer.RejectEncoderFallback,
+                false, 350, 188, 160, 34);
         }
 
-        private static void RefreshToastContent(RendererController renderer)
+        private static void BuildFfmpegPrompt()
         {
-            var korean = Localization.IsKorean;
-            if (toastContentInitialized && toastKorean == korean && toastState == renderer.State) return;
-            toastContentInitialized = true;
-            toastKorean = korean;
-            toastState = renderer.State;
-            SetText(toastStatus, StateLabel(toastState));
-            SetText(toastTitle, StateTitle(toastState));
-            SetText(framesLabel, Localization.Get("frames"));
-            SetText(speedLabel, Localization.Get("speed"));
-            SetText(etaLabel, Localization.Get("eta"));
-            SetText(cancelHint, Localization.Get("hold-esc-for-1-second-to-cancel"));
-            SetText(cancelButton, Localization.Get("cancel-render"));
-            SetText(elapsedLabel, Localization.Get("time-spent"));
-            SetText(copyButton, Localization.Get("copy-path"));
-            toastOutputPath = null;
-            toastElapsedSeconds = double.NaN;
+            var card = Card(760f, FfmpegInstaller.IsDownloading ? 270f : 238f);
+            var width = card.GetComponent<RectTransform>().rect.width - 48f;
+            state = At(card.transform, string.Empty, 15, 24, 18, width, 24, UguiFactory.Accent);
+            state.fontStyle = FontStyle.Bold;
+            title = At(card.transform, string.Empty, 13, 24, 52, width, 40, UguiFactory.Foreground);
+            title.fontStyle = FontStyle.Bold;
+            detail = At(card.transform, string.Empty, 11, 24, 100, width, 52, UguiFactory.Muted);
+            var track = UguiFactory.Image(card.transform, "Progress track", UguiFactory.Backdrop);
+            UguiFactory.Anchor(track.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f),
+                new Vector2(24f, -174f), new Vector2(-24f, -162f));
+            progress = UguiFactory.ProgressFill(track.transform);
+            percent = At(card.transform, string.Empty, 11, 24, 182, width * .52f, 20, UguiFactory.Muted);
+            path = At(card.transform, string.Empty, 11, 24 + width * .52f, 182, width * .48f, 20, UguiFactory.Muted);
+            AtButton(card.transform, Localization.Get("install-ffmpeg"), FfmpegInstaller.ConfirmInstall, true, 24, 176, 310, 34);
+            AtButton(card.transform, Localization.Get("not-now"), FfmpegInstaller.DeclineInstall, false, 350, 176, 160, 34);
         }
 
-        private static void SetText(GUIContent content, string value)
+        private static void UpdateFfmpeg()
         {
-            value = value ?? string.Empty;
-            if (content.text != value) content.text = value;
-        }
-
-        private static void DrawMetric(Rect area, int index, GUIContent label, GUIContent value)
-        {
-            float width = area.width / 3f;
-            var metric = new Rect(area.x + width * index, area.y, width - 8f, area.height);
-            GUI.Label(new Rect(metric.x, metric.y, metric.width, 16f), label, metricLabel);
-            GUI.Label(new Rect(metric.x, metric.y + 17f, metric.width, 24f), value, metricValue);
+            canvasObject.SetActive(true);
+            var downloading = FfmpegInstaller.IsDownloading;
+            var waiting = FfmpegInstaller.IsAwaitingConsent;
+            panelObject.GetComponent<RectTransform>().SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,
+                downloading ? 270f : 238f);
+            state.text = waiting ? Localization.Get("ffmpeg-installation") : Localization.Get("installing-ffmpeg");
+            title.text = waiting ? Localization.Get("orbitrender-needs-ffmpeg-to-export-videos-download-the")
+                : Localization.Get("downloading-ffmpeg-for-this-platform-the-renderer-will");
+            detail.text = waiting ? Localization.Get("the-download-comes-from-the-ffmpeg-build-provider-and-i")
+                : FfmpegInstaller.StatusMessage;
+            progress.transform.parent.gameObject.SetActive(downloading);
+            percent.gameObject.SetActive(downloading); path.gameObject.SetActive(downloading);
+            var buttons = panelObject.GetComponentsInChildren<Button>(true);
+            foreach (var button in buttons) button.gameObject.SetActive(waiting);
+            if (!downloading) return;
+            UguiFactory.SetProgress(progress, FfmpegInstaller.HasDownloadSize ? (float)FfmpegInstaller.Progress
+                : Mathf.PingPong(Time.unscaledTime, 1f));
+            percent.text = FfmpegInstaller.HasDownloadSize
+                ? Localization.FormatWithCurrentCulture("ffmpeg-progress-percent", FfmpegInstaller.Progress * 100d)
+                : Localization.Get("ffmpeg-progress-waiting-for-size");
+            path.text = FormatFfmpegDownloadSize();
         }
 
         private static string StateLabel(RenderState value)
-        {
-            switch (value)
-            {
-                case RenderState.Preparing: return Localization.Get("preparing");
-                case RenderState.Rendering: return Localization.Get("rendering");
-                case RenderState.Finishing: return Localization.Get("finalizing");
-                case RenderState.Completed: return Localization.Get("completed");
-                case RenderState.Cancelled: return Localization.Get("cancelled");
-                case RenderState.Failed: return Localization.Get("failed");
-                default: return Localization.Get("status");
-            }
-        }
-
+        { switch (value) { case RenderState.Preparing:return Localization.Get("preparing"); case RenderState.Rendering:return Localization.Get("rendering");
+            case RenderState.Finishing:return Localization.Get("finalizing"); case RenderState.Completed:return Localization.Get("completed");
+            case RenderState.Cancelled:return Localization.Get("cancelled"); case RenderState.Failed:return Localization.Get("failed"); default:return Localization.Get("status"); } }
         private static string StateTitle(RenderState value)
-        {
-            switch (value)
-            {
-                case RenderState.Preparing: return Localization.Get("preparing-your-export");
-                case RenderState.Rendering: return Localization.Get("rendering-video");
-                case RenderState.Finishing: return Localization.Get("finishing-video");
-                case RenderState.Completed: return Localization.Get("export-complete");
-                case RenderState.Cancelled: return Localization.Get("render-cancelled-status");
-                case RenderState.Failed: return Localization.Get("render-failed-status");
-                default: return Localization.Get("render-status");
-            }
-        }
-
-        private static Color StateColor(RenderState value)
-        {
-            if (value == RenderState.Completed) return Success;
-            if (value == RenderState.Failed || value == RenderState.Cancelled) return Warning;
-            return Ring;
-        }
-
-        private static string CompactPath(string value)
-        {
-            if (string.IsNullOrEmpty(value)) return string.Empty;
-            var fileName = Path.GetFileName(value);
-            return Localization.Format("output-file", fileName);
-        }
-
+        { switch (value) { case RenderState.Preparing:return Localization.Get("preparing-your-export"); case RenderState.Rendering:return Localization.Get("rendering-video");
+            case RenderState.Finishing:return Localization.Get("finishing-video"); case RenderState.Completed:return Localization.Get("export-complete");
+            case RenderState.Cancelled:return Localization.Get("render-cancelled-status"); case RenderState.Failed:return Localization.Get("render-failed-status"); default:return Localization.Get("render-status"); } }
+        private static Color StateColor(RenderState value) => value == RenderState.Completed ? new Color(.55f,.9f,.73f)
+            : value == RenderState.Failed || value == RenderState.Cancelled ? new Color(.94f,.76f,.48f) : UguiFactory.Accent;
+        private static string CompactPath(string value) => string.IsNullOrEmpty(value) ? string.Empty : Localization.Format("output-file", Path.GetFileName(value));
         private static string FormatElapsed(double seconds)
-        {
-            if (double.IsNaN(seconds) || double.IsInfinity(seconds)) return "—";
-            var duration = System.TimeSpan.FromSeconds(System.Math.Max(0d, seconds));
-            if (duration.TotalHours >= 1d)
-                return Localization.Format("duration-hours", (int)duration.TotalHours, duration.Minutes, duration.Seconds);
-            return Localization.Format("duration-minutes", duration.Minutes, duration.Seconds);
-        }
-
-        internal static void DrawEncoderFallbackPrompt(RendererController renderer)
-        {
-            EnsureStyles();
-            float width = Mathf.Min(760f, Screen.width - 40f);
-            float height = 230f;
-            float left = (Screen.width - width) * 0.5f;
-            float top = Mathf.Max(24f, (Screen.height - height) * 0.5f);
-            var rect = new Rect(left, top, width, height);
-            GUI.Box(rect, GUIContent.none, panel);
-            var content = new Rect(rect.x + 24f, rect.y + 18f, rect.width - 48f, rect.height - 36f);
-            GUI.Label(new Rect(content.x, content.y, content.width, 24f),
-                Localization.Get("encoder-confirmation"), title);
-            GUI.Label(new Rect(content.x, content.y + 34f, content.width, 38f),
-                Localization.Get("the-selected-hardware-encoder-could-not-be-initialized"), message);
-            GUI.Label(new Rect(content.x, content.y + 76f, content.width, 54f),
-                renderer.EncoderFallbackReason ?? string.Empty, detail);
-            GUI.Label(new Rect(content.x, content.y + 132f, content.width, 28f),
-                Localization.Get("use-software-encoder-for-this-render-your-saved-encoder"), detail);
-            if (GUI.Button(new Rect(content.x, content.y + 170f, 310f, 34f),
-                Localization.Get("use-software-and-continue"), UiTheme.PrimaryButton))
-                renderer.ConfirmEncoderFallback();
-            if (GUI.Button(new Rect(content.x + 326f, content.y + 170f, 160f, 34f),
-                Localization.Get("cancel-render"), UiTheme.Button))
-                renderer.RejectEncoderFallback();
-        }
-
-        internal static void DrawFfmpegInstallPrompt()
-        {
-            EnsureStyles();
-            float width = Mathf.Min(760f, Screen.width - 40f);
-            bool downloading = FfmpegInstaller.IsDownloading;
-            float height = downloading ? 270f : 238f;
-            float left = (Screen.width - width) * 0.5f;
-            float top = Mathf.Max(24f, (Screen.height - height) * 0.5f);
-            var rect = new Rect(left, top, width, height);
-            GUI.Box(rect, GUIContent.none, panel);
-            var content = new Rect(rect.x + 24f, rect.y + 18f, rect.width - 48f, rect.height - 36f);
-
-            var waiting = FfmpegInstaller.IsAwaitingConsent;
-            GUI.Label(new Rect(content.x, content.y, content.width, 24f),
-                waiting
-                    ? Localization.Get("ffmpeg-installation")
-                    : Localization.Get("installing-ffmpeg"), title);
-            GUI.Label(new Rect(content.x, content.y + 34f, content.width, 40f),
-                waiting
-                    ? Localization.Get("orbitrender-needs-ffmpeg-to-export-videos-download-the")
-                    : Localization.Get("downloading-ffmpeg-for-this-platform-the-renderer-will"),
-                message);
-            GUI.Label(new Rect(content.x, content.y + 82f, content.width, 52f),
-                waiting
-                    ? Localization.Get("the-download-comes-from-the-ffmpeg-build-provider-and-i")
-                    : FfmpegInstaller.StatusMessage,
-                detail);
-
-            if (downloading)
-            {
-                var progressRect = new Rect(content.x, content.y + 144f, content.width, 12f);
-                if (Event.current.type == EventType.Repaint)
-                {
-                    GUI.DrawTexture(progressRect, progressTrack, ScaleMode.StretchToFill, false);
-                    if (FfmpegInstaller.HasDownloadSize)
-                    {
-                        var progress = Mathf.Clamp01((float)FfmpegInstaller.Progress);
-                        if (progress > 0f)
-                            GUI.DrawTexture(new Rect(progressRect.x, progressRect.y,
-                                progressRect.width * progress, progressRect.height), progressFill,
-                                ScaleMode.StretchToFill, false);
-                    }
-                    else
-                    {
-                        // Some mirrors omit Content-Length. Keep a moving
-                        // segment visible so the user knows the worker lives.
-                        var segmentWidth = Mathf.Min(150f, progressRect.width * 0.4f);
-                        var travel = progressRect.width - segmentWidth;
-                        var x = progressRect.x + Mathf.PingPong(Time.realtimeSinceStartup * 180f, travel);
-                        GUI.DrawTexture(new Rect(x, progressRect.y, segmentWidth, progressRect.height),
-                            progressFill, ScaleMode.StretchToFill, false);
-                    }
-                }
-
-                var percent = FfmpegInstaller.HasDownloadSize
-                    ? Localization.FormatWithCurrentCulture("ffmpeg-progress-percent", FfmpegInstaller.Progress * 100d)
-                    : Localization.Get("ffmpeg-progress-waiting-for-size");
-                GUI.Label(new Rect(content.x, content.y + 164f, content.width * 0.52f, 20f),
-                    percent, detail);
-                GUI.Label(new Rect(content.x + content.width * 0.52f, content.y + 164f,
-                    content.width * 0.48f, 20f), FormatFfmpegDownloadSize(), detail);
-            }
-            else if (waiting)
-            {
-                if (GUI.Button(new Rect(content.x, content.y + 158f, 310f, 34f),
-                    Localization.Get("install-ffmpeg"), UiTheme.PrimaryButton))
-                    FfmpegInstaller.ConfirmInstall();
-                if (GUI.Button(new Rect(content.x + 326f, content.y + 158f, 160f, 34f),
-                    Localization.Get("not-now"), UiTheme.Button))
-                FfmpegInstaller.DeclineInstall();
-            }
-        }
-
-        private static string FormatFfmpegDownloadSize()
-        {
-            if (!FfmpegInstaller.HasDownloadSize)
-                return Localization.Get("ffmpeg-download-size-unknown");
-            return Localization.FormatWithCurrentCulture("ffmpeg-download-size",
-                FfmpegInstaller.DownloadedBytes / (1024d * 1024d),
-                FfmpegInstaller.DownloadTotalBytes / (1024d * 1024d));
-        }
-
-        private static void EnsureStyles()
-        {
-            if (initialized && backdrop != null && border != null && background != null
-                && progressTrack != null && progressFill != null && divider != null)
-                return;
-            initialized = true;
-            backdrop = Solid(DarkBackground);
-            border = Rounded(DarkBorder, 48, 12);
-            background = Rounded(DarkMuted, 48, 11);
-            progressTrack = Solid(DarkBackground);
-            progressFill = Solid(Ring);
-            divider = Solid(DarkBorder);
-            panelBorder = new GUIStyle
-            {
-                border = new RectOffset(12, 12, 12, 12),
-                normal = { background = border }
-            };
-            panel = new GUIStyle
-            {
-                border = new RectOffset(11, 11, 11, 11),
-                normal = { background = background }
-            };
-            title = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 15,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Ring }
-            };
-            message = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 13,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Foreground }
-            };
-            state = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 10,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleRight,
-                normal = { textColor = Ring }
-            };
-            detail = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 11,
-                normal = { textColor = MutedForeground }
-            };
-            percent = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 30,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleLeft,
-                normal = { textColor = Foreground }
-            };
-            metricLabel = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 9,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = MutedForeground }
-            };
-            metricValue = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 11,
-                normal = { textColor = Foreground }
-            };
-            hint = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 10,
-                wordWrap = true,
-                normal = { textColor = MutedForeground }
-            };
-            path = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 10,
-                clipping = TextClipping.Clip,
-                normal = { textColor = MutedForeground }
-            };
-        }
-
-        private static Texture2D Solid(Color color)
-        {
-            // These textures are referenced by static IMGUI styles, not scene objects.
-            var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false) {
-                name = "OrbitRender UI",
-                hideFlags = HideFlags.DontUnloadUnusedAsset
-            };
-            texture.SetPixel(0, 0, color);
-            texture.Apply();
-            return texture;
-        }
-
-        private static Texture2D Rounded(Color color, int size, int radius)
-        {
-            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) {
-                name = "OrbitRender Rounded UI",
-                hideFlags = HideFlags.DontUnloadUnusedAsset,
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear
-            };
-            for (var y = 0; y < size; y++)
-            {
-                for (var x = 0; x < size; x++)
-                {
-                    var px = x + 0.5f;
-                    var py = y + 0.5f;
-                    var dx = Mathf.Max(Mathf.Max(radius - px, 0f), px - (size - radius));
-                    var dy = Mathf.Max(Mathf.Max(radius - py, 0f), py - (size - radius));
-                    texture.SetPixel(x, y, dx * dx + dy * dy <= radius * radius ? color : Color.clear);
-                }
-            }
-            texture.Apply();
-            return texture;
-        }
-
-        private static Color Hsl(float hue, float saturationPercent, float lightnessPercent)
-        {
-            float h = Mathf.Repeat(hue, 360f) / 360f;
-            float s = saturationPercent / 100f;
-            float l = lightnessPercent / 100f;
-            float chroma = (1f - Mathf.Abs(2f * l - 1f)) * s;
-            float x = chroma * (1f - Mathf.Abs((h * 6f) % 2f - 1f));
-            float r = 0f, g = 0f, b = 0f;
-            if (h < 1f / 6f) { r = chroma; g = x; }
-            else if (h < 2f / 6f) { r = x; g = chroma; }
-            else if (h < 3f / 6f) { g = chroma; b = x; }
-            else if (h < 4f / 6f) { g = x; b = chroma; }
-            else if (h < 5f / 6f) { r = x; b = chroma; }
-            else { r = chroma; b = x; }
-            float match = l - chroma / 2f;
-            return new Color(r + match, g + match, b + match, 1f);
-        }
+        { if(double.IsNaN(seconds)||double.IsInfinity(seconds))return "—"; var d=TimeSpan.FromSeconds(Math.Max(0d,seconds));
+            return d.TotalHours>=1d?Localization.Format("duration-hours",(int)d.TotalHours,d.Minutes,d.Seconds):Localization.Format("duration-minutes",d.Minutes,d.Seconds); }
+        private static string FormatFfmpegDownloadSize() => !FfmpegInstaller.HasDownloadSize
+            ? Localization.Get("ffmpeg-download-size-unknown") : Localization.FormatWithCurrentCulture("ffmpeg-download-size",
+                FfmpegInstaller.DownloadedBytes/(1024d*1024d),FfmpegInstaller.DownloadTotalBytes/(1024d*1024d));
     }
 }

@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using OrbitRender.Renderer;
 using System.Globalization;
 using UnityEngine;
 
@@ -15,8 +18,11 @@ namespace OrbitRender.UI
                 GUILayout.Width(width));
         }
 
+        internal static string AudioPreviewCaption => AudioPreview.IsLoading ? "Loading…"
+            : AudioPreview.IsActive ? "Stop" : "Preview";
+
         internal static float DrawAudioGainSlider(float gainDb, ref string gainText,
-            ref float syncedGainDb, bool dark = false)
+            ref float syncedGainDb, bool dark = false, Action preview = null)
         {
             gainDb = RendererSettings.ClampAudioGainDb(gainDb);
             if (gainText == null || float.IsNaN(syncedGainDb)
@@ -28,6 +34,8 @@ namespace OrbitRender.UI
             GUILayout.BeginHorizontal();
             GUILayout.Label(Localization.Get("audio-volume-db"), dark ? UiTheme.Label : GUI.skin.label,
                 GUILayout.Width(dark ? 175f : 190f));
+            if (preview != null && GUILayout.Button(AudioPreviewCaption, dark ? UiTheme.Label : GUI.skin.label,
+                GUILayout.Width(70f))) preview();
             var sliderPosition = gainDb <= 0f
                 ? (gainDb - RendererSettings.MinAudioGainDb) / -RendererSettings.MinAudioGainDb * 0.75f
                 : 0.75f + gainDb / RendererSettings.MaxAudioGainDb * 0.25f;
@@ -79,7 +87,7 @@ namespace OrbitRender.UI
 
         internal static RendererPreset DrawPreset(RendererPreset value, bool dark = false)
         {
-            return (RendererPreset)DrawToolbar((int)value, new[] {
+            return (RendererPreset)DrawRadioGroup((int)value, new[] {
                 Localization.Get("custom"),
                 Localization.Get("preview"),
                 "FullHD", "QHD", "UHD 4K"
@@ -89,53 +97,120 @@ namespace OrbitRender.UI
         internal static EncoderSpeed DrawEncoding(EncoderSpeed value, bool dark = false)
         {
             GUILayout.Label(Localization.Get("encoding-speed"), dark ? UiTheme.Label : GUI.skin.label);
-            return (EncoderSpeed)DrawToolbar((int)value, new[] {
+            return (EncoderSpeed)DrawRadioGroup((int)value, new[] {
                 Localization.Get("maximum"),
                 Localization.Get("balanced"),
                 Localization.Get("quality")
             }, dark);
         }
 
-        internal static VideoEncoder DrawEncoder(VideoEncoder value, bool dark = false)
+        private static bool encoderDropdownOpen;
+        internal static EncoderAvailability.CombinedResult AvailableEncoders(VideoBitDepth depth, VideoContainer container)
         {
-            GUILayout.Label(Localization.Get("video-encoder"), dark ? UiTheme.Label : GUI.skin.label);
-            var selected = value == VideoEncoder.Auto ? 0
-                : value == VideoEncoder.NvidiaNvenc ? 1
-                : value == VideoEncoder.IntelQsv ? 2
-                : value == VideoEncoder.AmdAmf ? 3 : 4;
-            selected = DrawToolbar(selected, new[] {
-                Localization.Get("auto"),
-                "NVIDIA NVENC", "Intel QSV", "AMD AMF",
-                Localization.Get("software")
-            }, dark);
-            switch (selected)
-            {
-                case 1: return VideoEncoder.NvidiaNvenc;
-                case 2: return VideoEncoder.IntelQsv;
-                case 3: return VideoEncoder.AmdAmf;
-                case 4: return VideoEncoder.Software;
-                default: return VideoEncoder.Auto;
-            }
+            return EncoderAvailability.GetCombined(RendererController.ResolveFfmpegExecutable(Main.Settings), depth, container);
         }
-
-        internal static VideoCodec DrawCodec(VideoCodec value, bool dark = false)
+        internal static string EncoderLabel(EncoderAvailability.Choice choice)
         {
-            GUILayout.Label(Localization.Get("video-codec"), dark ? UiTheme.Label : GUI.skin.label);
-            return (VideoCodec)DrawToolbar((int)value,
-                new[] { "H.264", "H.265", "VP9", "AV1" }, dark);
+            return choice.Encoder == VideoEncoder.Auto
+                ? Localization.Get("auto") + " (" + VideoCodecCatalog.Get(choice.Codec).DisplayName + ")"
+                : EncoderAvailability.Label(choice.Encoder, choice.Codec);
+        }
+        internal static void DrawEncoder(ref VideoEncoder encoder, ref VideoCodec codec,
+            VideoBitDepth depth, VideoContainer container)
+        {
+            GUILayout.Label(Localization.Get("video-encoder"));
+            if (GUILayout.Button(Localization.Get("refresh-encoders"), GUILayout.Width(180f)))
+                EncoderAvailability.Refresh();
+            var result = AvailableEncoders(depth, container);
+            if (!result.Complete) { GUILayout.Label(Localization.Get("checking-available-encoders")); return; }
+            var choices = result.Choices;
+            if (choices.Length == 0) { GUILayout.Label(Localization.Get("no-compatible-encoders")); return; }
+            var selected = EncoderAvailability.SelectionIndex(choices, codec, encoder);
+            encoder = choices[selected].Encoder; codec = choices[selected].Codec;
+            if (GUILayout.Button(EncoderLabel(choices[selected]) + "  ▼", GUILayout.Width(340f)))
+                encoderDropdownOpen = !encoderDropdownOpen;
+            if (encoderDropdownOpen)
+                for (var i = 0; i < choices.Length; i++)
+                {
+                    var choice = choices[i];
+                    if (i > 0 && choices[i - 1].Codec != choice.Codec)
+                        GUILayout.Box(GUIContent.none, GUILayout.Width(340f), GUILayout.Height(1f));
+                    if (GUILayout.Button(EncoderLabel(choice), GUILayout.Width(340f)))
+                    { encoder = choice.Encoder; codec = choice.Codec; encoderDropdownOpen = false; }
+                }
+        }
+        private static bool containerDropdownOpen;
+        internal static VideoContainer DrawContainer(VideoContainer value, bool showLabel = true)
+        {
+            if (showLabel) GUILayout.Label(Localization.Get("output-format"));
+            var options = new[] { Localization.Get("auto"), ".mp4", ".ts", ".mkv", ".mov" };
+            if (GUILayout.Button(options[Mathf.Clamp((int)value, 0, options.Length - 1)] + "  ▼", GUILayout.Height(30f)))
+                containerDropdownOpen = !containerDropdownOpen;
+            if (containerDropdownOpen)
+                for (var i = 0; i < options.Length; i++)
+                    if (GUILayout.Button(options[i], GUILayout.Height(26f)))
+                    { value = (VideoContainer)i; containerDropdownOpen = false; }
+            return value;
         }
 
         internal static VideoBitDepth DrawBitDepth(VideoBitDepth value, bool dark = false)
         {
             GUILayout.Label(Localization.Get("video-bit-depth"), dark ? UiTheme.Label : GUI.skin.label);
-            return (VideoBitDepth)DrawToolbar((int)value,
+            return (VideoBitDepth)DrawRadioGroup((int)value,
                 new[] { "8-bit", "10-bit" }, dark);
         }
 
-        private static int DrawToolbar(int selected, string[] options, bool dark)
+        private static Texture2D radioOffTexture;
+        private static Texture2D radioOnTexture;
+        private static int DrawRadioGroup(int selected, string[] options, bool dark)
         {
-            return dark ? GUILayout.Toolbar(selected, options, UiTheme.Toolbar)
-                : GUILayout.Toolbar(selected, options);
+            var style = new GUIStyle(dark ? UiTheme.Label : GUI.skin.label) {
+                padding = new RectOffset(24, 4, 0, 0), alignment = TextAnchor.MiddleLeft
+            };
+            foreach (var state in new[] { style.normal, style.onNormal, style.hover, style.onHover,
+                style.active, style.onActive, style.focused, style.onFocused }) state.background = null;
+            if (radioOffTexture == null) radioOffTexture = CreateRadioTexture(false);
+            if (radioOnTexture == null) radioOnTexture = CreateRadioTexture(true);
+            GUILayout.BeginHorizontal();
+            for (var i = 0; i < options.Length; i++)
+            {
+                var caption = new GUIContent(options[i]);
+                var rect = GUILayoutUtility.GetRect(caption, style, GUILayout.Width(style.CalcSize(caption).x), GUILayout.Height(30f));
+                if (GUI.Toggle(rect, selected == i, caption, style)) selected = i;
+                var color = GUI.color;
+                GUI.color = selected == i ? UguiFactory.Accent : UguiFactory.Muted;
+                GUI.DrawTexture(new Rect(rect.x + 2f, rect.y + (rect.height - 16f) / 2f, 16f, 16f),
+                    selected == i ? radioOnTexture : radioOffTexture);
+                GUI.color = color;
+                GUILayout.Space(12f);
+            }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            return selected;
+        }
+
+        private static Texture2D CreateRadioTexture(bool selected)
+        {
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) {
+                name = selected ? "OrbitRender radio selected" : "OrbitRender radio",
+                hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            var pixels = new Color[size * size];
+            for (var y = 0; y < size; y++)
+                for (var x = 0; x < size; x++)
+                {
+                    var dx = x + .5f - size / 2f;
+                    var dy = y + .5f - size / 2f;
+                    var distance = Mathf.Sqrt(dx * dx + dy * dy);
+                    var ring = Mathf.Clamp01(31.5f - distance) * Mathf.Clamp01(distance - 23.5f);
+                    var dot = selected ? Mathf.Clamp01(13.5f - distance) : 0f;
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, Mathf.Max(ring, dot));
+                }
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            return texture;
         }
     }
 }

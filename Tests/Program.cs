@@ -14,8 +14,21 @@ internal static class Program
     {
         try
         {
+            UiLayoutTests.Run();
+            if (args.Length == 1 && args[0] == "--ui-layout")
+            {
+                Console.WriteLine("UI layout tests passed.");
+                return 0;
+            }
+            FileNameTemplateTests.Run();
+            if (args.Length == 1 && args[0] == "--filename-template")
+            {
+                Console.WriteLine("Filename template tests passed.");
+                return 0;
+            }
             if (args.Length != 2) throw new ArgumentException("Pass ffmpeg.exe and a test output directory.");
             Directory.CreateDirectory(args[1]);
+            TestOutputFormats(args[0], args[1]);
             var clock = new RenderClock();
             for (int i = 0; i < 60 * 60 * 4 * 60; i++) clock.Advance();
             Assert(clock.Time == 14400, "Four-hour clock drift.");
@@ -31,6 +44,7 @@ internal static class Program
             Assert(VideoCodecCatalog.Get(VideoCodec.H265).ResolveEncoder(VideoEncoder.AmdAmf, true, false, false) == "hevc_amf", "AMD AMF mapping failed.");
             Assert(VideoCodecCatalog.Get(VideoCodec.AV1).ResolveEncoder(VideoEncoder.NvidiaNvenc, false, true, false) == "av1_nvenc", "NVIDIA NVENC mapping failed.");
             Assert(VideoCodecCatalog.Get(VideoCodec.VP9).ResolveEncoder(VideoEncoder.IntelQsv, false, true, false) == "libvpx-vp9", "VP9 software fallback failed.");
+            Assert(VideoCodecCatalog.IsHardwareEncoder("hevc_vaapi"), "VAAPI failures did not use hardware fallback handling.");
             Assert(FFmpegEncoder.TryValidateVideo(args[0], 2, "ultrafast", "libx265", "yuv420p10le", ".mp4", false, out var preflightError),
                 "10-bit encoder preflight failed: " + preflightError);
             var fast = Path.Combine(args[1], "fast.mp4");
@@ -145,11 +159,92 @@ internal static class Program
                 + offsetMuxed + "\"");
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
-            Console.WriteLine("PASS: four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus mux, concurrent AAC gain/mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
+            Console.WriteLine("PASS: filename tokens/sanitization/collisions, MP4/TS/MKV/MOV video and AAC mux/copy, encoder availability, four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus mux, concurrent AAC gain/mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
     }
+    private static void TestOutputFormats(string ffmpeg, string directory)
+    {
+        var now = new DateTime(2026, 10, 5, 12, 34, 56);
+        Assert(OutputFormat.FileName("{level}_{date}_{time}_{id}", "Test/Level", now, "abc123")
+            == "Test_Level_2026-10-05_12-34-56_abc123", "Filename tokens or sanitization failed.");
+        Assert(OutputFormat.FileName("../CON", "Level", now, "abc123") == "_CON", "Unsafe filename escaped sanitization.");
+        Assert(OutputFormat.FileName("NUL", "Level", now, "abc123") == "_NUL", "Reserved filename was not escaped.");
+        var name = OutputFormat.FileName("", "Level", now, "abc123");
+        Assert(name == "Render_Level_2026-10-05_12-34-56_abc123", "Default filename migration failed.");
+        var original = OutputFormat.UniquePath(directory, name, ".mp4");
+        File.WriteAllText(original, "keep");
+        Assert(OutputFormat.UniquePath(directory, name, ".mp4") != original && File.ReadAllText(original) == "keep",
+            "Duplicate filename overwrote an existing render.");
+        var audio = Path.Combine(directory, "container-tone.wav");
+        Probe(ffmpeg, "-v error -f lavfi -i sine=duration=0.2 -c:a pcm_s16le \"" + audio + "\"");
+        foreach (var container in new[] { VideoContainer.Mp4, VideoContainer.Ts, VideoContainer.Mkv, VideoContainer.Mov })
+        {
+            var extension = OutputFormat.Extension(container, VideoCodec.H264);
+            var video = Path.Combine(directory, "container-video" + extension);
+            Assert(FFmpegEncoder.TryValidateVideo(ffmpeg, 2, "ultrafast", "libx264", "yuv420p", extension, false, out var error),
+                "Container preflight failed: " + container + " " + error);
+            EncodeTransportVariant(ffmpeg, video, RawVideoPixelFormat.Rgba32);
+            var mux = Path.Combine(directory, "container-audio" + extension);
+            FFmpegEncoder.MuxAudio(ffmpeg, video, audio, mux);
+            var metadata = Probe(ResolveProbe(ffmpeg), "-v error -show_entries stream=codec_name -of csv=p=0 \"" + mux + "\"");
+            Assert(metadata.Contains("h264") && metadata.Contains("aac"), "Container lost video or audio: " + container);
+            var m4a = Path.Combine(directory, "container-tone" + container + ".m4a");
+            Probe(ffmpeg, "-v error -i \"" + audio + "\" -c:a aac \"" + m4a + "\"");
+            FFmpegEncoder.MuxPreencodedAudio(ffmpeg, video, m4a, Path.Combine(directory, "container-copy" + extension));
+        }
+        Assert(!FFmpegEncoder.TryValidateVideo(ffmpeg, 2, "ultrafast", "libaom-av1", "yuv420p", ".ts", false, out _),
+            "Unsupported TS/AV1 was advertised as playable.");
+        var available = EncoderAvailability.Get(ffmpeg, VideoCodec.H264, VideoBitDepth.Eight, VideoContainer.Mkv);
+        var timeout = Stopwatch.StartNew();
+        while (!available.Complete && timeout.Elapsed.TotalSeconds < 120) Thread.Sleep(50);
+        Assert(available.Complete && available.Encoders.Contains(VideoEncoder.Software), "Working software encoder was not discovered.");
+        var missing = EncoderAvailability.Get(Path.Combine(directory, "missing-ffmpeg.exe"), VideoCodec.H264,
+            VideoBitDepth.Eight, VideoContainer.Mp4);
+        timeout.Restart();
+        while (!missing.Complete && timeout.Elapsed.TotalSeconds < 5) Thread.Sleep(10);
+        Assert(missing.Complete && missing.Encoders.Length == 0, "Missing FFmpeg advertised usable encoders.");
+        var automatic = EncoderAvailability.GetCombined(ffmpeg, VideoBitDepth.Eight, VideoContainer.Auto);
+        timeout.Restart();
+        while (!automatic.Complete && timeout.Elapsed.TotalSeconds < 120) Thread.Sleep(50);
+        Assert(automatic.Complete && automatic.Choices.Any(c => c.Codec == VideoCodec.AV1 && c.Encoder == VideoEncoder.Software),
+            "Combined Auto dropdown lost the supported AOM AV1 encoder.");
+        Console.WriteLine("Available Auto-format encoders: " + string.Join(", ", automatic.Choices.Select(c => EncoderAvailability.Label(c.Encoder, c.Codec))));
+        var vaapiChoices = automatic.Choices.Where(c => c.Encoder == VideoEncoder.Vaapi).ToArray();
+        foreach (var choice in vaapiChoices)
+        {
+            var codec = VideoCodecCatalog.Get(choice.Codec).ResolveEncoder(choice.Encoder, false, false, false);
+            var video = Path.Combine(directory, codec + ".mkv");
+            EncodeTransportVariant(ffmpeg, video, RawVideoPixelFormat.Rgb24, codec);
+            var metadata = Probe(ResolveProbe(ffmpeg), "-v error -show_entries stream=codec_name -of csv=p=0 \"" + video + "\"");
+            var expectedCodec = choice.Codec == VideoCodec.H265 ? "hevc" : choice.Codec.ToString().ToLowerInvariant();
+            Assert(metadata.Contains(expectedCodec), "VAAPI output used the wrong codec: " + codec);
+            var decoded = Probe(ffmpeg, "-v error -i \"" + video + "\" -f framemd5 -")
+                .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries).Count(line => !line.StartsWith("#"));
+            Assert(decoded == 6, "VAAPI lost frames during hardware upload: " + codec);
+            FFmpegEncoder.MuxAudio(ffmpeg, video, audio, Path.Combine(directory, codec + "-audio.mkv"));
+        }
+        Console.WriteLine(vaapiChoices.Length == 0 ? "VAAPI hardware unavailable; hardware integration skipped."
+            : "VAAPI hardware encoding, decode and audio mux passed.");
+        var combined = EncoderAvailability.GetCombined(ffmpeg, VideoBitDepth.Eight, VideoContainer.Ts);
+        timeout.Restart();
+        while (!combined.Complete && timeout.Elapsed.TotalSeconds < 120) Thread.Sleep(50);
+        Assert(combined.Complete, "Combined encoder discovery did not finish.");
+        var choices = combined.Choices;
+        Assert(choices.Any(c => c.Codec == VideoCodec.H264 && c.Encoder == VideoEncoder.Software)
+            && choices.Any(c => c.Codec == VideoCodec.H265 && c.Encoder == VideoEncoder.Software),
+            "Combined dropdown lost H.264/H.265 software choices.");
+        Assert(choices.All(c => c.Codec != VideoCodec.AV1 && c.Codec != VideoCodec.VP9),
+            "Combined dropdown exposed incompatible TS codecs.");
+        var selected = choices[EncoderAvailability.SelectionIndex(choices, VideoCodec.H265, VideoEncoder.Software)];
+        Assert(selected.Codec == VideoCodec.H265 && selected.Encoder == VideoEncoder.Software,
+            "A shared backend selected the wrong codec in the combined dropdown.");
+        selected = choices[EncoderAvailability.SelectionIndex(choices, VideoCodec.H265, VideoEncoder.Auto)];
+        Assert(selected.Codec == VideoCodec.H265 && selected.Encoder == VideoEncoder.Auto,
+            "Combined dropdown lost the saved automatic HEVC selection.");
+    }
+
     private static void Encode(string ffmpeg, string output, bool slow, int fps)
     {
         var encoder = fps == 60
@@ -195,10 +290,11 @@ internal static class Program
         }
     }
 
-    private static void EncodeTransportVariant(string ffmpeg, string output, RawVideoPixelFormat format)
+    private static void EncodeTransportVariant(string ffmpeg, string output, RawVideoPixelFormat format,
+        string codec = "libx264")
     {
         using (var encoder = new FFmpegEncoder(ffmpeg, output, 320, 180, 30, 4, "ultrafast", false,
-            "libx264", "yuv420p", format))
+            codec, "yuv420p", format))
         {
             var bytesPerPixel = format == RawVideoPixelFormat.Rgb24 ? 3 : 4;
             for (var frameIndex = 0; frameIndex < 6; frameIndex++)

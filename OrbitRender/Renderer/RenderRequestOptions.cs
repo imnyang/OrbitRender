@@ -22,6 +22,8 @@ namespace OrbitRender.Renderer
         internal bool? ShowHitJudgments;
         internal EncoderSpeed? Encoding;
         internal VideoEncoder? Encoder;
+        internal VideoContainer? Container;
+        internal string FileNameFormat;
         internal VideoCodec? VideoCodec;
         internal VideoBitDepth? BitDepth;
         internal bool? OpenOutputFolder;

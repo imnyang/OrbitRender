@@ -20,8 +20,8 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 - 중앙 진행창, 렌더 FPS, 실시간 배율, ETA와 완료 예정 시각 표시
 - Preview, FullHD, QHD, UHD 4K, Custom 프로필
 - 해상도, Target FPS 15–1024 / Video FPS 15–240, 1–200 Mbps 비트레이트, End delay 설정
-- H.264/AVC, H.265/HEVC, VP9, AV1 코덱 선택 지원 (VP9은 WebM, 나머지는 MP4)
-- NVIDIA NVENC, Intel Quick Sync, AMD AMF, 소프트웨어 인코더 선택 및 GPU 자동 감지
+- H.264/AVC, H.265/HEVC, VP9, AV1 코덱 선택 지원 (자동 출력은 VP9 WebM, 나머지 MP4; MP4/TS/MKV/MOV 직접 선택 가능)
+- NVIDIA NVENC, Intel Quick Sync, AMD AMF, 소프트웨어 인코더 드롭다운 선택 및 FFmpeg 실제 인코딩으로 사용 가능 여부 확인
 - 게임 오디오 캡처와 영상·오디오 mux
 - 설정 가능한 출력 폴더
 - BGA Mode: 타일·홀드·타일 이펙트·공·공 파티클·힛사운드 제외
@@ -41,6 +41,8 @@ Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mo
 
 ## 설정
 
+UMM 설정과 게임 내 내보내기 창은 **기본 / 게임 설정 / 고급** 탭으로 구성됩니다. 프리셋·인코딩 속도·비트 깊이는 라디오 선택을 사용하며, 파일명 예시와 파일명 형식·출력 형식은 탭 아래에 항상 표시합니다. 변수 삽입과 문법 설명은 **변수 도움말**에서 열 수 있습니다. UMM 전용 경로 설정·FFmpeg 설치·진단·초기화는 고급 탭의 파일 및 문제 해결 항목에 있습니다.
+
 | 설정 | 기본값 | 설명 |
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
@@ -59,16 +61,45 @@ Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mo
 | Show result text | 켜짐 | 완료/Pure Perfect 문구만 포함 (세부 판정 결과는 숨김) |
 | Show hit judgments | 꺼짐 | 타일을 밟을 때 판정 텍스트 표시 |
 | Encoding speed | Quality | Maximum / Balanced / Quality |
-| Video encoder | Auto | Auto / NvidiaNvenc / IntelQsv / AmdAmf / Software |
-| Video codec | H264 | H264 / H265 / VP9 / AV1 |
+| Video encoder | Auto (H.264) | 인코더와 코덱을 함께 선택 (NVENC H.264, x265 HEVC, AOM AV1 등) |
 | Video bit depth | 8-bit | 8-bit / 10-bit (`yuv420p10le`) |
+| Output format | Auto | Auto / .mp4 / .ts / .mkv / .mov |
+| Filename format | `Render_{level}_{date}_{time}_{id}` | 레벨명, 날짜, 시간, 랜덤 ID; 확장자 자동 추가 |
 | Output folder | `Renders` | 게임 폴더 기준 상대 경로 또는 절대 경로 |
 | Open output folder after render | 켜짐 | 렌더 완료 후 결과 파일이 있는 폴더 열기 |
 | FFmpeg executable | 자동 | 첫 실행 동의 후 설치된 FFmpeg, PATH의 `ffmpeg`, 또는 직접 지정한 경로 |
 
 AV1 소프트웨어 인코더는 엄격한 CBR을 지원하지 않으므로 오디오 포함 렌더에서는 목표 비트레이트 VBR, 무음 렌더에서는 capped-CRF를 사용합니다.
 
+VAAPI도 H.264, HEVC, VP9, AV1을 지원합니다. FFmpeg 기본 VAAPI 장치를 초기화하고 8-bit는 NV12, 10-bit는 P010으로 변환한 뒤 GPU에 업로드합니다. FFmpeg 빌드와 GPU 드라이버가 해당 코덱을 지원하여 실제 인코딩 검사에 성공한 항목만 표시하며, 실패 시 기존 소프트웨어 fallback 확인을 사용합니다. 드라이버별 화질·rate control은 자동 선택합니다. [FFmpeg VAAPI 문서](https://ffmpeg.org/ffmpeg-codecs.html#VAAPI-encoders)
+
+파일명이 중복되면 `_1`, `_2` 등의 번호를 붙이며 파일명에 쓸 수 없는 문자는 정리합니다. 인코더 목록에는 현재 비트 심도와 출력 형식으로 실제 인코딩에 성공한 항목만 표시합니다. FFmpeg나 드라이버를 바꾼 뒤에는 **인코더 다시 확인**을 누르세요. TS는 H.264/H.265를 지원하며, 나머지 코덱·컨테이너 조합의 사용 가능 여부도 FFmpeg로 확인합니다.
+
 렌더 시작 전에 선택한 인코더를 실제 1프레임으로 점검합니다. 하드웨어 인코더가 실패하면 Software encoder로 이번 렌더만 계속할지 확인하며, 동의하지 않으면 설정과 렌더를 변경하지 않고 취소합니다.
+
+### 파일명 템플릿
+
+기존 `Render_{level}_{date}_{time}_{id}` 형식을 그대로 사용할 수 있습니다. 내보내기 창의 **변수 삽입** 메뉴에서 변수와 가공 예시를 넣고, 파일명 예시로 결과를 확인하세요. 잘못된 변수·문법은 오류로 표시하며 수정하기 전에는 내보내기를 시작하지 않습니다.
+
+| 변수 | 값 |
+|---|---|
+| `{level}`, `{artist}` | 레벨명, 레벨에 저장된 아티스트명 (없으면 빈 문자열) |
+| `{date}`, `{time}`, `{id}` | 날짜, 시간, 랜덤 ID |
+| `{width}`, `{height}`, `{bitrate}` | 출력 해상도, 비트레이트 (Mbps) |
+| `{videoFps}`, `{ingameFps}` | 영상 FPS, 인게임 FPS |
+| `{codec}`, `{bitDepth}`, `{bgaMode}` | H264/H265/VP9/AV1, 8/10, true/false |
+
+```text
+{level}_{date:yyyyMMdd}_{width}x{height}_{videoFps}fps
+{artist|default:"Unknown"} - {level|replace:"/","_"|truncate:40}
+{level}_{if:bgaMode,"BGA","Gameplay"}
+```
+
+날짜·시간에는 `{date:yyyy-MM-dd}`, `{time:HHmmss}`처럼 .NET 날짜 형식을 지정할 수 있습니다. `|lower`, `|upper`, `|trim`, `|replace:"검색","치환"`, `|truncate:40`, `|default:"빈 값 대체"`를 순서대로 연결하면 문자열을 가공합니다. `truncate`는 0~160 사이의 길이를 받습니다. 문자열 인수는 큰따옴표로 감싸고, 큰따옴표와 역슬래시는 각각 `\"`, `\\`로 입력합니다.
+
+`{if:bgaMode,"참일 때","거짓일 때"}`는 조건에 따라 문자열을 선택합니다. `!bgaMode`처럼 조건을 반전할 수 있고, `{if:artist,"있음","없음"}`처럼 문자열이 비어 있는지도 검사할 수 있습니다. 실제 중괄호는 `{{`, `}}`로 입력합니다. 변수 이름은 대소문자를 구분합니다.
+
+확장자는 자동으로 붙습니다. 문자열 가공 후 파일명에 쓸 수 없는 문자를 정리하고 최대 160자로 제한하며, 중복 파일명에는 번호를 붙입니다. 예시에 표시되는 날짜·시간·ID는 참고용이며 실제 내보내기 때 다시 생성됩니다. 템플릿은 최대 4096자입니다.
 
 ### 진단
 

@@ -24,7 +24,8 @@ namespace OrbitRender
         // do not silently change from software encoding to another backend.
         Software = 2,
         IntelQsv = 3,
-        AmdAmf = 4
+        AmdAmf = 4,
+        Vaapi = 5
     }
 
     internal sealed class VideoCodecDefinition
@@ -58,6 +59,16 @@ namespace OrbitRender
 
         internal string ResolveEncoder(VideoEncoder backend, bool nvidiaGpu, bool intelGpu, bool amdGpu)
         {
+            if (backend == VideoEncoder.Vaapi)
+            {
+                switch (Codec)
+                {
+                    case VideoCodec.H265: return "hevc_vaapi";
+                    case VideoCodec.VP9: return "vp9_vaapi";
+                    case VideoCodec.AV1: return "av1_vaapi";
+                    default: return "h264_vaapi";
+                }
+            }
             if (backend == VideoEncoder.NvidiaNvenc || (backend == VideoEncoder.Auto && nvidiaGpu))
             {
                 if (!string.IsNullOrEmpty(NvidiaEncoder)) return NvidiaEncoder;
@@ -116,7 +127,8 @@ namespace OrbitRender
             return !string.IsNullOrEmpty(codec)
                 && (codec.EndsWith("_nvenc", StringComparison.OrdinalIgnoreCase)
                     || codec.EndsWith("_qsv", StringComparison.OrdinalIgnoreCase)
-                    || codec.EndsWith("_amf", StringComparison.OrdinalIgnoreCase));
+                    || codec.EndsWith("_amf", StringComparison.OrdinalIgnoreCase)
+                    || codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase));
         }
 
         internal static bool TryParse(string value, out VideoCodec codec)

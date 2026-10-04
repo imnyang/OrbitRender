@@ -9,7 +9,7 @@ OrbitRender is a Unity Mod Manager mod that renders ADOFAI custom levels to vide
 - Centered progress window with FPS, realtime multiplier, ETA, and finish time.
 - Preview, FullHD, QHD, UHD 4K, and Custom profiles.
 - Configurable resolution, Target FPS 15–1024 / Video FPS 15–240, 1–200 Mbps CBR bitrate, end delay, audio, and output directory.
-- Selectable H.264/AVC, H.265/HEVC, VP9, and AV1 codecs (VP9 outputs WebM; the others output MP4).
+- Selectable H.264/AVC, H.265/HEVC, VP9, and AV1 codecs (Auto uses WebM for VP9 and MP4 for the others; MP4/TS/MKV/MOV can be selected explicitly).
 - Selectable NVIDIA NVENC, Intel Quick Sync, AMD AMF, and software backends with GPU auto-detection.
 - Optional game-audio capture and final audio/video mux.
 - BGA Mode hides tiles, holds, tile effects, planets, planet particles, and gameplay hit sounds while preserving the background, camera, decorations, and music timing.
@@ -35,6 +35,8 @@ On startup, the mod checks GitHub's latest stable release. Drafts and pre-releas
 
 ## Settings
 
+UMM settings and the in-game export dialog use **Basic / Game Settings / Advanced** tabs. Preset, encoding speed, and bit depth use radio options. The filename preview, filename template, and output format remain below the tabs; variable insertion and syntax help appear when opening **Variables**. UMM-specific paths, FFmpeg installation, diagnostics, and reset controls are under Files & Troubleshooting in Advanced.
+
 | Setting | Default | Description |
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |
@@ -53,15 +55,36 @@ On startup, the mod checks GitHub's latest stable release. Drafts and pre-releas
 | Show result text | On | Include only the completion/Pure Perfect message; judgment details stay hidden |
 | Show hit judgments | Off | Include hit judgment text when tiles are hit |
 | Encoding speed | Quality | Maximum / Balanced / Quality |
-| Video encoder | Auto | Auto / NvidiaNvenc / IntelQsv / AmdAmf / Software |
-| Video codec | H264 | H264 / H265 / VP9 / AV1 |
+| Video encoder | Auto (H.264) | Choose encoder and codec together (NVENC H.264, x265 HEVC, AOM AV1, etc.) |
 | Video bit depth | 8-bit | 8-bit / 10-bit (`yuv420p10le`) |
+| Output format | Auto | Auto / .mp4 / .ts / .mkv / .mov |
+| Filename format | `Render_{level}_{date}_{time}_{id}` | Level name, date, time, random ID; extension added automatically |
 | Output folder | `Renders` | Relative to the game folder or absolute |
 | FFmpeg executable | Automatic | User-approved install, PATH lookup, or an explicit path |
 
 The software AV1 encoder does not support strict CBR. Audio renders use target-bitrate VBR, while video-only renders use capped CRF.
 
+VAAPI supports H.264, HEVC, VP9, and AV1 when the FFmpeg build and GPU driver support them. The renderer initializes the default VAAPI device and uploads NV12 (8-bit) or P010 (10-bit) frames. Only encoders passing the hardware smoke test appear in the dropdown; failures use the existing software fallback prompt. Driver quality/rate-control selection remains automatic. See [FFmpeg VAAPI documentation](https://ffmpeg.org/ffmpeg-codecs.html#VAAPI-encoders).
+
+Duplicate filenames receive `_1`, `_2`, etc.; invalid filename characters are sanitized. The encoder dropdown lists only encoders that pass an actual FFmpeg encode with the selected bit depth and container. Use **Refresh encoders** after changing FFmpeg or drivers. TS supports H.264/H.265; other codec/container combinations are checked with FFmpeg.
+
 Before rendering, the selected encoder is verified with a real one-frame smoke test. If a hardware encoder fails, the renderer asks for consent before using Software for that render; declining leaves the saved setting unchanged and cancels the render.
+
+### Filename templates
+
+Existing `Render_{level}_{date}_{time}_{id}` templates still work. Use **Insert variable** in the export dialog to insert variables and examples. The filename preview updates as you edit; invalid syntax must be corrected before exporting.
+
+Available variables: `{level}`, `{artist}` (empty when missing), `{date}`, `{time}`, `{id}`, `{width}`, `{height}`, `{bitrate}` (Mbps), `{videoFps}`, `{ingameFps}`, `{codec}` (H264/H265/VP9/AV1), `{bitDepth}` (8/10), and `{bgaMode}` (true/false). Names are case sensitive.
+
+```text
+{level}_{date:yyyyMMdd}_{width}x{height}_{videoFps}fps
+{artist|default:"Unknown"} - {level|replace:"/","_"|truncate:40}
+{level}_{if:bgaMode,"BGA","Gameplay"}
+```
+
+Date/time variables accept .NET date formats, such as `{date:yyyy-MM-dd}` or `{time:HHmmss}`. Chain `|lower`, `|upper`, `|trim`, `|replace:"old","new"`, `|truncate:40` (0–160), and `|default:"fallback"` to transform values. String arguments must be double quoted; escape double quotes and backslashes as `\"` and `\\`.
+
+`{if:bgaMode,"yes","no"}` selects a string based on a boolean; `!bgaMode` negates the condition. String conditions such as `{if:artist,"present","missing"}` check for nonempty text. Use `{{` and `}}` for literal braces. The extension is added automatically. Filename sanitization, the 160-character limit, and collision numbering apply after transformations. Preview timestamps and IDs are examples; actual values are generated during export. Templates are limited to 4096 characters.
 
 ### Diagnostics
 
