@@ -287,6 +287,56 @@ namespace OrbitRender.UI
             return row;
         }
 
+        internal static GameObject RadioGroup(Transform parent, string[] values, int selected, Action<int> changed)
+        {
+            var row = Row(parent, 30f);
+            var layout = row.GetComponent<HorizontalLayoutGroup>();
+            layout.spacing = 18f;
+            layout.childForceExpandWidth = false;
+            var group = row.AddComponent<ToggleGroup>();
+            group.allowSwitchOff = false;
+            selected = Mathf.Clamp(selected, 0, values.Length - 1);
+            for (var i = 0; i < values.Length; i++)
+            {
+                var index = i;
+                var option = Image(row.transform, "Radio Option", Color.clear, true);
+                var toggle = option.AddComponent<Toggle>();
+                var ring = Image(option.transform, "Ring", Muted).GetComponent<Image>();
+                Circle(ring);
+                Anchor(ring.rectTransform, new Vector2(0f, .5f), new Vector2(0f, .5f),
+                    new Vector2(0f, -8f), new Vector2(16f, 8f));
+                var center = Image(ring.transform, "Center", Surface).GetComponent<Image>();
+                Circle(center);
+                SetOffsets(center.rectTransform, 2f, 2f, 2f, 2f);
+                var dot = Image(ring.transform, "Selected", Accent).GetComponent<Image>();
+                Circle(dot);
+                SetOffsets(dot.rectTransform, 4f, 4f, 4f, 4f);
+                var label = Text(option.transform, values[i]);
+                SetOffsets(label.rectTransform, 24f, 0f, 0f, 0f);
+                Preferred(option.transform, Mathf.Ceil(label.preferredWidth) + 28f, 30f);
+                toggle.targetGraphic = ring;
+                toggle.graphic = dot;
+                toggle.toggleTransition = UnityEngine.UI.Toggle.ToggleTransition.None;
+                var colors = toggle.colors;
+                colors.highlightedColor = Accent;
+                colors.selectedColor = Color.white;
+                toggle.colors = colors;
+                toggle.isOn = false;
+                toggle.group = group;
+                toggle.isOn = i == selected;
+                Action<bool> refresh = on => {
+                    ring.color = on ? Accent : Muted;
+                    label.color = on ? Foreground : Muted;
+                };
+                refresh(toggle.isOn);
+                toggle.onValueChanged.AddListener(on => {
+                    refresh(on);
+                    if (on && changed != null) changed(index);
+                });
+            }
+            return row;
+        }
+
         internal static Slider Slider(Transform parent, float min, float max, float value, Action<float> changed)
         {
             // Receive pointer events across the whole control, including the

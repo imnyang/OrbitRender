@@ -195,7 +195,7 @@ namespace OrbitRender.UI
             encoderAvailability = null;
             if (selectedTab == 0)
             {
-                AddToolbar(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
+                AddRadioGroup(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
                     "FullHD", "QHD", "UHD 4K" }, (int)draft.Preset, value => {
                         draft.Preset = (RendererPreset)value; if (draft.Preset != RendererPreset.Custom) draft.ApplyPreset(); RebuildContent();
                     });
@@ -217,10 +217,10 @@ namespace OrbitRender.UI
             {
                 AddHeading(Localization.Get("encoding"));
                 AddEncoderDropdown();
-                AddToolbar(Localization.Get("encoding-speed"), new[] { Localization.Get("maximum"),
+                AddRadioGroup(Localization.Get("encoding-speed"), new[] { Localization.Get("maximum"),
                     Localization.Get("balanced"), Localization.Get("quality") }, (int)draft.Encoding,
                     v => draft.Encoding = (EncoderSpeed)v);
-                AddToolbar(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
+                AddRadioGroup(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
                     (int)draft.BitDepth, v => { draft.BitDepth = (VideoBitDepth)v; RebuildContent(); });
                 AddHeading(Localization.Get("render-options"));
                 AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
@@ -325,9 +325,9 @@ namespace OrbitRender.UI
             update(draft.AudioGainDb);
         }
 
-        private static void AddToolbar(string label, string[] options, int value, Action<int> changed)
+        private static void AddRadioGroup(string label, string[] options, int value, Action<int> changed)
         { AddLabel(label, UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
-            UguiFactory.Toolbar(content, options, Mathf.Max(0, value), changed); }
+            UguiFactory.RadioGroup(content, options, Mathf.Max(0, value), changed); }
         private static void AddInputRow(Field[] fields)
         {
             var row = UguiFactory.Row(content);
