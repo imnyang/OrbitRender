@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -36,15 +37,22 @@ namespace OrbitRender
         }
 
         internal static string FileName(string format, string level, DateTime now, string id)
+            => FileName(format, Variables(Clean(level ?? "Level"), now, id));
+
+        internal static Dictionary<string, object> Variables(string level, DateTime now, string id)
+            => new Dictionary<string, object>(StringComparer.Ordinal) {
+                { "level", level ?? "Level" }, { "artist", string.Empty },
+                { "date", now }, { "time", now }, { "id", id ?? string.Empty }
+            };
+
+        internal static string FileName(string format, IDictionary<string, object> variables)
         {
             if (string.IsNullOrWhiteSpace(format)) format = DefaultFileName;
-            var value = format.Replace("{level}", Clean(level ?? "Level"))
-                .Replace("{date}", now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
-                .Replace("{time}", now.ToString("HH-mm-ss", CultureInfo.InvariantCulture))
-                .Replace("{id}", id);
-            value = Clean(value);
+            var value = Clean(FileNameTemplate.Expand(format, variables));
             // Keep room for temporary suffixes and the container extension.
-            return value.Substring(0, Math.Min(160, value.Length)).TrimEnd(' ', '.');
+            var length = Math.Min(160, value.Length);
+            if (length < value.Length && char.IsHighSurrogate(value[length - 1])) length--;
+            return value.Substring(0, length).TrimEnd(' ', '.');
         }
 
         private static string Clean(string value)

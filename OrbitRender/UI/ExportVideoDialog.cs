@@ -15,7 +15,11 @@ namespace OrbitRender.UI
         private static string error;
         private static int selectedTab;
         private static Text filenamePreviewText;
+        private static InputField filenameInputField;
+        private static string filenamePreviewSignature;
+        private static string filenameError;
         private static bool filenameHelpVisible;
+        private static GameObject filenameHelpPanel;
         private static DateTime filenamePreviewTime;
         private static string filenamePreviewId;
         private static GameObject canvasObject;
@@ -38,6 +42,8 @@ namespace OrbitRender.UI
             draft = Draft.From(Main.Settings);
             selectedTab = 0;
             filenameHelpVisible = false;
+            filenamePreviewSignature = null;
+            filenameError = null;
             filenamePreviewTime = DateTime.Now;
             filenamePreviewId = Guid.NewGuid().ToString("N").Substring(0, 6);
             error = string.Empty;
@@ -60,11 +66,61 @@ namespace OrbitRender.UI
             }
             if (audioPreviewText != null)
                 audioPreviewText.text = SettingsUi.AudioPreviewCaption;
-            if (filenamePreviewText != null)
-                filenamePreviewText.text = filenameHelpVisible ? Localization.Get("filename-format-help")
-                    : Localization.Format("export-filename-preview", OutputFormat.FileName(draft.FileNameFormat,
-                        ADOBase.controller != null ? ADOBase.controller.levelName : "Level",
-                        filenamePreviewTime, filenamePreviewId) + OutputFormat.Extension(draft.Container, draft.Codec));
+            RefreshFilenamePreview();
+        }
+
+        private static void RefreshFilenamePreview()
+        {
+            if (filenamePreviewText == null || draft == null) return;
+            var level = editor != null ? editor.customLevel : ADOBase.customLevel;
+            var artist = level != null && level.levelData != null ? level.levelData.artist : string.Empty;
+            var signature = string.Join("\n", draft.FileNameFormat, draft.WidthText, draft.HeightText,
+                draft.FpsText, draft.VideoFpsText, draft.BitrateText, draft.Codec.ToString(), draft.BitDepth.ToString(),
+                draft.Container.ToString(), draft.BgaMode.ToString(),
+                ADOBase.controller != null ? ADOBase.controller.levelName : "Level", artist);
+            if (signature == filenamePreviewSignature) return;
+            filenamePreviewSignature = signature;
+            try
+            {
+                var name = OutputFormat.FileName(draft.FileNameFormat, draft.FilenameVariables());
+                if (error == filenameError) error = string.Empty;
+                filenameError = null;
+                filenamePreviewText.color = UguiFactory.Muted;
+                filenamePreviewText.text = Localization.Format("export-filename-preview",
+                    name + OutputFormat.Extension(draft.Container, draft.Codec));
+            }
+            catch (FormatException ex)
+            {
+                filenameError = Localization.Format("filename-template-error", ex.Message);
+                filenamePreviewText.color = UguiFactory.Error;
+                filenamePreviewText.text = filenameError;
+            }
+        }
+
+        private static void AddTemplateInsertDropdown(Transform parent)
+        {
+            var tokens = new[] { "{level}", "{artist}", "{date:yyyyMMdd}", "{time:HHmmss}", "{id}",
+                "{width}", "{height}", "{videoFps}", "{ingameFps}", "{bitrate}", "{codec}", "{bitDepth}", "{bgaMode}",
+                "{level|replace:\"/\",\"_\"|truncate:40}", "{artist|default:\"Unknown\"}", "{if:bgaMode,\"BGA\",\"Gameplay\"}" };
+            var labels = new[] { Localization.Get("filename-insert-variable") }.Concat(tokens.Take(13)).Concat(new[] {
+                Localization.Get("filename-insert-transform"), Localization.Get("filename-insert-default"),
+                Localization.Get("filename-insert-condition") }).ToArray();
+            Dropdown dropdown = null;
+            dropdown = UguiFactory.Dropdown(parent, labels, 0, value => {
+                if (value == 0 || filenameInputField == null) return;
+                var token = tokens[value - 1];
+                var text = filenameInputField.text;
+                var start = Mathf.Clamp(Math.Min(filenameInputField.selectionAnchorPosition,
+                    filenameInputField.selectionFocusPosition), 0, text.Length);
+                var end = Mathf.Clamp(Math.Max(filenameInputField.selectionAnchorPosition,
+                    filenameInputField.selectionFocusPosition), start, text.Length);
+                filenameInputField.text = text.Substring(0, start) + token + text.Substring(end);
+                filenameInputField.ActivateInputField();
+                filenameInputField.selectionAnchorPosition = filenameInputField.selectionFocusPosition = start + token.Length;
+                dropdown.value = 0;
+                RefreshFilenamePreview();
+            });
+            UguiFactory.Preferred(dropdown, 136f, 30f);
         }
 
         private static void BuildCanvas()
@@ -134,18 +190,35 @@ namespace OrbitRender.UI
             outputLayout.spacing = 4f;
             outputLayout.childControlHeight = true; outputLayout.childControlWidth = true;
             outputLayout.childForceExpandHeight = false; outputLayout.childForceExpandWidth = true;
-            AddOutputFields(output.transform);
-            var filenameInfo = UguiFactory.Row(output.transform, 38f);
-            filenameInfo.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
-            filenamePreviewText = UguiFactory.Text(filenameInfo.transform, string.Empty, 11,
+            filenamePreviewText = UguiFactory.Text(output.transform, string.Empty, 11,
                 TextAnchor.MiddleLeft, UguiFactory.Muted);
-            UguiFactory.Preferred(filenamePreviewText, 0f);
-            filenamePreviewText.GetComponent<LayoutElement>().flexibleWidth = 1f;
-            var help = UguiFactory.TextButton(filenameInfo.transform, Localization.Get("export-filename-help"),
-                () => { filenameHelpVisible = !filenameHelpVisible; Refresh(RendererController.Instance); });
-            UguiFactory.Preferred(help, 90f);
+            UguiFactory.Preferred(filenamePreviewText, 0f, 38f);
+            AddOutputFields(output.transform);
             UguiFactory.Toggle(output.transform, Localization.Get("save-these-values-as-the-default-renderer-settings"),
                 draft.SaveAsDefault, v => draft.SaveAsDefault = v);
+
+            filenameHelpPanel = UguiFactory.Image(panel.transform, "Filename Help", UguiFactory.Backdrop, true);
+            UguiFactory.Round(filenameHelpPanel.GetComponent<Image>(), true);
+            UguiFactory.Anchor(filenameHelpPanel.GetComponent<RectTransform>(), Vector2.zero, new Vector2(1f, 0f),
+                new Vector2(26f, 244f), new Vector2(-26f, 414f));
+            var helpLayout = filenameHelpPanel.AddComponent<VerticalLayoutGroup>();
+            helpLayout.padding = new RectOffset(12, 12, 12, 12);
+            helpLayout.spacing = 4f;
+            helpLayout.childControlHeight = true; helpLayout.childControlWidth = true;
+            helpLayout.childForceExpandHeight = false; helpLayout.childForceExpandWidth = true;
+            var helpActions = UguiFactory.Row(filenameHelpPanel.transform, 30f);
+            helpActions.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            AddTemplateInsertDropdown(helpActions.transform);
+            UguiFactory.New(helpActions.transform, "Spacer", typeof(LayoutElement)).GetComponent<LayoutElement>().flexibleWidth = 1f;
+            var closeHelp = UguiFactory.TextButton(helpActions.transform, Localization.Get("filename-help-close"), ToggleFilenameHelp);
+            UguiFactory.Preferred(closeHelp, 60f, 30f);
+            var variableHelp = UguiFactory.Text(filenameHelpPanel.transform, Localization.Get("filename-format-help"),
+                11, TextAnchor.MiddleLeft, UguiFactory.Muted);
+            UguiFactory.Preferred(variableHelp, 0f, 32f);
+            var templateHelp = UguiFactory.Text(filenameHelpPanel.transform, Localization.Get("filename-template-help"),
+                11, TextAnchor.MiddleLeft, UguiFactory.Muted);
+            UguiFactory.Preferred(templateHelp, 0f, 64f);
+            filenameHelpPanel.SetActive(false);
 
             errorText = UguiFactory.Text(panel.transform, string.Empty, UiLayout.LabelFontSize, TextAnchor.MiddleLeft, UguiFactory.Error);
             UguiFactory.Anchor(errorText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f),
@@ -261,6 +334,8 @@ namespace OrbitRender.UI
             var filenameLabel = UguiFactory.Text(labels.transform, Localization.Get("filename-format"));
             UguiFactory.Preferred(filenameLabel, 0f);
             filenameLabel.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            var help = UguiFactory.TextButton(labels.transform, Localization.Get("export-filename-help"), ToggleFilenameHelp);
+            UguiFactory.Preferred(help, 90f, 20f);
             var formatLabel = UguiFactory.Text(labels.transform, Localization.Get("output-format"));
             UguiFactory.Preferred(formatLabel, formatWidth);
             formatLabel.GetComponent<LayoutElement>().minWidth = formatWidth;
@@ -268,6 +343,7 @@ namespace OrbitRender.UI
             var fields = UguiFactory.Row(parent, 34f);
             fields.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
             var filenameInput = UguiFactory.Input(fields.transform, draft.FileNameFormat, v => draft.FileNameFormat = v);
+            filenameInputField = filenameInput;
             UguiFactory.Preferred(filenameInput, 0f, 34f);
             filenameInput.GetComponent<LayoutElement>().flexibleWidth = 1f;
             var formatDropdown = UguiFactory.Dropdown(fields.transform,
@@ -275,6 +351,12 @@ namespace OrbitRender.UI
                 (int)draft.Container, v => { draft.Container = (VideoContainer)v; RebuildContent(); });
             UguiFactory.Preferred(formatDropdown, formatWidth, 34f);
             formatDropdown.GetComponent<LayoutElement>().minWidth = formatWidth;
+        }
+
+        private static void ToggleFilenameHelp()
+        {
+            filenameHelpVisible = !filenameHelpVisible;
+            if (filenameHelpPanel != null) filenameHelpPanel.SetActive(filenameHelpVisible);
         }
 
         private static void AddEncoderDropdown()
@@ -356,6 +438,8 @@ namespace OrbitRender.UI
         {
             if (renderer == null || renderer.Busy) { error = Localization.Get("a-render-is-already-in-progress"); Refresh(renderer); return; }
             if (!draft.TryCreateOptions(out var options, out var message)) { error = message; Refresh(renderer); return; }
+            RefreshFilenamePreview();
+            if (!string.IsNullOrEmpty(filenameError)) { error = filenameError; Refresh(renderer); return; }
             if (selectionOnly) { var selected = GetSelectedTileRange(); if (selected.Length < 2) {
                     error = Localization.Get("select-at-least-two-tiles-to-export-a-selection"); Refresh(renderer); return; }
                 options.SelectionStartTile = selected[0]; options.SelectionEndTile = selected[selected.Length - 1]; }
@@ -369,6 +453,8 @@ namespace OrbitRender.UI
         { AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
             canvasObject = null; panelRect = null; content = null; scrollRect = null; errorText = null; audioPreviewText = null;
             filenamePreviewText = null;
+            filenameInputField = null; filenamePreviewSignature = null; filenameError = null;
+            filenameHelpPanel = null;
             encoderAvailability = null; editor = null; draft = null; error = string.Empty; }
 
         private sealed class Field
@@ -397,6 +483,14 @@ namespace OrbitRender.UI
             internal void ApplyPreset() { switch (Preset) { case RendererPreset.Preview: SetVideoValues(1280,720,30,30,8); break;
                 case RendererPreset.QHD: SetVideoValues(2560,1440,60,60,30); break; case RendererPreset.UHD4K: SetVideoValues(3840,2160,60,60,50); break;
                 case RendererPreset.FullHD: SetVideoValues(1920,1080,60,60,18); break; } }
+            internal System.Collections.Generic.Dictionary<string, object> FilenameVariables()
+            {
+                int.TryParse(WidthText, out var width); int.TryParse(HeightText, out var height);
+                int.TryParse(FpsText, out var fps); int.TryParse(VideoFpsText, out var videoFps);
+                int.TryParse(BitrateText, out var bitrate);
+                return ExportFileName.Variables(new RenderProfile(width, height, fps, videoFps, bitrate,
+                    "", videoCodec: Codec, bitDepth: BitDepth, container: Container), BgaMode, filenamePreviewTime, filenamePreviewId);
+            }
             internal bool TryCreateOptions(out RenderRequestOptions options, out string message)
             { options = null; message = string.Empty; int width=0,height=0,targetFps,videoFps,bitrate=0; float endDelay;
                 if (!int.TryParse(FpsText,out targetFps)||targetFps<15||targetFps>1024) { message=Localization.Get("ingame-fps-must-be-between-15-and-1024"); return false; }

@@ -463,7 +463,7 @@ namespace OrbitRender.Renderer
             var directory = settings.ResolveOutputDirectory();
             Directory.CreateDirectory(directory);
             var name = OutputFormat.FileName(fileNameFormatForRun,
-                ADOBase.controller.levelName, DateTime.Now, Guid.NewGuid().ToString("N").Substring(0, 6));
+                ExportFileName.Variables(profile, bgaModeForRun, DateTime.Now, Guid.NewGuid().ToString("N").Substring(0, 6)));
             OutputPath = OutputFormat.UniquePath(directory, name, profile.ContainerExtension);
             partialPath = Path.ChangeExtension(OutputPath, ".partial" + profile.ContainerExtension);
             audioPath = Path.ChangeExtension(OutputPath, ".partial.wav");

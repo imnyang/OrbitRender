@@ -68,6 +68,22 @@ Duplicate filenames receive `_1`, `_2`, etc.; invalid filename characters are sa
 
 Before rendering, the selected encoder is verified with a real one-frame smoke test. If a hardware encoder fails, the renderer asks for consent before using Software for that render; declining leaves the saved setting unchanged and cancels the render.
 
+### Filename templates
+
+Existing `Render_{level}_{date}_{time}_{id}` templates still work. Use **Insert variable** in the export dialog to insert variables and examples. The filename preview updates as you edit; invalid syntax must be corrected before exporting.
+
+Available variables: `{level}`, `{artist}` (empty when missing), `{date}`, `{time}`, `{id}`, `{width}`, `{height}`, `{bitrate}` (Mbps), `{videoFps}`, `{ingameFps}`, `{codec}` (H264/H265/VP9/AV1), `{bitDepth}` (8/10), and `{bgaMode}` (true/false). Names are case sensitive.
+
+```text
+{level}_{date:yyyyMMdd}_{width}x{height}_{videoFps}fps
+{artist|default:"Unknown"} - {level|replace:"/","_"|truncate:40}
+{level}_{if:bgaMode,"BGA","Gameplay"}
+```
+
+Date/time variables accept .NET date formats, such as `{date:yyyy-MM-dd}` or `{time:HHmmss}`. Chain `|lower`, `|upper`, `|trim`, `|replace:"old","new"`, `|truncate:40` (0–160), and `|default:"fallback"` to transform values. String arguments must be double quoted; escape double quotes and backslashes as `\"` and `\\`.
+
+`{if:bgaMode,"yes","no"}` selects a string based on a boolean; `!bgaMode` negates the condition. String conditions such as `{if:artist,"present","missing"}` check for nonempty text. Use `{{` and `}}` for literal braces. The extension is added automatically. Filename sanitization, the 160-character limit, and collision numbering apply after transformations. Preview timestamps and IDs are examples; actual values are generated during export. Templates are limited to 4096 characters.
+
 ### Diagnostics
 
 Use `Run diagnostics` in the settings screen before rendering to check:
