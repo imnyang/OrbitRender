@@ -99,12 +99,8 @@ namespace OrbitRender.UI
 
         private static void AddTemplateInsertDropdown(Transform parent)
         {
-            var tokens = new[] { "{level}", "{artist}", "{date:yyyyMMdd}", "{time:HHmmss}", "{id}",
-                "{width}", "{height}", "{videoFps}", "{ingameFps}", "{bitrate}", "{codec}", "{bitDepth}", "{bgaMode}",
-                "{level|replace:\"/\",\"_\"|truncate:40}", "{artist|default:\"Unknown\"}", "{if:bgaMode,\"BGA\",\"Gameplay\"}" };
-            var labels = new[] { Localization.Get("filename-insert-variable") }.Concat(tokens.Take(13)).Concat(new[] {
-                Localization.Get("filename-insert-transform"), Localization.Get("filename-insert-default"),
-                Localization.Get("filename-insert-condition") }).ToArray();
+            var tokens = FileNameTemplateOptions.Tokens;
+            var labels = new[] { Localization.Get("filename-insert-variable") }.Concat(FileNameTemplateOptions.Labels).ToArray();
             Dropdown dropdown = null;
             dropdown = UguiFactory.Dropdown(parent, labels, 0, value => {
                 if (value == 0 || filenameInputField == null) return;

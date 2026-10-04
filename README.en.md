@@ -35,6 +35,8 @@ On startup, the mod checks GitHub's latest stable release. Drafts and pre-releas
 
 ## Settings
 
+UMM settings and the in-game export dialog use **Basic / Game Settings / Advanced** tabs. Preset, encoding speed, and bit depth use radio options. The filename preview, filename template, and output format remain below the tabs; variable insertion and syntax help appear when opening **Variables**. UMM-specific paths, FFmpeg installation, diagnostics, and reset controls are under Files & Troubleshooting in Advanced.
+
 | Setting | Default | Description |
 | --- | --- | --- |
 | Preset | FullHD | Preview / FullHD / QHD / UHD 4K / Custom |

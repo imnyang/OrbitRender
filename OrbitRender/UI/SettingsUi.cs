@@ -87,7 +87,7 @@ namespace OrbitRender.UI
 
         internal static RendererPreset DrawPreset(RendererPreset value, bool dark = false)
         {
-            return (RendererPreset)DrawToolbar((int)value, new[] {
+            return (RendererPreset)DrawRadioGroup((int)value, new[] {
                 Localization.Get("custom"),
                 Localization.Get("preview"),
                 "FullHD", "QHD", "UHD 4K"
@@ -97,7 +97,7 @@ namespace OrbitRender.UI
         internal static EncoderSpeed DrawEncoding(EncoderSpeed value, bool dark = false)
         {
             GUILayout.Label(Localization.Get("encoding-speed"), dark ? UiTheme.Label : GUI.skin.label);
-            return (EncoderSpeed)DrawToolbar((int)value, new[] {
+            return (EncoderSpeed)DrawRadioGroup((int)value, new[] {
                 Localization.Get("maximum"),
                 Localization.Get("balanced"),
                 Localization.Get("quality")
@@ -139,23 +139,78 @@ namespace OrbitRender.UI
                     { encoder = choice.Encoder; codec = choice.Codec; encoderDropdownOpen = false; }
                 }
         }
-        internal static VideoContainer DrawContainer(VideoContainer value)
+        private static bool containerDropdownOpen;
+        internal static VideoContainer DrawContainer(VideoContainer value, bool showLabel = true)
         {
-            GUILayout.Label(Localization.Get("output-format"));
-            return (VideoContainer)DrawToolbar((int)value, new[] { Localization.Get("auto"), ".mp4", ".ts", ".mkv", ".mov" }, false);
+            if (showLabel) GUILayout.Label(Localization.Get("output-format"));
+            var options = new[] { Localization.Get("auto"), ".mp4", ".ts", ".mkv", ".mov" };
+            if (GUILayout.Button(options[Mathf.Clamp((int)value, 0, options.Length - 1)] + "  ▼", GUILayout.Height(30f)))
+                containerDropdownOpen = !containerDropdownOpen;
+            if (containerDropdownOpen)
+                for (var i = 0; i < options.Length; i++)
+                    if (GUILayout.Button(options[i], GUILayout.Height(26f)))
+                    { value = (VideoContainer)i; containerDropdownOpen = false; }
+            return value;
         }
 
         internal static VideoBitDepth DrawBitDepth(VideoBitDepth value, bool dark = false)
         {
             GUILayout.Label(Localization.Get("video-bit-depth"), dark ? UiTheme.Label : GUI.skin.label);
-            return (VideoBitDepth)DrawToolbar((int)value,
+            return (VideoBitDepth)DrawRadioGroup((int)value,
                 new[] { "8-bit", "10-bit" }, dark);
         }
 
-        private static int DrawToolbar(int selected, string[] options, bool dark)
+        private static Texture2D radioOffTexture;
+        private static Texture2D radioOnTexture;
+        private static int DrawRadioGroup(int selected, string[] options, bool dark)
         {
-            return dark ? GUILayout.Toolbar(selected, options, UiTheme.Toolbar)
-                : GUILayout.Toolbar(selected, options);
+            var style = new GUIStyle(dark ? UiTheme.Label : GUI.skin.label) {
+                padding = new RectOffset(24, 4, 0, 0), alignment = TextAnchor.MiddleLeft
+            };
+            foreach (var state in new[] { style.normal, style.onNormal, style.hover, style.onHover,
+                style.active, style.onActive, style.focused, style.onFocused }) state.background = null;
+            if (radioOffTexture == null) radioOffTexture = CreateRadioTexture(false);
+            if (radioOnTexture == null) radioOnTexture = CreateRadioTexture(true);
+            GUILayout.BeginHorizontal();
+            for (var i = 0; i < options.Length; i++)
+            {
+                var caption = new GUIContent(options[i]);
+                var rect = GUILayoutUtility.GetRect(caption, style, GUILayout.Width(style.CalcSize(caption).x), GUILayout.Height(30f));
+                if (GUI.Toggle(rect, selected == i, caption, style)) selected = i;
+                var color = GUI.color;
+                GUI.color = selected == i ? UguiFactory.Accent : UguiFactory.Muted;
+                GUI.DrawTexture(new Rect(rect.x + 2f, rect.y + (rect.height - 16f) / 2f, 16f, 16f),
+                    selected == i ? radioOnTexture : radioOffTexture);
+                GUI.color = color;
+                GUILayout.Space(12f);
+            }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            return selected;
+        }
+
+        private static Texture2D CreateRadioTexture(bool selected)
+        {
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) {
+                name = selected ? "OrbitRender radio selected" : "OrbitRender radio",
+                hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            var pixels = new Color[size * size];
+            for (var y = 0; y < size; y++)
+                for (var x = 0; x < size; x++)
+                {
+                    var dx = x + .5f - size / 2f;
+                    var dy = y + .5f - size / 2f;
+                    var distance = Mathf.Sqrt(dx * dx + dy * dy);
+                    var ring = Mathf.Clamp01(31.5f - distance) * Mathf.Clamp01(distance - 23.5f);
+                    var dot = selected ? Mathf.Clamp01(13.5f - distance) : 0f;
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, Mathf.Max(ring, dot));
+                }
+            texture.SetPixels(pixels);
+            texture.Apply(false, true);
+            return texture;
         }
     }
 }

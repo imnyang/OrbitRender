@@ -37,9 +37,15 @@ namespace OrbitRender
         private static float localizedEndDelayValue = float.NaN;
         private static float localizedAudioGainValue = float.NaN;
         private static bool diagnosticsHaveRun;
-        private static bool renderOptionsExpanded = true;
-        private static bool visibleComponentsExpanded = true;
-        private static bool encodingExpanded;
+        private static int settingsTab;
+        private static Vector2 settingsScroll;
+        private static bool filenameHelpExpanded;
+        private static bool filenameInsertExpanded;
+        private static readonly DateTime filenamePreviewTime = DateTime.Now;
+        private static readonly string filenamePreviewId = Guid.NewGuid().ToString("N").Substring(0, 6);
+        private static int filenameSelectionStart = int.MaxValue;
+        private static int filenameSelectionEnd = int.MaxValue;
+        private static int filenamePendingCursor = -1;
         private static bool filesExpanded;
 
         public static bool Load(UnityModManager.ModEntry entry)
@@ -175,42 +181,64 @@ namespace OrbitRender
             GUILayout.Label(Localization.Get("configure-the-defaults-used-when-exporting-a-video-per"));
             GUILayout.Space(4f);
 
-            DrawRenderSettings();
-
-            if (SettingsUi.DrawSectionHeader(Localization.Get("render-options"),
-                ref renderOptionsExpanded))
+            var previousTab = settingsTab;
+            settingsTab = GUILayout.Toolbar(settingsTab, new[] { Localization.Get("export-tab-basic"),
+                Localization.Get("export-tab-game"), Localization.Get("export-tab-advanced") }, GUILayout.Height(32f));
+            if (previousTab != settingsTab)
             {
-                DrawRenderOptions();
+                settingsScroll = Vector2.zero;
+                if (!ExportVideoDialog.IsOpen) AudioPreview.Stop();
             }
-
-            if (SettingsUi.DrawSectionHeader(Localization.Get("visible-components"),
-                ref visibleComponentsExpanded))
+            GUILayout.Space(8f);
+            settingsScroll = GUILayout.BeginScrollView(settingsScroll, GUILayout.Height(Mathf.Clamp(Screen.height * .3f, 180f, 330f)));
+            if (settingsTab == 0)
             {
+                DrawRenderSettings();
+                GUILayout.Space(8f);
+                DrawAudioSettings();
+            }
+            else if (settingsTab == 1)
+            {
+                GUILayout.BeginHorizontal();
+                Settings.EndDelaySeconds = DrawLocalizedFloatField(
+                    Localization.Get("end-delay-seconds"), Settings.EndDelaySeconds,
+                    ref localizedEndDelayText, ref localizedEndDelayValue, 90f);
+                GUILayout.EndHorizontal();
+                Settings.BgaMode = DrawLocalizedToggle(
+                    Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), Settings.BgaMode);
+                GUILayout.Space(8f);
+                GUILayout.Label(Localization.Get("visible-components"));
                 DrawVisibleComponents();
             }
-
-            GUILayout.Space(6f);
-            if (SettingsUi.DrawSectionHeader(Localization.Get("encoding"),
-                ref encodingExpanded))
+            else
             {
+                GUILayout.Label(Localization.Get("encoding"));
                 DrawEncodingSettings();
-            }
-
-            GUILayout.Space(6f);
-            if (SettingsUi.DrawSectionHeader(Localization.Get("files-troubleshooting"),
-                ref filesExpanded))
-            {
-                DrawPathSettings();
-                DrawFfmpegInstallControls();
-                DrawDiagnostics();
-                GUILayout.Space(4f);
-                if (GUILayout.Button(Localization.Get("reset-render-settings-to-defaults")))
+                GUILayout.Space(8f);
+                GUILayout.Label(Localization.Get("render-options"));
+                Settings.ShowRenderPreview = DrawLocalizedToggle(
+                    Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
+                Settings.OpenOutputFolder = DrawLocalizedToggle(
+                    Localization.Get("open-output-folder-after-render"), Settings.OpenOutputFolder);
+                GUILayout.Space(8f);
+                if (SettingsUi.DrawSectionHeader(Localization.Get("files-troubleshooting"), ref filesExpanded))
                 {
-                    Settings.ResetToDefaults();
-                    Settings.OnChange();
-                    ResetLocalizedFieldState();
+                    DrawPathSettings();
+                    DrawFfmpegInstallControls();
+                    DrawDiagnostics();
+                    GUILayout.Space(4f);
+                    if (GUILayout.Button(Localization.Get("reset-render-settings-to-defaults"), GUILayout.Height(30f)))
+                    {
+                        Settings.ResetToDefaults();
+                        Settings.OnChange();
+                        ResetLocalizedFieldState();
+                    }
                 }
             }
+            GUILayout.EndScrollView();
+            GUILayout.Space(8f);
+            GUILayout.Box(GUIContent.none, GUILayout.ExpandWidth(true), GUILayout.Height(1f));
+            DrawOutputSettings();
         }
 
         private static void DrawRenderSettings()
@@ -255,13 +283,17 @@ namespace OrbitRender
             GUILayout.EndHorizontal();
         }
 
-        private static void DrawRenderOptions()
+        private static void DrawAudioSettings()
         {
-            Settings.EndDelaySeconds = DrawLocalizedFloatField(
-                Localization.Get("end-delay-seconds"), Settings.EndDelaySeconds,
-                ref localizedEndDelayText, ref localizedEndDelayValue, 90f);
+            GUILayout.Label(Localization.Get("export-audio"));
+            var capturedAudio = Settings.CaptureAudio;
             Settings.CaptureAudio = DrawLocalizedToggle(
                 Localization.Get("capture-audio"), Settings.CaptureAudio);
+            if (!Settings.CaptureAudio)
+            {
+                if (capturedAudio && !ExportVideoDialog.IsOpen) AudioPreview.Stop();
+                return;
+            }
             Settings.AudioGainDb = SettingsUi.DrawAudioGainSlider(Settings.AudioGainDb,
                 ref localizedAudioGainText, ref localizedAudioGainValue,
                 preview: () => AudioPreview.Toggle(RendererSettings.ClampAudioGainDb(Settings.AudioGainDb)));
@@ -271,13 +303,6 @@ namespace OrbitRender
                 AudioPreview.SetGain(Settings.AudioGainDb);
             if (!string.IsNullOrEmpty(AudioPreview.ErrorMessage))
                 GUILayout.Label(AudioPreview.ErrorMessage);
-            Settings.ShowRenderPreview = DrawLocalizedToggle(
-                Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
-            Settings.BgaMode = DrawLocalizedToggle(
-                Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), Settings.BgaMode);
-            Settings.OpenOutputFolder = DrawLocalizedToggle(
-                Localization.Get("open-output-folder-after-render"),
-                Settings.OpenOutputFolder);
         }
 
         private static void DrawVisibleComponents()
@@ -296,16 +321,90 @@ namespace OrbitRender
 
         private static void DrawEncodingSettings()
         {
+            SettingsUi.DrawEncoder(ref Settings.Encoder, ref Settings.Codec, Settings.BitDepth, Settings.Container);
             Settings.Encoding = SettingsUi.DrawEncoding(Settings.Encoding);
             Settings.BitDepth = SettingsUi.DrawBitDepth(Settings.BitDepth);
-            Settings.Container = SettingsUi.DrawContainer(Settings.Container);
-            SettingsUi.DrawEncoder(ref Settings.Encoder, ref Settings.Codec, Settings.BitDepth, Settings.Container);
+        }
+
+        private static void DrawOutputSettings()
+        {
+            var previewColor = GUI.color;
+            try
+            {
+                var name = OutputFormat.FileName(Settings.FileNameFormat,
+                    ExportFileName.Variables(Settings.ResolveProfile(), Settings.BgaMode, filenamePreviewTime, filenamePreviewId));
+                GUILayout.Label(Localization.Format("export-filename-preview", name + OutputFormat.Extension(Settings.Container, Settings.Codec)));
+            }
+            catch (FormatException ex)
+            {
+                GUI.color = UguiFactory.Error;
+                GUILayout.Label(Localization.Format("filename-template-error", ex.Message));
+            }
+            finally { GUI.color = previewColor; }
+
+            GUILayout.BeginHorizontal();
+            GUILayout.BeginVertical(GUILayout.ExpandWidth(true));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.Get("filename-format"));
+            if (GUILayout.Button(Localization.Get("export-filename-help"), GUI.skin.label,
+                GUILayout.ExpandWidth(false), GUILayout.Height(22f))) filenameHelpExpanded = !filenameHelpExpanded;
+            GUILayout.EndHorizontal();
+            GUI.SetNextControlName("OrbitRender.FilenameTemplate");
+            Settings.FileNameFormat = GUILayout.TextField(Settings.FileNameFormat ?? string.Empty, GUILayout.Height(30f));
+            if (GUI.GetNameOfFocusedControl() == "OrbitRender.FilenameTemplate")
+            {
+                var textEditor = (TextEditor)GUIUtility.GetStateObject(typeof(TextEditor), GUIUtility.keyboardControl);
+                if (filenamePendingCursor >= 0)
+                {
+                    textEditor.cursorIndex = textEditor.selectIndex = filenamePendingCursor;
+                    filenamePendingCursor = -1;
+                }
+                filenameSelectionStart = Math.Min(textEditor.cursorIndex, textEditor.selectIndex);
+                filenameSelectionEnd = Math.Max(textEditor.cursorIndex, textEditor.selectIndex);
+            }
+            GUILayout.EndVertical();
+            GUILayout.Space(8f);
+            GUILayout.BeginVertical(GUILayout.Width(136f));
+            GUILayout.Label(Localization.Get("output-format"));
+            Settings.Container = SettingsUi.DrawContainer(Settings.Container, false);
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
+
+            if (filenameHelpExpanded)
+            {
+                GUILayout.BeginVertical(GUI.skin.box);
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(Localization.Get("filename-insert-variable"), GUILayout.ExpandWidth(false),
+                    GUILayout.Height(30f))) filenameInsertExpanded = !filenameInsertExpanded;
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button(Localization.Get("filename-help-close"), GUILayout.ExpandWidth(false),
+                    GUILayout.Height(30f))) filenameHelpExpanded = false;
+                GUILayout.EndHorizontal();
+                if (filenameInsertExpanded)
+                {
+                    var selected = GUILayout.SelectionGrid(-1, FileNameTemplateOptions.Labels, 3,
+                        GUILayout.Height(144f));
+                    if (selected >= 0)
+                    {
+                        var text = Settings.FileNameFormat ?? string.Empty;
+                        var start = Mathf.Clamp(filenameSelectionStart, 0, text.Length);
+                        var end = Mathf.Clamp(filenameSelectionEnd, start, text.Length);
+                        var token = FileNameTemplateOptions.Tokens[selected];
+                        Settings.FileNameFormat = text.Substring(0, start) + token + text.Substring(end);
+                        filenamePendingCursor = start + token.Length;
+                        filenameSelectionStart = filenameSelectionEnd = filenamePendingCursor;
+                        filenameInsertExpanded = false;
+                        GUI.FocusControl("OrbitRender.FilenameTemplate");
+                    }
+                }
+                GUILayout.Label(Localization.Get("filename-format-help"));
+                GUILayout.Label(Localization.Get("filename-template-help"));
+                GUILayout.EndVertical();
+            }
         }
 
         private static void DrawPathSettings()
         {
-            Settings.FileNameFormat = SettingsUi.LabeledField(Localization.Get("filename-format"), Settings.FileNameFormat, 380f);
-            GUILayout.Label(Localization.Get("filename-format-help"));
             DrawPathField(
                 Localization.Get("output-folder"),
                 ref Settings.OutputDirectory,
