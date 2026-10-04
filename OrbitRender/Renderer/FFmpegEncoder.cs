@@ -89,13 +89,18 @@ namespace OrbitRender.Renderer
                 throw new ArgumentOutOfRangeException();
             if (string.IsNullOrEmpty(preset)) preset = "fast";
             if (string.IsNullOrEmpty(codec)) codec = "libx264";
+            // FFmpeg can put VP9/AV1 into MPEG-TS as opaque private data and
+            // report success, although normal players cannot identify video.
+            if (string.Equals(Path.GetExtension(output), ".ts", StringComparison.OrdinalIgnoreCase)
+                && (codec.IndexOf("vp9", StringComparison.OrdinalIgnoreCase) >= 0
+                    || codec.IndexOf("av1", StringComparison.OrdinalIgnoreCase) >= 0))
+                throw new NotSupportedException("MPEG-TS output requires H.264 or H.265 video.");
             if (!string.Equals(pixelFormat, "yuv420p10le", StringComparison.OrdinalIgnoreCase)) pixelFormat = "yuv420p";
             if (!Enum.IsDefined(typeof(RawVideoPixelFormat), rawPixelFormat))
                 rawPixelFormat = RawVideoPixelFormat.Rgba32;
             this.rawPixelFormat = rawPixelFormat;
-            bool isHardwareEncoder = codec.EndsWith("_nvenc", StringComparison.OrdinalIgnoreCase)
-                || codec.EndsWith("_qsv", StringComparison.OrdinalIgnoreCase)
-                || codec.EndsWith("_amf", StringComparison.OrdinalIgnoreCase);
+            bool isHardwareEncoder = VideoCodecCatalog.IsHardwareEncoder(codec);
+            bool isVaapi = codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase);
             var frameByteCount = checked(width * height * BytesPerPixel);
             FrameByteCount = frameByteCount;
             // Readback and encoding share this pool. Keep enough frames in flight
@@ -125,16 +130,18 @@ namespace OrbitRender.Renderer
                 // Encoder presets/rate control and software encoder threads
                 // remain independent of these preprocessing threads.
                 Arguments = "-hide_banner -loglevel warning -nostdin -n"
+                    + (isVaapi ? " -init_hw_device vaapi=orbit_vaapi -filter_hw_device orbit_vaapi" : "")
                     + (isHardwareEncoder ? " -filter_threads " + HardwareFilterThreads : "")
                     + " -f rawvideo -pixel_format "
                     + (rawPixelFormat == RawVideoPixelFormat.Rgb24 ? "rgb24" : "rgba") + " -video_size "
-                    + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf vflip "
-                    + encoderOptions + " -pix_fmt " + pixelFormat
+                    + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf "
+                    + BuildVideoFilter(codec, pixelFormat) + " "
+                    + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : pixelFormat)
                     // The raw-video demuxer supplies the same target time base
                     // used by the render clock, so the encoded stream inherits
                     // the requested constant frame rate without resampling.
                     + " -fps_mode cfr"
-                    + (fastStart ? " -movflags +faststart" : "") + " \"" + output + "\"",
+                    + (fastStart ? ContainerOptions(output) : "") + " \"" + output + "\"",
                 UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardInput = true, RedirectStandardError = true
             }};
@@ -209,14 +216,27 @@ namespace OrbitRender.Renderer
             return "p4";
         }
 
-        private static string BuildEncoderOptions(string codec, string preset, string rateControl,
+        internal static string BuildVideoFilter(string codec, string pixelFormat)
+        {
+            // VAAPI encoders consume hardware frames. Convert and flip on the
+            // CPU before uploading; the raw transport can remain RGB or RGBA.
+            return codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
+                ? "vflip,format=" + (pixelFormat == "yuv420p10le" ? "p010le" : "nv12") + ",hwupload"
+                : "vflip";
+        }
+
+        internal static string BuildEncoderOptions(string codec, string preset, string rateControl,
             bool isHardwareEncoder, string pixelFormat)
         {
             var normalized = (codec ?? string.Empty).Trim().ToLowerInvariant();
             var tenBitHevc = string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
                 && (normalized == "libx265" || normalized == "hevc_nvenc"
-                    || normalized == "hevc_qsv" || normalized == "hevc_amf");
+                    || normalized == "hevc_qsv" || normalized == "hevc_amf" || normalized == "hevc_vaapi");
             var profile = tenBitHevc ? " -profile:v main10" : string.Empty;
+            if (normalized.EndsWith("_vaapi", StringComparison.Ordinal))
+                // Leave driver-specific rate-control/quality selection on auto.
+                // VAAPI does not accept x264/NVENC preset names.
+                return "-c:v " + normalized + " " + rateControl + profile;
             if (isHardwareEncoder && normalized.EndsWith("_nvenc", StringComparison.Ordinal))
                 return "-c:v " + normalized + " -preset " + NvencPreset(preset)
                     + " -tune hq -rc cbr " + rateControl + profile;
@@ -375,6 +395,12 @@ namespace OrbitRender.Renderer
             if (WrittenFrames != expectedFrames) throw new IOException("Encoded frame count does not match the render clock.");
         }
         private void AbortProcess() { try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { } }
+        internal static string ContainerOptions(string output)
+        {
+            var extension = Path.GetExtension(output).ToLowerInvariant();
+            return extension == ".mp4" || extension == ".mov" ? " -movflags +faststart"
+                : extension == ".webm" ? " -f webm" : string.Empty;
+        }
         public static void MuxAudio(string executable, string video, string audio, string output,
             double audioOffsetSeconds = 0.0, double audioGainDb = 0.0)
         {
@@ -385,7 +411,7 @@ namespace OrbitRender.Renderer
             var isWebm = string.Equals(Path.GetExtension(output), ".webm", StringComparison.OrdinalIgnoreCase);
             var audioEncoder = isWebm ? "libopus" : "aac";
             var audioBitrate = isWebm ? "160k" : "320k";
-            var containerOptions = isWebm ? "-f webm" : "-movflags +faststart";
+            var containerOptions = ContainerOptions(output);
             var audioSeek = audioOffsetSeconds > 0
                 ? "-ss " + audioOffsetSeconds.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + " "
                 : string.Empty;
@@ -414,7 +440,7 @@ namespace OrbitRender.Renderer
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
                 Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" -i \"" + audio
-                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy -movflags +faststart -shortest \""
+                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + " -shortest \""
                     + output + "\""
             }})
             {

@@ -92,6 +92,7 @@ namespace OrbitRender.Renderer
         }
         private FrameCapture capture;
         private FFmpegEncoder encoder;
+        private string fileNameFormatForRun;
         private SavedState saved;
         private Coroutine routine;
         private Coroutine editorRecoveryRoutine;
@@ -228,6 +229,7 @@ namespace OrbitRender.Renderer
                 ?? settings.ShowResultText;
             showHitJudgmentsForRun = requestOptions?.ShowHitJudgments ?? rpcOptions?.ShowHitJudgments
                 ?? settings.ShowHitJudgments;
+            fileNameFormatForRun = requestOptions?.FileNameFormat ?? settings.FileNameFormat;
             profile = settings.ResolveProfile(
                 requestOptions?.Preset ?? rpcOptions?.Preset,
                 requestOptions?.Width ?? rpcOptions?.Width,
@@ -239,7 +241,7 @@ namespace OrbitRender.Renderer
                 requestOptions?.VideoCodec ?? rpcOptions?.VideoCodec,
                 requestOptions?.BitDepth ?? rpcOptions?.BitDepth,
                 requestOptions?.Encoding,
-                requestOptions?.Encoder);
+                requestOptions?.Encoder, requestOptions?.Container);
             Clock = new RenderClock(profile.TargetFps);
             AudioSchedulePatch.ResetRuntimeState();
             Message = Localization.FormatWithCurrentCulture("preparing-render", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps, profile.FfmpegCodec);
@@ -339,7 +341,7 @@ namespace OrbitRender.Renderer
             var definition = VideoCodecCatalog.Get(profile.VideoCodec);
             profile = new RenderProfile(profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps,
                 profile.FfmpegPreset, profile.EndDelaySeconds, definition.SoftwareEncoder,
-                profile.VideoCodec, profile.BitDepth);
+                profile.VideoCodec, profile.BitDepth, profile.Container);
             encoderFallbackPending = false;
             encoderFallbackReason = null;
             State = RenderState.Preparing;
@@ -457,8 +459,9 @@ namespace OrbitRender.Renderer
             var settings = Main.Settings ?? new RendererSettings();
             var directory = settings.ResolveOutputDirectory();
             Directory.CreateDirectory(directory);
-            var name = SanitizeName(ADOBase.controller.levelName);
-            OutputPath = Path.Combine(directory, name + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + Guid.NewGuid().ToString("N").Substring(0, 6) + profile.ContainerExtension);
+            var name = OutputFormat.FileName(fileNameFormatForRun,
+                ADOBase.controller.levelName, DateTime.Now, Guid.NewGuid().ToString("N").Substring(0, 6));
+            OutputPath = OutputFormat.UniquePath(directory, name, profile.ContainerExtension);
             partialPath = Path.ChangeExtension(OutputPath, ".partial" + profile.ContainerExtension);
             audioPath = Path.ChangeExtension(OutputPath, ".partial.wav");
             audioEncodedPath = Path.ChangeExtension(OutputPath, ".partial.m4a");
