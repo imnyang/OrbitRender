@@ -24,6 +24,38 @@ internal static class UiLayoutTests
         var portrait = UiLayout.ExportDialog(1080, 1920, 96);
         Near(portrait.Width * portrait.Scale, 1044, "Portrait dialog lost its horizontal margin.");
 
+        // The player rectangle, including expanded mode, must stay 16:9 at
+        // different window ratios and leave space for controls and the footer.
+        foreach (var screen in new[] { (1280f, 720f), (1920f, 1080f), (2560f, 1440f),
+            (3840f, 2160f), (2560f, 1080f), (800f, 600f), (1080f, 1920f) })
+        {
+            var scale = Math.Max(.1f, Math.Min(screen.Item2 / 900f, screen.Item1 / 1280f));
+            var width = screen.Item1 / scale;
+            var height = screen.Item2 / scale;
+            foreach (var expanded in new[] { false, true })
+            {
+                var player = UiLayout.CompletionPlayer(width, height, expanded);
+                Near(player.Width / player.VideoHeight, 16f / 9f, "Completion viewport lost its 16:9 ratio.");
+                var sidebar = expanded ? 0 : UiLayout.CompletionSidebarWidth;
+                var footer = expanded ? 0 : UiLayout.CompletionFooterHeight;
+                var controls = expanded ? 0 : UiLayout.CompletionControlsHeight;
+                if (player.Left < sidebar - .01f
+                    || player.Top < -.01f
+                    || player.Left + player.Width > width + .01f
+                    || player.Top + player.VideoHeight + controls
+                        > height - footer + .01f)
+                    throw new Exception("Completion player overlaps sidebar, controls or footer.");
+                if (player.Width < width - sidebar - .01f
+                    && player.VideoHeight < height - footer - controls - .01f)
+                    throw new Exception("Completion video does not fill the available width or height.");
+                if (expanded && screen.Item1 / screen.Item2 == 16f / 9f)
+                {
+                    Near(player.Width, width, "Fullscreen controls reserve space beside the video.");
+                    Near(player.VideoHeight, height, "Fullscreen controls reserve space below the video.");
+                }
+            }
+        }
+
         foreach (var width in new[] { 640, 800, 1280, 1920, 2560, 3840 })
             foreach (var height in new[] { 360, 480, 600, 720, 1080, 1440, 2160 })
                 foreach (var dpi in new[] { 0, 96, 144, 192, 384 })

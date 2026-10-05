@@ -43,6 +43,7 @@ fi
 
 cd "$ROOT_DIR"
 "${MSBUILD_COMMAND[@]}" OrbitRender.sln \
+  /restore \
   /t:Rebuild \
   /p:Configuration=Release \
   "/p:GameDir=$GAME_DIR" \

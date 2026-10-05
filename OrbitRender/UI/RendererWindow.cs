@@ -19,6 +19,7 @@ namespace OrbitRender.UI
         private static RenderState builtRenderState;
         private static bool builtShowProgress;
         private static int builtScreenWidth;
+        private static int builtScreenHeight;
 
         internal static void Sync(RendererController renderer)
         {
@@ -30,17 +31,20 @@ namespace OrbitRender.UI
             }
             var nextMode = FfmpegInstaller.IsInstallPromptVisible ? 1
                 : renderer.EncoderFallbackPending ? 2
+                : renderer.State == RenderState.Completed && renderer.CompletionVisible ? 4
                 : renderer.Busy || renderer.ToastVisible ? 3 : 0;
             if (nextMode == 0) { Hide(); return; }
-            if (canvasObject == null || mode != nextMode || builtScreenWidth != Screen.width
+            if (canvasObject == null || mode != nextMode || builtScreenWidth != Screen.width || builtScreenHeight != Screen.height
                 || (nextMode == 3 && (builtRenderState != renderer.State
                     || builtShowProgress != HasProgress(renderer)))) Build(nextMode, renderer);
             if (nextMode == 1) UpdateFfmpeg();
             else if (nextMode == 3) UpdateRender(renderer);
+            else if (nextMode == 4) CompletionScreen.Sync(renderer);
         }
 
         internal static void Dispose()
         {
+            CompletionScreen.Dispose();
             if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
             canvasObject = null; backdropObject = null; panelObject = null; metrics = null; preview = null;
             state = title = detail = percent = frames = speed = eta = hint = path = elapsedLabel = null;
@@ -49,6 +53,7 @@ namespace OrbitRender.UI
 
         private static void Hide()
         {
+            if (mode == 4) { Dispose(); return; }
             if (canvasObject != null) canvasObject.SetActive(false);
             mode = 0;
         }
@@ -60,7 +65,13 @@ namespace OrbitRender.UI
             builtRenderState = renderer.State;
             builtShowProgress = HasProgress(renderer);
             builtScreenWidth = Screen.width;
+            builtScreenHeight = Screen.height;
             canvasObject = UguiFactory.Canvas("OrbitRender.RendererWindow", 32764);
+            if (nextMode == 4)
+            {
+                CompletionScreen.Build(canvasObject, renderer);
+                return;
+            }
             backdropObject = UguiFactory.Image(canvasObject.transform, "Backdrop", UguiFactory.Backdrop,
                 nextMode != 3 || renderer.Busy);
             UguiFactory.Stretch(backdropObject.GetComponent<RectTransform>());

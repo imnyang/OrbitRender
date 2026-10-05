@@ -1,4 +1,16 @@
 # OrbitRender English translations
+completion-elapsed = Completed: {0:0.##}s
+completion-back = ← Back
+completion-open-folder = Open in Folder
+completion-open-video = Open Video
+completion-play = ▶ Play
+completion-pause = Pause
+completion-loading = Loading video…
+completion-preview-unavailable = Preview unavailable. Use Open Video to play the exported file.
+completion-preview-title = VIDEO PREVIEW
+completion-shortcuts = Space / K   Play or pause\n← / →   Seek 5 seconds\nJ / L   Seek 10 seconds\n, / .   Previous / next frame\n0–9   Jump to 0–90%\nHome / End   Start or end\nF   Expand player   ·   Esc   Back
+completion-player-hint = Space  Play / pause   ·   ← / →  Seek   ·   , / .  Frame by frame when paused
+completion-frame = Frame {0:N0}
 
 diagnostics-have-not-been-run = Diagnostics have not been run.
 click-run-diagnostics-to-check-ffmpeg-the-output-folder = Click Run diagnostics to check FFmpeg, the output folder, the encoder, and game audio.
