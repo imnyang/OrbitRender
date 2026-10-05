@@ -88,6 +88,7 @@ if (!(Test-Path -LiteralPath "$GameDir/A Dance of Fire and Ice_Data/Managed/Asse
 
 & $MSBuildPath `
     OrbitRender.sln `
+    /restore `
     /t:Rebuild `
     /p:Configuration=Release `
     "/p:GameDir=$GameDir" `

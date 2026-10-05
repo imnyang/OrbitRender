@@ -35,7 +35,7 @@ namespace OrbitRender.Renderer
         // preflight and finalization. ControlsTime is intentionally narrower
         // because it only describes simulation ownership.
         internal static bool InputBlocked => (Instance != null && Instance.Busy)
-            || OrbitRender.UI.ExportVideoDialog.IsOpen;
+            || OrbitRender.UI.ExportVideoDialog.IsOpen || OrbitRender.UI.CompletionScreen.BlocksInput;
         internal static bool ShowHitJudgments => Instance != null && Instance.showHitJudgmentsForRun;
         internal static bool BgaModeActive => Instance != null && Instance.bgaModeForRun
             && (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering
@@ -193,6 +193,7 @@ namespace OrbitRender.Renderer
                 return;
             }
             State = RenderState.Preparing;
+            CompletionVisible = false;
             cancellation = false;
             CapturedFrames = TotalFrames = 0;
             OutputPath = ""; partialPath = null;
@@ -389,6 +390,13 @@ namespace OrbitRender.Renderer
         }
 
         internal bool ToastVisible => Time.unscaledTime <= toastUntil;
+        internal bool CompletionVisible { get; private set; }
+
+        internal void DismissCompletion()
+        {
+            CompletionVisible = false;
+            toastUntil = float.NegativeInfinity;
+        }
 
         internal void ShowToast(string text, float seconds, bool useGameNotification = true)
         {
@@ -754,6 +762,7 @@ namespace OrbitRender.Renderer
             finally { finalizationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - finalizationStart; }
             totalRenderTicks = System.Diagnostics.Stopwatch.GetTimestamp() - totalRenderStartTicks;
             State = RenderState.Completed;
+            CompletionVisible = true;
             Message = Localization.Format("completed-frames", CapturedFrames)
                 + (audio != null && audio.Peak < 0.000001f
                     ? Localization.Get("audio-mix-was-silent-check-game-sound-settings")
@@ -946,7 +955,7 @@ namespace OrbitRender.Renderer
             request?.Dispose();
         }
 
-        private void OpenOutputFolder()
+        internal void OpenOutputFolder()
         {
             var directory = Path.GetDirectoryName(OutputPath);
             if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
@@ -1232,6 +1241,7 @@ namespace OrbitRender.Renderer
             }
             escapeHeldAt = -1f;
             forceCancelTriggered = false;
+            if (OrbitRender.UI.CompletionScreen.BlocksInput) return;
             if (Input.GetKeyDown(KeyCode.F6) && Main.Enabled && ADOBase.editor != null
                 && !OrbitRender.UI.ExportVideoDialog.IsOpen
                 && !FfmpegInstaller.IsInstallPromptVisible)

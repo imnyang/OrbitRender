@@ -210,7 +210,8 @@ namespace OrbitRender.Patches
     {
         static bool Prefix(scrController __instance, ref bool __result)
         {
-            if (RendererController.Instance == null || RendererController.Instance.State != RenderState.Rendering) return true;
+            if (!OrbitRender.UI.CompletionScreen.BlocksInput
+                && (RendererController.Instance == null || RendererController.Instance.State != RenderState.Rendering)) return true;
             __result = __instance.paused;
             return false;
         }
