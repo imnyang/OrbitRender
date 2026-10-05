@@ -6,10 +6,6 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 
 - [한국어](README.md)
 - [English](README.en.md)
-- [日本語](README.ja.md)
-- [简体中文](README.zh-CN.md)
-- [العربية](README.ar.md)
-- [Português](README.pt-BR.md)
 - [JavaScript](README.js)
 - [RPC API Specification](docs/RPC_API.md)
 
