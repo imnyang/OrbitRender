@@ -77,7 +77,7 @@ namespace OrbitRender.UI
             var signature = string.Join("\n", draft.FileNameFormat, draft.WidthText, draft.HeightText,
                 draft.FpsText, draft.VideoFpsText, draft.BitrateText, draft.Codec.ToString(), draft.BitDepth.ToString(),
                 draft.Container.ToString(), draft.BgaMode.ToString(),
-                ADOBase.controller != null ? ADOBase.controller.levelName : "Level", artist);
+                ExportFileName.LevelName, artist);
             if (signature == filenamePreviewSignature) return;
             filenamePreviewSignature = signature;
             try

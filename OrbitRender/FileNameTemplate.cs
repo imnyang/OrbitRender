@@ -8,7 +8,7 @@ namespace OrbitRender
     // Filename expressions only: no scripts, reflection, or filesystem access.
     internal static class FileNameTemplate
     {
-        internal static string Expand(string template, IDictionary<string, object> variables)
+        internal static string Expand(string template, IDictionary<string, object> variables, Func<string, string> sanitizeExpression = null)
         {
             if (template.Length > 4096) throw new FormatException("Template exceeds 4096 characters.");
             var result = new StringBuilder();
@@ -33,7 +33,11 @@ namespace OrbitRender
                 }
                 if (i == template.Length) throw new FormatException("Unclosed expression at position " + (start + 1) + ".");
                 var expression = template.Substring(start + 1, i - start - 1);
-                try { result.Append(Evaluate(expression, variables)); }
+                try
+                {
+                    var value = Evaluate(expression, variables);
+                    result.Append(sanitizeExpression != null ? sanitizeExpression(value) : value);
+                }
                 catch (FormatException ex)
                 { throw new FormatException("{" + expression + "} at position " + (start + 1) + ": " + ex.Message); }
                 Require(result.Length <= 65536, "Template result is too long.");

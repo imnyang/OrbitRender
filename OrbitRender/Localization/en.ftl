@@ -154,7 +154,7 @@ ffmpeg-could-not-be-installed-automatically-value-check = FFmpeg could not be in
 ffmpeg-installation-was-skipped-set-ffmpeg-executable-m = FFmpeg installation was skipped. Set FFmpeg executable manually or install it below.
 
 filename-format = Filename format
-filename-format-help = {level}: level name · {date}: yyyy-MM-dd · {time}: HH-mm-ss · {id}: random ID (extension added automatically)
+filename-format-help = {level}: level title · {date}: yyyy-MM-dd · {time}: HH-mm-ss · {id}: random ID · /: subfolder (extension added automatically)
 output-format = Output format
 checking-available-encoders = Checking available encoders…
 no-compatible-encoders = No compatible encoder. Change bit depth or output format.

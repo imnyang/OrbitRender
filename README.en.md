@@ -74,6 +74,8 @@ Before rendering, the selected encoder is verified with a real one-frame smoke t
 
 Existing `Render_{level}_{date}_{time}_{id}` templates still work. Use **Insert variable** in the export dialog to insert variables and examples. The filename preview updates as you edit; invalid syntax must be corrected before exporting.
 
+`{level}` uses the song title from the level settings, falling back to the level filename when blank. A literal `/` or `\` creates subfolders beneath the output directory. For example, `{level}/Render_{date:yyyy-MM-dd_HH-mm-ss}_{id}.mp4` produces `wowcoollevel/Render_2026-10-05_15-05-42_8e5bb0.mp4`. Slashes in expression results become underscores; `.` and `..` path components are ignored. Each component is limited to 160 characters. Explicit `.mp4`, `.ts`, `.mkv`, `.mov`, or `.webm` suffixes are replaced with the selected container extension so they are not duplicated.
+
 Available variables: `{level}`, `{artist}` (empty when missing), `{date}`, `{time}`, `{id}`, `{width}`, `{height}`, `{bitrate}` (Mbps), `{videoFps}`, `{ingameFps}`, `{codec}` (H264/H265/VP9/AV1), `{bitDepth}` (8/10), and `{bgaMode}` (true/false). Names are case sensitive.
 
 ```text

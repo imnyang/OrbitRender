@@ -37,7 +37,7 @@ namespace OrbitRender
         }
 
         internal static string FileName(string format, string level, DateTime now, string id)
-            => FileName(format, Variables(Clean(level ?? "Level"), now, id));
+            => FileName(format, Variables(level, now, id));
 
         internal static Dictionary<string, object> Variables(string level, DateTime now, string id)
             => new Dictionary<string, object>(StringComparer.Ordinal) {
@@ -48,7 +48,25 @@ namespace OrbitRender
         internal static string FileName(string format, IDictionary<string, object> variables)
         {
             if (string.IsNullOrWhiteSpace(format)) format = DefaultFileName;
-            var value = Clean(FileNameTemplate.Expand(format, variables));
+            // Only separators written in the template create directories. Metadata and
+            // expression results remain a single path component, even after transforms.
+            var expanded = FileNameTemplate.Expand(format, variables,
+                value => value.Replace('/', '_').Replace('\\', '_'));
+            var parts = expanded.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(part => part.Trim() != "." && part.Trim() != "..").ToArray();
+            if (parts.Length == 0) parts = new[] { "Render" };
+            // The selected container supplies the extension, including when the user
+            // includes a familiar video extension in the template.
+            var extension = new[] { ".mp4", ".ts", ".mkv", ".mov", ".webm" }
+                .FirstOrDefault(suffix => parts[parts.Length - 1].EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+            if (extension != null)
+                parts[parts.Length - 1] = parts[parts.Length - 1].Substring(0, parts[parts.Length - 1].Length - extension.Length);
+            return string.Join(Path.DirectorySeparatorChar.ToString(), parts.Select(CleanComponent));
+        }
+
+        private static string CleanComponent(string value)
+        {
+            value = Clean(value);
             // Keep room for temporary suffixes and the container extension.
             var length = Math.Min(160, value.Length);
             if (length < value.Length && char.IsHighSurrogate(value[length - 1])) length--;

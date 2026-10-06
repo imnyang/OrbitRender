@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using OrbitRender;
 
 internal static class FileNameTemplateTests
@@ -33,6 +34,7 @@ internal static class FileNameTemplateTests
         check("{level|trim|replace:\"/\",\"-\"|lower|truncate:5}", "my-le");
         check("{level|upper|trim}", "MY_LEVEL");
         check("{artist|default:\"Unknown\"}", "Unknown");
+        check("{artist|default:\"../escape\"}/{id}", Path.Combine("_escape", "abc123"));
         variables["artist"] = "Artist";
         check("{artist|default:\"Unknown\"}", "Artist");
         check("{if:bgaMode,\"BGA\",\"Gameplay\"}", "BGA");
@@ -46,6 +48,14 @@ internal static class FileNameTemplateTests
         check("{artist|replace:\"Artist\",\"\"|default:\"Empty\"}", "Empty");
         check("{artist|truncate:0}", "Render");
         check("../NUL", "_NUL");
+        check("{level}/Render_{date}_{time}_{id}.mp4",
+            Path.Combine("My_Level", "Render_2026-10-05_12-34-56_abc123"));
+        check("exports\\{level}\\Render_{id}", Path.Combine("exports", "My_Level", "Render_abc123"));
+        check("{date:yyyy/MM/dd}/{id}", Path.Combine("2026_10_05", "abc123"));
+        check("{artist|default:\"../escape\"}/{id}", Path.Combine("Artist", "abc123"));
+        check("exports/../CON/NUL.mp4", Path.Combine("exports", "_CON", "_NUL"));
+        check("/exports//Render.mp4", Path.Combine("exports", "Render"));
+        check("Render.MP4", "Render");
         check("{artist|replace:\"Artist\",\"CON\"}", "_CON");
         variables["artist"] = "a😀b";
         check("{artist|truncate:2}", "a");
@@ -66,5 +76,22 @@ internal static class FileNameTemplateTests
             check("{date:yyyyMMdd}_{videoFps}", "20261005_60");
         }
         finally { CultureInfo.CurrentCulture = originalCulture; }
+
+        var directory = Path.Combine(Path.GetTempPath(), "orbit-filename-" + Guid.NewGuid().ToString("N"));
+        var nestedName = OutputFormat.FileName("{level}/Render_{id}.mp4", "wowcoollevel", now, "abc123");
+        var first = OutputFormat.UniquePath(directory, nestedName, ".mp4");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(first));
+            File.WriteAllText(first, "keep");
+            var next = OutputFormat.UniquePath(directory, nestedName, ".mp4");
+            if (next != Path.Combine(directory, "wowcoollevel", "Render_abc123_1.mp4")
+                || File.ReadAllText(first) != "keep") throw new Exception("Nested filename collision handling failed.");
+            File.Delete(first);
+            File.WriteAllText(Path.ChangeExtension(first, ".partial.mp4"), "pending");
+            if (OutputFormat.UniquePath(directory, nestedName, ".mp4") != next)
+                throw new Exception("Nested partial render collision handling failed.");
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 }

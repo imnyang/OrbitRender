@@ -142,7 +142,7 @@ ffmpeg-could-not-be-installed-automatically-value-check = FFmpeg를 자동으로
 ffmpeg-installation-was-skipped-set-ffmpeg-executable-m = FFmpeg 설치를 건너뛰었습니다. 실행 파일을 직접 지정하거나 아래에서 설치하세요.
 
 filename-format = 파일명 형식
-filename-format-help = {level}: 레벨명 · {date}: 날짜 · {time}: 시간 · {id}: 랜덤 ID (확장자 자동 추가)
+filename-format-help = {level}: 레벨 제목 · {date}: 날짜 · {time}: 시간 · {id}: 랜덤 ID · /: 하위 폴더 (확장자 자동 추가)
 output-format = 출력 형식
 checking-available-encoders = 사용 가능한 인코더 확인 중…
 no-compatible-encoders = 지원하는 인코더가 없습니다. 비트 심도 또는 출력 형식을 변경하세요.
