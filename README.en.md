@@ -1,6 +1,6 @@
 # OrbitRender
 
-OrbitRender is a Unity Mod Manager mod that renders ADOFAI custom levels to video at a selected resolution and frame rate.
+OrbitRender renders ADOFAI custom levels to video at a selected resolution and frame rate. It supports Unity Mod Manager, MelonLoader and BepInEx 5 for Mono.
 
 ## Features
 
@@ -18,19 +18,29 @@ OrbitRender is a Unity Mod Manager mod that renders ADOFAI custom levels to vide
 
 ## Installation
 
-After downloading the mod, place it neatly in the game's `Mods` directory:
+Install the ZIP for your loader:
 
-```text
-A Dance of Fire and Ice/Mods/OrbitRender/
-```
+| Loader | ZIP | Extract into |
+| --- | --- | --- |
+| Unity Mod Manager | `OrbitRender.zip` | Game's `Mods/` directory (`Mods/OrbitRender/OrbitRender.dll`) |
+| MelonLoader (Mono, built against 0.6.6) | `OrbitRender-MelonLoader.zip` | Game root (`Mods/OrbitRender.dll`) |
+| BepInEx 5 (Mono, built against 5.4.23.2) | `OrbitRender-BepInEx.zip` | Game root (`BepInEx/plugins/OrbitRender/OrbitRender.dll`) |
 
-Install `OrbitRender.dll` and `Info.json` in the mod folder. If FFmpeg is missing, the mod asks for confirmation on first launch and downloads the current platform's binary into `FFmpeg/<platform>` only after approval; existing installations or an explicit `FFmpeg executable` setting are respected without prompting. Enable the mod in Unity Mod Manager, open a custom level, configure the settings, and press `F6`.
+Install the loader separately; loader binaries are excluded from these ZIPs. Install only one OrbitRender loader variant. IL2CPP and BepInEx 6 are outside the supported targets. Integration follows [MelonLoader](https://github.com/LavaGang/MelonLoader/tree/v0.6.6) and the [BepInEx 5 plugin API](https://docs.bepinex.dev/v5.4.16/articles/dev_guide/plugin_tutorial/2_plugin_start.html).
 
-Runtime support is intended for Windows, macOS, and Linux when the platform has a compatible ADOFAI and Unity Mod Manager environment. Windows uses `ffmpeg.exe`; macOS/Linux use an executable `ffmpeg` available on PATH or selected in the `FFmpeg executable` setting.
+All variants support `Export Video` / `F6` in the editor. MelonLoader and BepInEx use `F7` to open the defaults, FFmpeg installer and diagnostics window. Settings are stored in `Mods/OrbitRender/Settings.xml` and `BepInEx/config/OrbitRender.xml`, respectively.
+
+Running `./build.ps1` or `GAME_DIR="game path" bash ./build.sh` builds all three variants and creates `Builds/OrbitRender.zip`, `Builds/OrbitRender-MelonLoader.zip` and `Builds/OrbitRender-BepInEx.zip`. Build scripts download loader references into `packages/`. The shell script also requires `curl`, `unzip` and `python3`. `build.ps1 -Copy` installs the UMM variant.
+
+If FFmpeg is missing, the mod asks for confirmation on first launch and downloads the current platform's binary into `FFmpeg/<platform>` only after approval; existing installations or an explicit `FFmpeg executable` setting are respected without prompting. Open a custom level, configure the settings, and press `F6`.
+
+Runtime support is intended for Windows, macOS, and Linux when the platform has a compatible ADOFAI and selected loader environment. Windows uses `ffmpeg.exe`; macOS/Linux use an executable `ffmpeg` available on PATH or selected in the `FFmpeg executable` setting.
 
 The build output does not contain FFmpeg. After you approve the install, the mod automatically selects and downloads one binary: `windows-x64`, `linux-x64`, `macos-x64`, or `macos-arm64` for Apple Silicon.
 
 ## Automatic updates
+
+Automatic updates apply only to the UMM variant. Replace the ZIP contents and restart the game to update the MelonLoader/BepInEx variants.
 
 On startup, the mod checks GitHub's latest stable release. Drafts and pre-releases are excluded through `releases/latest`; the downloaded ZIP's version and SHA-256 are verified. When no render is active, the mod hot-reloads through Unity Mod Manager without restarting the game; if hot reload is unavailable, it falls back to applying the update after the game exits.
 

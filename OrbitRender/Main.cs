@@ -2,23 +2,27 @@ using System;
 using System.Globalization;
 using System.IO;
 using HarmonyLib;
+#if UMM
 using UnityModManagerNet;
+#endif
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using OrbitRender.Renderer;
 using OrbitRender.UI;
 namespace OrbitRender
 {
+#if UMM
     [EnableReloading]
+#endif
     public static class Main
     {
-        internal static UnityModManager.ModEntry Entry;
+        internal static ModContext Entry;
         internal static bool Enabled;
         internal static bool RpcEnabled { get; private set; }
         internal static int RpcPort { get; private set; } = 1108;
         internal static RendererRpcServer RpcServer { get; private set; }
         internal static RendererSettings Settings;
-        private static Harmony harmony;
+        private static HarmonyLib.Harmony harmony;
         private static GameObject host;
         private static string diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
         private static string diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
@@ -48,71 +52,93 @@ namespace OrbitRender
         private static int filenamePendingCursor = -1;
         private static bool filesExpanded;
 
+#if UMM
         public static bool Load(UnityModManager.ModEntry entry)
         {
-            Entry = entry;
-            Localization.Initialize(entry.Path);
+            if (!Initialize(new ModContext(entry))) return false;
+            UpdateManager.Start(entry);
+            entry.OnToggle = (mod, enabled) =>
+            {
+                if (!enabled)
+                {
+                    AudioPreview.Stop();
+                    ExportVideoDialog.CloseDialog();
+                    RendererController.Instance?.StopAndClean();
+                }
+                Enabled = enabled;
+                if (!enabled) StopRpcServer();
+                else StartRpcServer();
+                return true;
+            };
+            entry.OnGUI = mod => DrawSettings();
+            entry.OnUpdate = (mod, deltaTime) => UpdateManager.PumpMainThread();
+            entry.OnSaveGUI = mod => Settings?.Save(mod);
+            entry.OnUnload = mod => { Shutdown(); return true; };
+            return true;
+        }
+#endif
+
+        internal static bool Initialize(ModContext context)
+        {
+            if (host != null || Settings != null)
+            {
+                context.Logger.Error("OrbitRender is already initialized.");
+                return false;
+            }
+            Entry = context;
             try
             {
+                Localization.Initialize(context.Path);
                 ReadCommandLineOptions();
-                Settings = RendererSettings.Load(entry);
+                Settings = RendererSettings.Load(context);
                 Settings.OnChange();
-                harmony = new Harmony(entry.Info.Id);
+                harmony = new HarmonyLib.Harmony(ModContext.Id);
                 harmony.PatchAll(typeof(Main).Assembly);
                 host = new GameObject("OrbitRender");
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<RendererController>();
+#if !UMM
+                host.AddComponent<LoaderSettingsWindow>();
+#endif
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Enabled = true;
                 StartRpcServer();
-                FfmpegInstaller.Start(entry, Settings);
-                UpdateManager.Start(entry);
-                entry.OnToggle = (mod, enabled) =>
-                {
-                    if (!enabled)
-                    {
-                        AudioPreview.Stop();
-                        ExportVideoDialog.CloseDialog();
-                        RendererController.Instance?.StopAndClean();
-                    }
-                    Enabled = enabled;
-                    if (!enabled) StopRpcServer();
-                    else StartRpcServer();
-                    return true;
-                };
-                entry.OnGUI = mod =>
-                {
-                    if (Settings == null) return;
-                    if (!diagnosticsHaveRun)
-                    {
-                        diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
-                        diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
-                    }
-                    DrawSettings();
-                };
-                entry.OnUpdate = (mod, deltaTime) => UpdateManager.PumpMainThread();
-                entry.OnSaveGUI = mod => Settings?.Save(mod);
-                entry.OnUnload = mod =>
-                {
-                    ExportVideoDialog.CloseDialog();
-                    AudioPreview.Stop();
-                    RendererController.Instance?.StopAndClean();
-                    StopRpcServer();
-                    SceneManager.sceneLoaded -= OnSceneLoaded;
-                    UnityEngine.Object.Destroy(host);
-                    harmony.UnpatchAll(mod.Info.Id);
-                    Settings = null;
-                    return true;
-                };
-                entry.Logger.Log("Renderer loaded. Unity " + Application.unityVersion);
+                FfmpegInstaller.Start(context, Settings);
+                context.Logger.Log("Renderer loaded. Unity " + Application.unityVersion);
                 return true;
             }
             catch (Exception ex)
             {
-                if (host != null) UnityEngine.Object.Destroy(host);
-                harmony?.UnpatchAll(entry.Info.Id);
-                entry.Logger.Error(ex.ToString());
+                context.Logger.Error(ex.ToString());
+                Shutdown(false);
                 return false;
+            }
+        }
+
+        internal static void Shutdown(bool save = true)
+        {
+            Enabled = false;
+            try { if (save && Settings != null) Settings.Save(Entry); }
+            catch (Exception ex) { Entry?.Logger.Error("Could not save renderer settings: " + ex); }
+            try
+            {
+                ExportVideoDialog.CloseDialog();
+                AudioPreview.Stop();
+                RendererController.Instance?.StopAndClean();
+            }
+            finally
+            {
+                StopRpcServer();
+                SceneManager.sceneLoaded -= OnSceneLoaded;
+                if (host != null) UnityEngine.Object.Destroy(host);
+                host = null;
+#if !UMM
+                harmony?.UnpatchSelf();
+#else
+                harmony?.UnpatchAll(ModContext.Id);
+#endif
+                harmony = null;
+                Settings = null;
             }
         }
 
@@ -171,13 +197,22 @@ namespace OrbitRender
                 host = new GameObject("OrbitRender");
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<RendererController>();
+#if !UMM
+                host.AddComponent<LoaderSettingsWindow>();
+#endif
                 RpcServer?.Rebind(RendererController.Instance);
                 Entry.Logger.Log("Renderer host recreated after scene load: " + scene.name);
             }
         }
 
-        private static void DrawSettings()
+        internal static void DrawSettings()
         {
+            if (Settings == null) return;
+            if (!diagnosticsHaveRun)
+            {
+                diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
+                diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
+            }
             GUILayout.Label(Localization.Get("configure-the-defaults-used-when-exporting-a-video-per"));
             GUILayout.Space(4f);
 
@@ -242,7 +277,7 @@ namespace OrbitRender
             GUILayout.Space(12f);
             GUILayout.BeginVertical(GUI.skin.box);
             GUILayout.Label("Credit");
-            GUILayout.Label(Localization.Format("credit-author", Entry.Info.Author));
+            GUILayout.Label(Localization.Format("credit-author", ModContext.Author));
             GUILayout.EndVertical();
         }
 

@@ -42,12 +42,52 @@ else
 fi
 
 cd "$ROOT_DIR"
+for command in curl unzip python3; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "Building all loader packages requires $command." >&2
+    exit 2
+  fi
+done
+
+get_archive() {
+  local url="$1" destination="$2" expected="$3"
+  if [[ -f "$destination/$expected" ]]; then return; fi
+  mkdir -p "$destination"
+  curl --fail --location "$url" --output "$destination/package.zip"
+  unzip -oq "$destination/package.zip" -d "$destination"
+  rm -f "$destination/package.zip"
+  if [[ ! -f "$destination/$expected" ]]; then
+    echo "Dependency archive is incomplete: $url" >&2
+    exit 2
+  fi
+}
+
+get_archive 'https://api.nuget.org/v3-flatcontainer/unitymodmanager/0.32.4/unitymodmanager.0.32.4.nupkg' \
+  packages/UnityModManager lib/net35/UnityModManager.dll
+get_archive 'https://api.nuget.org/v3-flatcontainer/microsoft.netframework.referenceassemblies.net48/1.0.3/microsoft.netframework.referenceassemblies.net48.1.0.3.nupkg' \
+  packages/net48 build/.NETFramework/v4.8/mscorlib.dll
+if [[ ! -f packages/0Harmony.dll ]]; then
+  get_archive 'https://api.nuget.org/v3-flatcontainer/lib.harmony/2.2.2/lib.harmony.2.2.2.nupkg' \
+    packages/Harmony lib/net48/0Harmony.dll
+  cp packages/Harmony/lib/net48/0Harmony.dll packages/0Harmony.dll
+fi
+# Managed Mono references are platform independent; do not redistribute loaders.
+get_archive 'https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip' \
+  packages/MelonLoader MelonLoader/net35/MelonLoader.dll
+get_archive 'https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.2/BepInEx_win_x64_5.4.23.2.zip' \
+  packages/BepInEx BepInEx/core/BepInEx.dll
+
 "${MSBUILD_COMMAND[@]}" OrbitRender.sln \
   /restore \
   /t:Rebuild \
   /p:Configuration=Release \
   "/p:GameDir=$GAME_DIR" \
   /v:minimal
+
+for loader in MelonLoader BepInEx; do
+  "${MSBUILD_COMMAND[@]}" OrbitRender/OrbitRender.csproj \
+    /t:Rebuild /p:Configuration=Release "/p:GameDir=$GAME_DIR" "/p:ModLoader=$loader" /v:minimal
+done
 
 # Remove FFmpeg artifacts produced by older versions of this build script.
 # The exact Release/FFmpeg directory is generated output, not user data.
@@ -63,7 +103,32 @@ done
 
 echo "Mod output: $ROOT_DIR/OrbitRender/bin/Release"
 echo "FFmpeg will be downloaded by the mod after first-launch consent."
-echo "Install the output folder under the game's Mods directory."
+python3 - "$RELEASE_ROOT" "$ROOT_DIR/Builds" <<'PY'
+from pathlib import Path
+import sys
+from zipfile import ZipFile, ZIP_DEFLATED
+
+release, builds = map(Path, sys.argv[1:])
+builds.mkdir(exist_ok=True)
+for loader in ('UMM', 'MelonLoader', 'BepInEx'):
+    source = release if loader == 'UMM' else release / loader
+    name = 'OrbitRender.zip' if loader == 'UMM' else f'OrbitRender-{loader}.zip'
+    output = builds / name
+    temporary = output.with_suffix('.zip.tmp')
+    with ZipFile(temporary, 'w', ZIP_DEFLATED) as archive:
+        for file in ('OrbitRender.dll', 'LICENSE.md', 'Info.json', 'Localization/en.ftl', 'Localization/ko.ftl'):
+            if file == 'Info.json' and loader != 'UMM':
+                continue
+            if loader == 'UMM':
+                target = f'OrbitRender/{file}'
+            elif loader == 'BepInEx':
+                target = f'BepInEx/plugins/OrbitRender/{file}'
+            else:
+                target = 'Mods/OrbitRender.dll' if file == 'OrbitRender.dll' else f'Mods/OrbitRender/{file}'
+            archive.write(source / file, target)
+    temporary.replace(output)
+    print(f'Package: {output}')
+PY
 
 if [[ "$RUN_TESTS" == "1" ]]; then
   if [[ "$FFMPEG_PATH" == */* ]]; then
@@ -87,8 +152,10 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     /t:Rebuild \
     /v:minimal
 
-  mono "$ROOT_DIR/Tests/bin/Release/RendererTests.exe" --user-presets \
-    "$RELEASE_ROOT/OrbitRender.dll" "$GAME_DIR/A Dance of Fire and Ice_Data/Managed"
+  for mod_path in OrbitRender.dll MelonLoader/OrbitRender.dll BepInEx/OrbitRender.dll; do
+    mono "$ROOT_DIR/Tests/bin/Release/RendererTests.exe" --user-presets \
+      "$RELEASE_ROOT/$mod_path" "$MANAGED_DIR"
+  done
 
   # macOS normally exposes a per-user TMPDIR under /var/folders, but it can
   # become stale or unavailable when the shell inherits an old environment.

@@ -7,7 +7,6 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using UnityEngine;
-using UnityModManagerNet;
 
 namespace OrbitRender
 {
@@ -32,7 +31,7 @@ namespace OrbitRender
         private static long downloadedBytes;
         private static long downloadTotalBytes = -1;
         private static string error;
-        private static UnityModManager.ModEntry installEntry;
+        private static ModContext installEntry;
         private static RendererSettings installSettings;
         private static PlatformSpec installSpec;
         private static string installDestinationDirectory;
@@ -141,7 +140,7 @@ namespace OrbitRender
             }
         }
 
-        internal static void Start(UnityModManager.ModEntry entry, RendererSettings settings)
+        internal static void Start(ModContext entry, RendererSettings settings)
         {
             if (entry == null || Interlocked.CompareExchange(ref state, Downloading, NotStarted) != NotStarted) return;
 
@@ -235,7 +234,7 @@ namespace OrbitRender
             entry?.Logger.Log("User declined the first-run FFmpeg installation.");
         }
 
-        private static void Install(UnityModManager.ModEntry entry, PlatformSpec spec,
+        private static void Install(ModContext entry, PlatformSpec spec,
             string destinationDirectory, string destination)
         {
             string temporaryRoot = null;

@@ -43,6 +43,26 @@ Get-Package `
     'packages/net48' `
     'build/.NETFramework/v4.8/mscorlib.dll'
 
+function Get-LoaderArchive([string]$Url, [string]$Destination, [string]$Expected) {
+    if (Test-Path -LiteralPath (Join-Path $Destination $Expected)) { return }
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    $archive = Join-Path $Destination 'loader.zip'
+    Invoke-WebRequest $Url -OutFile $archive
+    Expand-Archive -LiteralPath $archive -DestinationPath $Destination -Force
+    Remove-Item -LiteralPath $archive
+    if (!(Test-Path -LiteralPath (Join-Path $Destination $Expected))) {
+        throw "Loader archive is incomplete: $Url"
+    }
+}
+
+# Reference each loader's own Harmony ABI; loader binaries stay in packages.
+Get-LoaderArchive `
+    'https://github.com/LavaGang/MelonLoader/releases/download/v0.6.6/MelonLoader.x64.zip' `
+    'packages/MelonLoader' 'MelonLoader/net35/MelonLoader.dll'
+Get-LoaderArchive `
+    'https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.2/BepInEx_win_x64_5.4.23.2.zip' `
+    'packages/BepInEx' 'BepInEx/core/BepInEx.dll'
+
 if (!(Test-Path 'packages/0Harmony.dll')) {
     Get-Package `
         'lib.harmony' `
@@ -99,6 +119,12 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Mod build failed.'
 }
 
+foreach ($loader in @('MelonLoader', 'BepInEx')) {
+    & $MSBuildPath OrbitRender/OrbitRender.csproj /t:Rebuild /p:Configuration=Release `
+        "/p:GameDir=$GameDir" "/p:ModLoader=$loader" /v:minimal /nologo
+    if ($LASTEXITCODE -ne 0) { throw "$loader build failed." }
+}
+
 # Remove FFmpeg artifacts produced by older versions of this build script.
 # The exact Release/FFmpeg directory is generated output, not user data.
 $releaseDirectory = Join-Path $PSScriptRoot 'OrbitRender/bin/Release'
@@ -134,13 +160,11 @@ if ($Test) {
         throw 'Test build failed.'
     }
 
-    & ./Tests/bin/Release/RendererTests.exe `
-        --user-presets `
-        (Join-Path $releaseDirectory 'OrbitRender.dll') `
-        (Join-Path $GameDir 'A Dance of Fire and Ice_Data/Managed')
-
-    if ($LASTEXITCODE -ne 0) {
-        throw 'User preset tests failed.'
+    foreach ($relativePath in @('OrbitRender.dll', 'MelonLoader/OrbitRender.dll', 'BepInEx/OrbitRender.dll')) {
+        & ./Tests/bin/Release/RendererTests.exe --user-presets `
+            (Join-Path $releaseDirectory $relativePath) `
+            (Join-Path $GameDir 'A Dance of Fire and Ice_Data/Managed')
+        if ($LASTEXITCODE -ne 0) { throw "User preset/settings tests failed: $relativePath" }
     }
 
     $testOutput = Join-Path `
@@ -159,6 +183,45 @@ if ($Test) {
 }
 
 Write-Host "Mod output: $releaseDirectory"
+
+# Package only mod-owned files, never game/loader DLLs or nested build outputs.
+$buildsDirectory = Join-Path $PSScriptRoot 'Builds'
+New-Item -ItemType Directory -Force -Path $buildsDirectory | Out-Null
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$packageErrors = @()
+foreach ($loader in @('UMM', 'MelonLoader', 'BepInEx')) {
+    $source = if ($loader -eq 'UMM') { $releaseDirectory } else { Join-Path $releaseDirectory $loader }
+    $zipName = if ($loader -eq 'UMM') { 'OrbitRender.zip' } else { "OrbitRender-$loader.zip" }
+    $zipPath = Join-Path $buildsDirectory $zipName
+    if (Test-Path -LiteralPath ($zipPath + '.tmp')) { Remove-Item -LiteralPath ($zipPath + '.tmp') -Force }
+    $zip = [System.IO.Compression.ZipFile]::Open($zipPath + '.tmp', [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($name in @('OrbitRender.dll', 'LICENSE.md', 'Info.json', 'Localization/en.ftl', 'Localization/ko.ftl')) {
+            if ($name -eq 'Info.json' -and $loader -ne 'UMM') { continue }
+            $file = Join-Path $source $name
+            if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing package file: $file" }
+            $entryName = switch ($loader) {
+                'UMM' { "OrbitRender/$name" }
+                'BepInEx' { "BepInEx/plugins/OrbitRender/$name" }
+                'MelonLoader' {
+                    if ($name -eq 'OrbitRender.dll') { 'Mods/OrbitRender.dll' }
+                    else { "Mods/OrbitRender/$name" }
+                }
+            }
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $file, $entryName) | Out-Null
+        }
+    }
+    finally { $zip.Dispose() }
+    try { [System.IO.File]::Copy($zipPath + '.tmp', $zipPath, $true) }
+    catch [System.IO.IOException] {
+        $packageErrors += "Could not replace $zipPath. Close it in your archive viewer and build again. The new package remains at $zipPath.tmp. $($_.Exception.Message)"
+        continue
+    }
+    Remove-Item -LiteralPath ($zipPath + '.tmp') -Force
+    Write-Host "Package: $zipPath"
+}
+if ($packageErrors.Count -gt 0) { throw ($packageErrors -join [Environment]::NewLine) }
 
 if ($Copy) {
     $modDirectory = Join-Path $GameDir 'Mods/OrbitRender'
@@ -198,11 +261,9 @@ if ($Copy) {
         -Path $modDirectory |
         Out-Null
 
-    Copy-Item `
-        -Path (Join-Path $releaseDirectory '*') `
-        -Destination $modDirectory `
-        -Recurse `
-        -Force
+    foreach ($name in @('OrbitRender.dll', 'Info.json', 'LICENSE.md', 'Localization')) {
+        Copy-Item -LiteralPath (Join-Path $releaseDirectory $name) -Destination $modDirectory -Recurse -Force
+    }
 
     Write-Host 'OrbitRender copied successfully.'
 

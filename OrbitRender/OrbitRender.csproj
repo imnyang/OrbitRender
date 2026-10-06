@@ -6,6 +6,14 @@
   <OutputType>Library</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><LangVersion>latest</LangVersion><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   <AssemblyName>OrbitRender</AssemblyName><RootNamespace>OrbitRender</RootNamespace>
   <OutputPath>bin/$(Configuration)/</OutputPath><Optimize>true</Optimize>
+  <ModLoader Condition="'$(ModLoader)' == ''">UMM</ModLoader>
+  <DefineConstants Condition="'$(ModLoader)' == 'UMM'">$(DefineConstants);UMM</DefineConstants>
+  <DefineConstants Condition="'$(ModLoader)' == 'MelonLoader'">$(DefineConstants);MELONLOADER</DefineConstants>
+  <DefineConstants Condition="'$(ModLoader)' == 'BepInEx'">$(DefineConstants);BEPINEX</DefineConstants>
+  <OutputPath Condition="'$(ModLoader)' != 'UMM'">bin/$(Configuration)/$(ModLoader)/</OutputPath>
+  <IntermediateOutputPath>obj/$(Configuration)/$(ModLoader)/</IntermediateOutputPath>
+  <MelonLoaderDir Condition="'$(MelonLoaderDir)' == ''">$(MSBuildProjectDirectory)/../packages/MelonLoader/MelonLoader/net35</MelonLoaderDir>
+  <BepInExDir Condition="'$(BepInExDir)' == ''">$(MSBuildProjectDirectory)/../packages/BepInEx/BepInEx/core</BepInExDir>
   <TargetFrameworkRootPath Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/</TargetFrameworkRootPath>
   <GameDir Condition="'$(GameDir)' == '' and '$(OS)' == 'Windows_NT'">L:/SteamLibrary/steamapps/common/A Dance of Fire and Ice</GameDir>
   <ManagedDir>$(GameDir)/A Dance of Fire and Ice_Data/Managed</ManagedDir>
@@ -13,7 +21,7 @@
   <FrameworkPathOverride Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/.NETFramework/v4.8</FrameworkPathOverride>
  </PropertyGroup>
  <ItemGroup>
-  <Reference Include="System"/><Reference Include="System.Core"/>
+  <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Xml"/>
   <Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/>
   <Reference Include="$(ManagedDir)/netstandard.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/UnityEngine*.dll"><Private>false</Private></Reference>
@@ -27,19 +35,26 @@
   <Reference Include="$(ManagedDir)/RDTools.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/DOTween.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/Newtonsoft.Json.dll"><Private>false</Private></Reference>
-  <Reference Include="UnityModManager">
+  <Reference Include="UnityModManager" Condition="'$(ModLoader)' == 'UMM'">
    <HintPath Condition="Exists('$(ModManagerDir)/UnityModManager.dll')">$(ModManagerDir)/UnityModManager.dll</HintPath>
    <HintPath Condition="!Exists('$(ModManagerDir)/UnityModManager.dll')">../packages/UnityModManager/lib/net35/UnityModManager.dll</HintPath><Private>false</Private>
   </Reference>
   <Reference Include="0Harmony">
-   <HintPath Condition="Exists('$(ModManagerDir)/0Harmony.dll')">$(ModManagerDir)/0Harmony.dll</HintPath>
-   <HintPath Condition="!Exists('$(ModManagerDir)/0Harmony.dll')">../packages/0Harmony.dll</HintPath><Private>false</Private>
+   <HintPath Condition="'$(ModLoader)' == 'UMM' and Exists('$(ModManagerDir)/0Harmony.dll')">$(ModManagerDir)/0Harmony.dll</HintPath>
+   <HintPath Condition="'$(ModLoader)' == 'UMM' and !Exists('$(ModManagerDir)/0Harmony.dll')">../packages/0Harmony.dll</HintPath>
+   <HintPath Condition="'$(ModLoader)' == 'MelonLoader'">$(MelonLoaderDir)/0Harmony.dll</HintPath>
+   <HintPath Condition="'$(ModLoader)' == 'BepInEx'">$(BepInExDir)/0Harmony.dll</HintPath><Private>false</Private>
   </Reference>
+  <Reference Include="MelonLoader" Condition="'$(ModLoader)' == 'MelonLoader'"><HintPath>$(MelonLoaderDir)/MelonLoader.dll</HintPath><Private>false</Private></Reference>
+  <Reference Include="BepInEx" Condition="'$(ModLoader)' == 'BepInEx'"><HintPath>$(BepInExDir)/BepInEx.dll</HintPath><Private>false</Private></Reference>
  <Compile Include="**/*.cs" Exclude="obj/**;bin/**"/>
- <Content Include="Info.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+ <Content Include="Info.json" Condition="'$(ModLoader)' == 'UMM'"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="LICENSE.md"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="Localization/*.ftl"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <EmbeddedResource Include="Localization/*.ftl" />
  </ItemGroup>
  <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets"/>
+ <Target Name="ValidateModLoader" BeforeTargets="ResolveReferences">
+  <Error Condition="'$(ModLoader)' != 'UMM' and '$(ModLoader)' != 'MelonLoader' and '$(ModLoader)' != 'BepInEx'" Text="Unsupported ModLoader: $(ModLoader). Use UMM, MelonLoader, or BepInEx." />
+ </Target>
 </Project>

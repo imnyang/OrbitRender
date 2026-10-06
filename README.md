@@ -1,6 +1,6 @@
 # OrbitRender
 
-ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링하는 Unity Mod Manager 모드입니다.
+ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링하는 모드입니다. Unity Mod Manager, MelonLoader, BepInEx 5의 Mono 환경을 지원합니다.
 
 ## 언어별 문서
 
@@ -26,13 +26,27 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 
 ## 설치
 
-모드를 받은 뒤에 `A Dance of Fire and Ice/Mods/`에 이쁘게 배치해주세요.
+사용하는 로더에 맞는 ZIP 하나를 설치하세요.
 
-Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI/Unity Mod Manager 환경만 준비해주세요. FFmpeg가 없으면 모드 첫 실행 시 설치 여부를 확인하며, 동의하면 인터넷을 통해 현재 플랫폼에 맞는 FFmpeg를 `FFmpeg/<platform>/`에 설치합니다. 이미 설치되어 있거나 `FFmpeg executable` 설정에 경로를 지정한 경우에는 확인 없이 해당 파일을 사용합니다.
+| 로더 | ZIP | 압축 해제 위치 |
+| --- | --- | --- |
+| Unity Mod Manager | `OrbitRender.zip` | 게임의 `Mods/` 폴더 (`Mods/OrbitRender/OrbitRender.dll`) |
+| MelonLoader (Mono, 0.6.6 참조로 빌드) | `OrbitRender-MelonLoader.zip` | 게임 루트 (`Mods/OrbitRender.dll`) |
+| BepInEx 5 (Mono, 5.4.23.2 참조로 빌드) | `OrbitRender-BepInEx.zip` | 게임 루트 (`BepInEx/plugins/OrbitRender/OrbitRender.dll`) |
+
+로더 자체는 별도로 설치해야 하며 ZIP에 포함되지 않습니다. 한 번에 한 로더용 OrbitRender만 설치하세요. IL2CPP와 BepInEx 6은 지원 대상이 아닙니다. 로더 API는 [MelonLoader](https://github.com/LavaGang/MelonLoader/tree/v0.6.6)와 [BepInEx 5 공식 문서](https://docs.bepinex.dev/v5.4.16/articles/dev_guide/plugin_tutorial/2_plugin_start.html)를 기준으로 연동했습니다.
+
+세 버전 모두 에디터의 `Export Video` / `F6`을 사용합니다. MelonLoader와 BepInEx에서는 `F7`로 기본 설정·FFmpeg 설치·진단 창을 열고 닫습니다. 설정은 각각 `Mods/OrbitRender/Settings.xml`, `BepInEx/config/OrbitRender.xml`에 저장됩니다.
+
+`./build.ps1` 또는 `GAME_DIR="게임 경로" bash ./build.sh`를 실행하면 세 버전을 빌드하고 `Builds/OrbitRender.zip`, `Builds/OrbitRender-MelonLoader.zip`, `Builds/OrbitRender-BepInEx.zip`을 생성합니다. 빌드 스크립트는 로더 참조 파일을 `packages/`에 내려받습니다. `build.sh`는 `curl`, `unzip`, `python3`도 필요합니다. `build.ps1 -Copy`는 UMM 버전을 게임에 복사합니다.
+
+Windows, macOS, Linux에서 실행할 수 있도록 플랫폼별 ADOFAI와 선택한 로더 환경을 준비해주세요. FFmpeg가 없으면 모드 첫 실행 시 설치 여부를 확인하며, 동의하면 인터넷을 통해 현재 플랫폼에 맞는 FFmpeg를 `FFmpeg/<platform>/`에 설치합니다. 이미 설치되어 있거나 `FFmpeg executable` 설정에 경로를 지정한 경우에는 확인 없이 해당 파일을 사용합니다.
 
 빌드 산출물에는 FFmpeg가 포함되지 않습니다. 설치에 동의하면 모드가 Windows는 `windows-x64`, Linux는 `linux-x64`, Intel Mac은 `macos-x64`, Apple Silicon은 `macos-arm64`를 자동으로 선택해 해당 바이너리 하나만 다운로드합니다.
 
 ## 자동 업데이트
+
+자동 업데이트는 UMM 버전에만 적용됩니다. MelonLoader/BepInEx 버전은 새 ZIP으로 교체하고 게임을 재시작하세요.
 
 실행할 때 GitHub의 최신 정식 릴리즈를 확인합니다. `releases/latest` 기준으로 draft와 Pre-release는 자동 업데이트 대상에서 제외하며, 다운로드한 ZIP의 버전과 SHA-256을 확인합니다. 렌더 중이 아닐 때 Unity Mod Manager를 hot-reload하여 게임을 재시작하지 않고 적용하고, hot-reload가 지원되지 않으면 게임 종료 후 적용합니다.
 

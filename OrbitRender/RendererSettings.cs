@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+#if UMM
 using UnityModManagerNet;
+#endif
 
 namespace OrbitRender
 {
@@ -60,9 +62,14 @@ namespace OrbitRender
         public string AudioBitrate => AudioCodecCatalog.Bitrate(AudioCodec);
     }
 
-    public sealed class RendererSettings : UnityModManager.ModSettings, IDrawable
+    public sealed class RendererSettings
+#if UMM
+        : UnityModManager.ModSettings, IDrawable
+#endif
     {
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public System.Collections.Generic.List<UserRenderPreset> UserPresets =
             new System.Collections.Generic.List<UserRenderPreset>();
 
@@ -78,94 +85,148 @@ namespace OrbitRender
         internal const float MinAudioGainDb = -60f;
         internal const float MaxAudioGainDb = 12f;
 
+#if UMM
         [Draw("Preset", DrawType.PopupList)]
+#endif
         public RendererPreset Preset = RendererPreset.FullHD;
 
+#if UMM
         [Draw("Width", DrawType.Field, Min = MinWidth, Max = MaxWidth, VisibleOn = "Preset|Custom")]
+#endif
         public int Width = 1920;
 
+#if UMM
         [Draw("Height", DrawType.Field, Min = MinHeight, Max = MaxHeight, VisibleOn = "Preset|Custom")]
+#endif
         public int Height = 1080;
 
         // Do not pass Min/Max to UMM for a text field. UMM clamps each parsed
         // keystroke, so typing a value such as 120 would turn the first "1"
         // into 15 before the remaining digits can be entered.
+#if UMM
         [Draw("InGame FPS", DrawType.Field, VisibleOn = "Preset|Custom")]
+#endif
         public int Fps = 60;
 
+#if UMM
         [Draw("Video FPS", DrawType.Field, VisibleOn = "Preset|Custom")]
+#endif
         public int VideoFps = 60;
 
+#if UMM
         [Draw("Video bitrate (Mbps)", DrawType.Field, Min = MinBitrate, Max = MaxBitrate, VisibleOn = "Preset|Custom")]
+#endif
         public int BitrateMbps = 18;
 
+#if UMM
         [Draw("End delay (seconds)", DrawType.Field, Min = 0, Max = 30, Precision = 2)]
+#endif
         public float EndDelaySeconds = 2f;
 
+#if UMM
         [Draw("Capture audio", DrawType.Toggle)]
+#endif
         public bool CaptureAudio = true;
 
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public float AudioGainDb = 0f;
 
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public AudioCodec AudioCodec = AudioCodec.Auto;
 
+#if UMM
         [Draw("Show render preview", DrawType.Toggle)]
+#endif
         public bool ShowRenderPreview = true;
 
+#if UMM
         [Draw("BGA mode (hide tiles, planets & hit sounds)", DrawType.Toggle)]
+#endif
         public bool BgaMode = false;
 
+#if UMM
         [Draw("Show planet rings", DrawType.Toggle)]
+#endif
         public bool ShowPlanetRings = true;
 
+#if UMM
         [Draw("Show song title", DrawType.Toggle)]
+#endif
         public bool ShowSongTitle = true;
 
+#if UMM
         [Draw("Show countdown", DrawType.Toggle)]
+#endif
         public bool ShowCountdown = true;
 
+#if UMM
         [Draw("Show result text (hit judgments stay hidden)", DrawType.Toggle)]
+#endif
         public bool ShowResultText = true;
 
+#if UMM
         [Draw("Show hit judgments", DrawType.Toggle)]
+#endif
         public bool ShowHitJudgments = false;
 
+#if UMM
         [Draw("Encoding speed", DrawType.PopupList)]
+#endif
         public EncoderSpeed Encoding = EncoderSpeed.Quality;
 
+#if UMM
         [Draw("Video encoder", DrawType.PopupList)]
+#endif
         public VideoEncoder Encoder = VideoEncoder.Auto;
 
+#if UMM
         [Draw("Video codec", DrawType.PopupList)]
+#endif
         public VideoCodec Codec = VideoCodec.H264;
 
+#if UMM
         [Draw("Video bit depth", DrawType.PopupList)]
+#endif
         public VideoBitDepth BitDepth = VideoBitDepth.Eight;
 
         // These paths are rendered by Main.OnGUI so a Browse button can sit
         // next to each field. UMM's stock Field drawer cannot add a button
         // to the same row.
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public string OutputDirectory = "";
 
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public string FileNameFormat = OutputFormat.DefaultFileName;
 
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public VideoContainer Container = VideoContainer.Auto;
 
+#if UMM
         [Draw("Open output folder after render", DrawType.Toggle)]
+#endif
         public bool OpenOutputFolder = true;
 
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public string FfmpegExecutable = "";
 
         // FFmpeg is downloaded only after the user explicitly approves it on
         // the first launch. This is intentionally hidden from the UMM form;
         // the install prompt is shown in the game UI instead.
+#if UMM
         [Draw(DrawType.Ignore)]
+#endif
         public bool FfmpegInstallPrompted = false;
 
         public void OnChange()
@@ -279,6 +340,7 @@ namespace OrbitRender
                     OutputFormat.Extension(containerOverride ?? Container, codecOverride ?? Codec)));
         }
 
+#if UMM
         public override void Save(UnityModManager.ModEntry modEntry)
         {
             Normalize();
@@ -290,6 +352,28 @@ namespace OrbitRender
             var settings = UnityModManager.ModSettings.Load<RendererSettings>(modEntry) ?? new RendererSettings();
             settings.Normalize();
             return settings;
+        }
+
+#endif
+        internal void Save(ModContext context)
+        {
+#if UMM
+            Save(context.UmmEntry);
+#else
+            Normalize();
+            SettingsStorage.Save(context.SettingsPath, this);
+#endif
+        }
+
+        internal static RendererSettings Load(ModContext context)
+        {
+#if UMM
+            return Load(context.UmmEntry);
+#else
+            var settings = SettingsStorage.Load(context.SettingsPath, context.Logger);
+            settings.Normalize();
+            return settings;
+#endif
         }
 
         internal string ResolveOutputDirectory()

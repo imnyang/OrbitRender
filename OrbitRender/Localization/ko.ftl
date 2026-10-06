@@ -188,3 +188,4 @@ completion-shortcuts = Space / K   재생 · 일시정지\n← / →   5초 이�
 completion-player-hint = Space  재생 · 일시정지   ·   ← / →  탐색   ·   , / .  정지 중 프레임 이동
 completion-frame = 프레임 {0:N0}
 audio-codec = 오디오 코덱
+loader-settings-save-close = 저장 후 닫기

@@ -99,6 +99,43 @@ internal static class UserPresetTests
             }
             items.RemoveAt(0);
             Assert(items.Count == 0, "Delete failed.");
+            var storageType = assembly.GetType("OrbitRender.SettingsStorage");
+            if (storageType != null)
+            {
+                Assert(!assembly.GetReferencedAssemblies().Any(reference => reference.Name == "UnityModManager"),
+                    "Alternate loader build still requires Unity Mod Manager.");
+                var directory = Path.Combine(Path.GetTempPath(), "orbitrender-settings-" + Guid.NewGuid().ToString("N"));
+                var settingsPath = Path.Combine(directory, "config", "OrbitRender.xml");
+                try
+                {
+                    var logType = assembly.GetType("OrbitRender.ModLog", true);
+                    var errors = 0;
+                    var log = Activator.CreateInstance(logType, BindingFlags.Instance | BindingFlags.NonPublic,
+                        null, new object[] { new Action<string>(_ => { }), new Action<string>(_ => errors++) }, null);
+                    var fresh = Call(storageType, "Load", null, settingsPath, log);
+                    Assert((int)Get(fresh, "Fps") == 60, "Missing settings did not use defaults.");
+                    Set(fresh, "Fps", 144);
+                    Set(fresh, "AudioGainDb", -4f);
+                    Assert(Call(storeType, "Save", null, fresh, "Persisted", source, null) == null, "Preset persistence setup failed.");
+                    Call(storageType, "Save", null, settingsPath, fresh);
+                    var saved = Call(storageType, "Load", null, settingsPath, log);
+                    Assert((int)Get(saved, "Fps") == 144 && (float)Get(saved, "AudioGainDb") == -4f,
+                        "Loader settings values were lost.");
+                    Assert(((System.Collections.IList)Get(saved, "UserPresets")).Count == 1,
+                        "Loader settings lost the custom preset library.");
+                    Set(saved, "Fps", 90);
+                    Call(storageType, "Save", null, settingsPath, saved);
+                    Assert((int)Get(Call(storageType, "Load", null, settingsPath, log), "Fps") == 90,
+                        "Existing loader settings were not replaced.");
+                    Assert(!File.Exists(settingsPath + ".tmp"), "Temporary settings file was left behind.");
+                    File.WriteAllText(settingsPath, "invalid XML");
+                    var recovered = Call(storageType, "Load", null, settingsPath, log);
+                    Assert((int)Get(recovered, "Fps") == 60 && errors == 1,
+                        "Corrupt loader settings did not recover with a diagnostic.");
+                    Console.WriteLine("PASS: loader settings creation, replacement, preset persistence and corrupt-file recovery.");
+                }
+                finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+            }
             Console.WriteLine("PASS: custom preset snapshots, built-in values, loading, XML persistence, legacy settings, names, overwrite, rename and reset.");
         }
         finally { AppDomain.CurrentDomain.AssemblyResolve -= resolve; }

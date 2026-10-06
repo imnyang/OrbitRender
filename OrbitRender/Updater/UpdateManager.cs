@@ -1,3 +1,4 @@
+#if UMM
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -554,3 +555,5 @@ namespace OrbitRender
         }
     }
 }
+
+#endif
