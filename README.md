@@ -170,11 +170,6 @@ GPU readback과 FFmpeg 인코딩을 파이프라인으로 겹치며, raw 프레�
 
 ## 개발 및 테스트
 
-OrbitRender는 `https://git.mizuki.guru/api/packages/imnyang/nuget/index.json`에서
-정확히 `BlockMelonLoader 1.0.0` 버전의 NuGet 의존성을 복원하며,
-빌드 시 라이브러리 소스 저장소는 필요하지 않습니다.
-복원된 `BlockMelonLoader.dll`은 `OrbitRender.dll`과 함께 배포해야 합니다.
-
 ```powershell
 .\build.ps1 -Test
 ```
