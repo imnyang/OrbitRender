@@ -150,11 +150,6 @@ Normal gameplay FPS and render completion speed are different measurements becau
 
 ## Build and test
 
-OrbitRender restores the exact `BlockMelonLoader 1.0.0` NuGet dependency from
-`https://git.mizuki.guru/api/packages/imnyang/nuget/index.json`.
-Its source repository is not required when building OrbitRender. Ship the restored
-`BlockMelonLoader.dll` alongside `OrbitRender.dll`.
-
 ```powershell
 .\build.ps1 -Test
 ```
