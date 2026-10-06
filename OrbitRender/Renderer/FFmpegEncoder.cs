@@ -402,15 +402,13 @@ namespace OrbitRender.Renderer
                 : extension == ".webm" ? " -f webm" : string.Empty;
         }
         public static void MuxAudio(string executable, string video, string audio, string output,
-            double audioOffsetSeconds = 0.0, double audioGainDb = 0.0)
+            double audioOffsetSeconds = 0.0, double audioGainDb = 0.0, AudioCodec audioCodec = AudioCodec.Auto)
         {
             if (double.IsNaN(audioGainDb) || double.IsInfinity(audioGainDb)
                 || audioGainDb < MinAudioGainDb
                 || audioGainDb > MaxAudioGainDb)
                 throw new ArgumentOutOfRangeException(nameof(audioGainDb));
-            var isWebm = string.Equals(Path.GetExtension(output), ".webm", StringComparison.OrdinalIgnoreCase);
-            var audioEncoder = isWebm ? "libopus" : "aac";
-            var audioBitrate = isWebm ? "160k" : "320k";
+            audioCodec = AudioCodecCatalog.Resolve(audioCodec, Path.GetExtension(output));
             var containerOptions = ContainerOptions(output);
             var audioSeek = audioOffsetSeconds > 0
                 ? "-ss " + audioOffsetSeconds.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + " "
@@ -424,7 +422,7 @@ namespace OrbitRender.Renderer
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
                 Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
-                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy" + audioFilter + " -c:a " + audioEncoder + " -b:a " + audioBitrate
+                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy" + audioFilter + AudioCodecCatalog.EncodingArguments(audioCodec)
                     + " " + containerOptions + " -shortest \"" + output + "\""
             }})
             {
@@ -434,13 +432,19 @@ namespace OrbitRender.Renderer
                 if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors.GetAwaiter().GetResult());
             }
         }
-        public static void MuxPreencodedAudio(string executable, string video, string audio, string output)
+        public static void MuxPreencodedAudio(string executable, string video, string audio, string output,
+            AudioCodec audioCodec = AudioCodec.Auto)
         {
+            audioCodec = AudioCodecCatalog.Resolve(audioCodec, Path.GetExtension(output));
+            // Both inputs already cover the render timeline. Opus pre-skip
+            // gives the first packet a negative timestamp; -shortest can then
+            // drop the final video packet during stream copy.
+            var shortest = audioCodec == AudioCodec.Opus ? string.Empty : " -shortest";
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
                 Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" -i \"" + audio
-                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + " -shortest \""
+                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + shortest + " \""
                     + output + "\""
             }})
             {

@@ -242,7 +242,7 @@ namespace OrbitRender.Renderer
                 requestOptions?.VideoCodec ?? rpcOptions?.VideoCodec,
                 requestOptions?.BitDepth ?? rpcOptions?.BitDepth,
                 requestOptions?.Encoding,
-                requestOptions?.Encoder, requestOptions?.Container);
+                requestOptions?.Encoder, requestOptions?.Container, requestOptions?.AudioCodec ?? rpcOptions?.AudioCodec);
             Clock = new RenderClock(profile.TargetFps);
             AudioSchedulePatch.ResetRuntimeState();
             Message = Localization.FormatWithCurrentCulture("preparing-render", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps, profile.FfmpegCodec);
@@ -476,7 +476,7 @@ namespace OrbitRender.Renderer
             Directory.CreateDirectory(Path.GetDirectoryName(OutputPath));
             partialPath = Path.ChangeExtension(OutputPath, ".partial" + profile.ContainerExtension);
             audioPath = Path.ChangeExtension(OutputPath, ".partial.wav");
-            audioEncodedPath = Path.ChangeExtension(OutputPath, ".partial.m4a");
+            audioEncodedPath = Path.ChangeExtension(OutputPath, ".partial" + AudioCodecCatalog.IntermediateExtension(profile.AudioCodec));
             muxPath = Path.ChangeExtension(OutputPath, ".mux" + profile.ContainerExtension);
             saved = new SavedState();
             PrepareAudioConfiguration();
@@ -733,10 +733,10 @@ namespace OrbitRender.Renderer
                     audio.Dispose();
                     if (preencodedAudio)
                     {
-                        Main.Entry.Logger.Log("Muxing concurrently encoded AAC audio (gain="
+                        Main.Entry.Logger.Log("Muxing concurrently encoded " + profile.AudioCodec + " audio (gain="
                             + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB).");
-                        try { FFmpegEncoder.MuxPreencodedAudio(FFmpegPath, partialPath, audioEncodedPath, muxPath); }
+                        try { FFmpegEncoder.MuxPreencodedAudio(FFmpegPath, partialPath, audioEncodedPath, muxPath, profile.AudioCodec); }
                         catch (Exception ex)
                         {
                             Main.Entry.Logger.Log("Concurrent audio mux failed; retrying from WAV: " + ex.Message);
@@ -752,7 +752,7 @@ namespace OrbitRender.Renderer
                             + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB during final audio mux.");
                         FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
-                            audioGainDbForRun);
+                            audioGainDbForRun, profile.AudioCodec);
                     }
                     File.Move(muxPath, OutputPath);
                     File.Delete(partialPath); File.Delete(audioPath);
@@ -1029,9 +1029,8 @@ namespace OrbitRender.Renderer
             {
                 audio = new GameAudioCapture();
                 audio.Begin(audioPath);
-                if (!selectionStartTileForRun.HasValue
-                    && string.Equals(profile.ContainerExtension, ".mp4", StringComparison.OrdinalIgnoreCase))
-                    audio.BeginConcurrentEncoding(FFmpegPath, audioEncodedPath, audioGainDbForRun);
+                if (!selectionStartTileForRun.HasValue)
+                    audio.BeginConcurrentEncoding(FFmpegPath, audioEncodedPath, audioGainDbForRun, profile.AudioCodec);
                 audioPacingOrigin = Time.realtimeSinceStartupAsDouble;
             }
             foreach (var source in new[] { conductor.song, conductor.song2, conductor.song3 })

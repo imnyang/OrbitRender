@@ -173,3 +173,4 @@ filename-template-help = {date:yyyyMMdd} · |lower · |upper · |trim · |replac
 filename-template-error = Filename syntax error: {0}
 filename-help-close = Close
 credit-author = Created by {0}
+audio-codec = Audio codec

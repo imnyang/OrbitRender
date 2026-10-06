@@ -18,12 +18,14 @@ namespace OrbitRender.Renderer
         public string OutputPath { get; }
 
         public ConcurrentAudioEncoder(string executable, string output, int sampleRate, int channels,
-            double gainDb)
+            double gainDb, AudioCodec audioCodec = AudioCodec.AAC)
         {
             if (sampleRate <= 0 || channels <= 0) throw new ArgumentOutOfRangeException();
             if (double.IsNaN(gainDb) || double.IsInfinity(gainDb) || gainDb < -60.0 || gainDb > 12.0)
                 throw new ArgumentOutOfRangeException(nameof(gainDb));
             OutputPath = output;
+            if (audioCodec != AudioCodec.AAC && audioCodec != AudioCodec.Opus)
+                throw new ArgumentOutOfRangeException(nameof(audioCodec));
             var gain = gainDb <= -60.0 ? " -af \"volume=0\""
                 : Math.Abs(gainDb) > 0.000001
                     ? " -af \"volume=" + gainDb.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + "dB\""
@@ -33,7 +35,8 @@ namespace OrbitRender.Renderer
                 RedirectStandardInput = true, RedirectStandardError = true,
                 Arguments = "-hide_banner -loglevel error -nostdin -n -f f32le -ar " + sampleRate
                     + " -ac " + channels + " -i pipe:0" + gain
-                    + " -c:a aac -b:a 320k -f ipod \"" + output + "\""
+                    + AudioCodecCatalog.EncodingArguments(audioCodec)
+                    + (audioCodec == AudioCodec.Opus ? " -f opus" : " -f ipod") + " \"" + output + "\""
             }};
             try
             {

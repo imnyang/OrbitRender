@@ -21,6 +21,24 @@ namespace OrbitRender.UI
         internal static string AudioPreviewCaption => AudioPreview.IsLoading ? "Loading…"
             : AudioPreview.IsActive ? "Stop" : "Preview";
 
+        internal static AudioCodec[] AudioChoices(VideoContainer container, VideoCodec codec)
+        {
+            var extension = OutputFormat.Extension(container, codec);
+            return new[] { AudioCodec.Auto, AudioCodec.AAC, AudioCodec.Opus }
+                .Where(value => AudioCodecCatalog.IsSupported(value, extension)).ToArray();
+        }
+
+        internal static string AudioCodecLabel(AudioCodec codec) => codec == AudioCodec.Auto
+            ? Localization.Get("auto") : codec + " (" + AudioCodecCatalog.Bitrate(codec) + "bps)";
+
+        internal static AudioCodec DrawAudioCodec(AudioCodec value, VideoContainer container, VideoCodec codec)
+        {
+            GUILayout.Label(Localization.Get("audio-codec"));
+            var choices = AudioChoices(container, codec);
+            var selected = Math.Max(0, Array.IndexOf(choices, value));
+            return choices[DrawRadioGroup(selected, choices.Select(AudioCodecLabel).ToArray(), false)];
+        }
+
         internal static float DrawAudioGainSlider(float gainDb, ref string gainText,
             ref float syncedGainDb, bool dark = false, Action preview = null)
         {

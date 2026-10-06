@@ -299,6 +299,7 @@ namespace OrbitRender
                 if (capturedAudio && !ExportVideoDialog.IsOpen) AudioPreview.Stop();
                 return;
             }
+            Settings.AudioCodec = SettingsUi.DrawAudioCodec(Settings.AudioCodec, Settings.Container, Settings.Codec);
             Settings.AudioGainDb = SettingsUi.DrawAudioGainSlider(Settings.AudioGainDb,
                 ref localizedAudioGainText, ref localizedAudioGainValue,
                 preview: () => AudioPreview.Toggle(RendererSettings.ClampAudioGainDb(Settings.AudioGainDb)));

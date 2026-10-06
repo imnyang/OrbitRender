@@ -53,9 +53,9 @@ namespace OrbitRender.Renderer
         public double ConcurrentWriteSeconds => concurrentWriteTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ConcurrentFinishSeconds => concurrentFinishTicks / (double)System.Diagnostics.Stopwatch.Frequency;
 
-        public void BeginConcurrentEncoding(string executable, string output, double gainDb)
+        public void BeginConcurrentEncoding(string executable, string output, double gainDb, AudioCodec audioCodec = AudioCodec.AAC)
         {
-            try { concurrentEncoder = new ConcurrentAudioEncoder(executable, output, SampleRate, Channels, gainDb); }
+            try { concurrentEncoder = new ConcurrentAudioEncoder(executable, output, SampleRate, Channels, gainDb, audioCodec); }
             catch (Exception ex)
             {
                 Main.Entry.Logger.Log("Concurrent audio encoding unavailable; using final mux: " + ex.Message);
@@ -241,7 +241,7 @@ namespace OrbitRender.Renderer
             }
             else if (SampleFrames > targetSamples && concurrentEncoder != null)
             {
-                // WAV can trim a rounded final block; a streamed AAC input
+                // WAV can trim a rounded final block; a streamed encoder input
                 // cannot. Use the WAV mux for this uncommon boundary.
                 concurrentEncoder.Dispose();
                 concurrentEncoder = null;

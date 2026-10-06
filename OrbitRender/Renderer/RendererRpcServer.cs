@@ -26,6 +26,7 @@ namespace OrbitRender.Renderer
         public int? BitrateMbps;
         public float? EndDelaySeconds;
         public float? AudioGainDb;
+        public AudioCodec? AudioCodec;
         public bool? BgaMode;
         public bool? ShowPlanetRings;
         public bool? ShowSongTitle;
@@ -38,7 +39,7 @@ namespace OrbitRender.Renderer
         public bool HasValues
         {
             get { return Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
-                || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || BgaMode.HasValue
+                || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
                 || ShowPlanetRings.HasValue
                 || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
                 || ShowHitJudgments.HasValue
@@ -58,6 +59,7 @@ namespace OrbitRender.Renderer
                 bitrateMbps = BitrateMbps,
                 endDelaySeconds = EndDelaySeconds,
                 audioGainDb = AudioGainDb,
+                audioCodec = AudioCodec.HasValue ? AudioCodec.Value.ToString() : null,
                 bgaMode = BgaMode,
                 showPlanetRings = ShowPlanetRings,
                 showSongTitle = ShowSongTitle,
@@ -450,6 +452,24 @@ namespace OrbitRender.Renderer
                 }
                 bitDepth = payload.BitDepth.Value == 10 ? VideoBitDepth.Ten : VideoBitDepth.Eight;
             }
+            AudioCodec? audioCodec = null;
+            if (!string.IsNullOrWhiteSpace(payload.AudioCodec))
+            {
+                if (!Enum.TryParse<AudioCodec>(payload.AudioCodec, true, out var parsedAudio)
+                    || !Enum.IsDefined(typeof(AudioCodec), parsedAudio))
+                {
+                    error = "Unknown audioCodec. Use Auto, AAC, or Opus.";
+                    return null;
+                }
+                var extension = OutputFormat.Extension(Main.Settings?.Container ?? VideoContainer.Auto,
+                    videoCodec ?? Main.Settings?.Codec ?? VideoCodec.H264);
+                if (!AudioCodecCatalog.IsSupported(parsedAudio, extension))
+                {
+                    error = parsedAudio + " audio is not supported in " + extension + ".";
+                    return null;
+                }
+                audioCodec = parsedAudio;
+            }
             var options = new RpcRenderOptions {
                 Preset = preset,
                 Width = payload.Width,
@@ -459,6 +479,7 @@ namespace OrbitRender.Renderer
                 BitrateMbps = bitrate,
                 EndDelaySeconds = payload.EndDelaySeconds,
                 AudioGainDb = payload.AudioGainDb,
+                AudioCodec = audioCodec,
                 BgaMode = payload.BgaMode,
                 ShowPlanetRings = payload.ShowPlanetRings,
                 ShowSongTitle = payload.ShowSongTitle,
@@ -548,6 +569,7 @@ namespace OrbitRender.Renderer
             [JsonProperty("bitrate")] public int? Bitrate { get; set; }
             [JsonProperty("endDelaySeconds")] public float? EndDelaySeconds { get; set; }
             [JsonProperty("audioGainDb")] public float? AudioGainDb { get; set; }
+            [JsonProperty("audioCodec")] public string AudioCodec { get; set; }
             [JsonProperty("bgaMode")] public bool? BgaMode { get; set; }
             [JsonProperty("showPlanetRings")] public bool? ShowPlanetRings { get; set; }
             [JsonProperty("showSongTitle")] public bool? ShowSongTitle { get; set; }

@@ -15,6 +15,7 @@
   <Compile Include="..\OrbitRender\FileNameTemplate.cs" Link="FileNameTemplate.cs"/>
   <Compile Include="..\OrbitRender\UI\UiLayout.cs" Link="UiLayout.cs"/>
   <Compile Include="..\OrbitRender\VideoCodec.cs" Link="VideoCodec.cs"/>
+  <Compile Include="..\OrbitRender\AudioCodec.cs" Link="AudioCodec.cs"/>
   <Compile Include="..\OrbitRender\OutputFormat.cs" Link="OutputFormat.cs"/>
   <Compile Include="..\OrbitRender\Renderer\EncoderAvailability.cs" Link="EncoderAvailability.cs"/>
   <Compile Include="..\OrbitRender\Renderer\RenderClock.cs" Link="RenderClock.cs"/>

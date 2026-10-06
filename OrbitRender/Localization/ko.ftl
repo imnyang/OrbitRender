@@ -173,3 +173,4 @@ completion-preview-title = 영상 미리보기
 completion-shortcuts = Space / K   재생 · 일시정지\n← / →   5초 이동\nJ / L   10초 이동\n, / .   이전 · 다음 프레임\n0–9   0–90% 위치로 이동\nHome / End   처음 · 끝\nF   플레이어 확대   ·   Esc   뒤로
 completion-player-hint = Space  재생 · 일시정지   ·   ← / →  탐색   ·   , / .  정지 중 프레임 이동
 completion-frame = 프레임 {0:N0}
+audio-codec = 오디오 코덱

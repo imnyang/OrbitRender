@@ -159,11 +159,82 @@ internal static class Program
                 + offsetMuxed + "\"");
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
+            TestOpusAudio(args[0], args[1]);
             Console.WriteLine("PASS: filename tokens/sanitization/collisions, MP4/TS/MKV/MOV video and AAC mux/copy, encoder availability, four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus mux, concurrent AAC gain/mux, selection audio offset and H.264/H.265/VP9/AV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
     }
+    private static void TestOpusAudio(string ffmpeg, string directory)
+    {
+        Assert(AudioCodecCatalog.Resolve(AudioCodec.Auto, ".mp4") == AudioCodec.AAC
+            && AudioCodecCatalog.Resolve(AudioCodec.Auto, ".webm") == AudioCodec.Opus,
+            "Automatic audio selection changed.");
+        Assert(AudioCodecCatalog.CompatibleSelection(AudioCodec.Opus, ".mov") == AudioCodec.Auto
+            && AudioCodecCatalog.CompatibleSelection(AudioCodec.AAC, ".webm") == AudioCodec.Auto,
+            "Container changes retained an incompatible audio selection.");
+        foreach (var extension in new[] { ".ts", ".mov" })
+        {
+            bool rejected = false;
+            try { FFmpegEncoder.MuxAudio(ffmpeg, "unused", "unused", "unused" + extension,
+                audioCodec: AudioCodec.Opus); }
+            catch (NotSupportedException) { rejected = true; }
+            Assert(rejected, "Unsupported Opus container was accepted: " + extension);
+        }
+        bool aacRejected = false;
+        try { FFmpegEncoder.MuxAudio(ffmpeg, "unused", "unused", "unused.webm", audioCodec: AudioCodec.AAC); }
+        catch (NotSupportedException) { aacRejected = true; }
+        Assert(aacRejected, "AAC was allowed in WebM.");
+
+        // Unity can capture 44.1 kHz PCM; both encoding paths must resample it
+        // consistently and preserve gain and the one-second output timeline.
+        var wav = Path.Combine(directory, "opus-44100.wav");
+        var raw = Path.Combine(directory, "opus-44100.f32le");
+        var encoded = Path.Combine(directory, "concurrent.opus");
+        var webmVideo = Path.Combine(directory, "opus-video.webm");
+        Probe(ffmpeg, "-v error -f lavfi -i testsrc2=size=160x90:rate=30:duration=1 -an -c:v libvpx-vp9 -deadline realtime -cpu-used 8 \"" + webmVideo + "\"");
+        Probe(ffmpeg, "-v error -f lavfi -i sine=frequency=440:sample_rate=44100:duration=1 -ac 2 -c:a pcm_f32le \"" + wav + "\"");
+        Probe(ffmpeg, "-v error -i \"" + wav + "\" -f f32le \"" + raw + "\"");
+        var samples = File.ReadAllBytes(raw);
+        using (var encoder = new ConcurrentAudioEncoder(ffmpeg, encoded, 44100, 2, 3.0, AudioCodec.Opus))
+        {
+            encoder.Write(samples, samples.Length);
+            encoder.Finish();
+        }
+        foreach (var extension in new[] { ".mp4", ".mkv", ".webm" })
+        {
+            var video = extension == ".webm" ? webmVideo : Path.Combine(directory, "fast.mp4");
+            var fallback = Path.Combine(directory, "opus-final" + extension);
+            var concurrent = Path.Combine(directory, "opus-concurrent" + extension);
+            FFmpegEncoder.MuxAudio(ffmpeg, video, wav, fallback, 0, 3.0, AudioCodec.Opus);
+            FFmpegEncoder.MuxPreencodedAudio(ffmpeg, video, encoded, concurrent, AudioCodec.Opus);
+            var videoHash = Probe(ffmpeg, "-v error -i \"" + video + "\" -map 0:v:0 -c copy -f hash -");
+            foreach (var output in new[] { fallback, concurrent })
+            {
+                var metadata = Probe(ResolveProbe(ffmpeg),
+                    "-v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -of default=noprint_wrappers=1 \"" + output + "\"");
+                Assert(metadata.Contains("codec_name=opus") && metadata.Contains("sample_rate=48000")
+                    && metadata.Contains("channels=2"), "Opus output format mismatch: " + output);
+                Assert(Probe(ffmpeg, "-v error -i \"" + output + "\" -map 0:v:0 -c copy -f hash -") == videoHash,
+                    "Opus mux changed compressed video: " + output);
+                var decoded = output + ".f32le";
+                Probe(ffmpeg, "-v error -i \"" + output + "\" -map 0:a:0 -f f32le \"" + decoded + "\"");
+                var seconds = new FileInfo(decoded).Length / (48000.0 * 2 * sizeof(float));
+                Assert(Math.Abs(seconds - 1.0) < 0.025, "Opus duration drift: " + seconds + " in " + output);
+            }
+            Assert(Math.Abs(MeanVolume(ffmpeg, concurrent) - MeanVolume(ffmpeg, fallback)) < 0.2,
+                "Concurrent Opus gain differs from WAV fallback: " + extension);
+            Assert(Math.Abs(MeanVolume(ffmpeg, fallback) - MeanVolume(ffmpeg, wav) - 3.0) < 0.3,
+                "Opus gain was not applied: " + extension);
+        }
+        var offset = Path.Combine(directory, "opus-offset.mp4");
+        FFmpegEncoder.MuxAudio(ffmpeg, Path.Combine(directory, "fast.mp4"), Path.Combine(directory, "long-tone.wav"),
+            offset, 1.0, audioCodec: AudioCodec.Opus);
+        var duration = Probe(ResolveProbe(ffmpeg), "-v error -select_streams a:0 -show_entries stream=duration -of default=noprint_wrappers=1 \"" + offset + "\"");
+        Assert(duration.Contains("duration=1.000000"), "Opus selection offset/duration mismatch.");
+        Console.WriteLine("PASS: Opus MP4/MKV/WebM final mux and concurrent copy, 44.1 kHz resampling, gain, duration, selection offset and incompatible containers.");
+    }
+
     private static void TestOutputFormats(string ffmpeg, string directory)
     {
         var now = new DateTime(2026, 10, 5, 12, 34, 56);

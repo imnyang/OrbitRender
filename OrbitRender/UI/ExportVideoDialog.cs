@@ -280,7 +280,15 @@ namespace OrbitRender.UI
                 AddHeading(Localization.Get("export-audio"));
                 AddToggle(Localization.Get("capture-audio"), draft.CaptureAudio,
                     v => { draft.CaptureAudio = v; if (!v) AudioPreview.Stop(); RebuildContent(); });
-                if (draft.CaptureAudio) AddAudioGain();
+                if (draft.CaptureAudio)
+                {
+                    var choices = SettingsUi.AudioChoices(draft.Container, draft.Codec);
+                    draft.AudioCodec = AudioCodecCatalog.CompatibleSelection(draft.AudioCodec,
+                        OutputFormat.Extension(draft.Container, draft.Codec));
+                    AddRadioGroup(Localization.Get("audio-codec"), choices.Select(SettingsUi.AudioCodecLabel).ToArray(),
+                        Math.Max(0, Array.IndexOf(choices, draft.AudioCodec)), v => draft.AudioCodec = choices[v]);
+                    AddAudioGain();
+                }
             }
             else if (selectedTab == 2)
             {
@@ -461,6 +469,7 @@ namespace OrbitRender.UI
         {
             internal RendererPreset Preset;
             internal VideoContainer Container;
+            internal AudioCodec AudioCodec;
             internal string FileNameFormat;
             internal string WidthText, HeightText, FpsText, VideoFpsText, BitrateText, EndDelayText, AudioGainDbText;
             internal float AudioGainDb;
@@ -471,7 +480,7 @@ namespace OrbitRender.UI
                 WidthText = s.Width.ToString(CultureInfo.InvariantCulture), HeightText = s.Height.ToString(CultureInfo.InvariantCulture),
                 FpsText = s.Fps.ToString(CultureInfo.InvariantCulture), VideoFpsText = s.VideoFps.ToString(CultureInfo.InvariantCulture),
                 BitrateText = s.BitrateMbps.ToString(CultureInfo.InvariantCulture), EndDelayText = s.EndDelaySeconds.ToString("0.##", CultureInfo.InvariantCulture),
-                AudioGainDb = RendererSettings.ClampAudioGainDb(s.AudioGainDb), CaptureAudio = s.CaptureAudio,
+                AudioGainDb = RendererSettings.ClampAudioGainDb(s.AudioGainDb), CaptureAudio = s.CaptureAudio, AudioCodec = s.AudioCodec,
                 ShowRenderPreview = s.ShowRenderPreview, BgaMode = s.BgaMode, ShowPlanetRings = s.ShowPlanetRings,
                 ShowSongTitle = s.ShowSongTitle, ShowCountdown = s.ShowCountdown, ShowResultText = s.ShowResultText,
                 ShowHitJudgments = s.ShowHitJudgments, OpenOutputFolder = s.OpenOutputFolder, Encoding = s.Encoding,
@@ -496,13 +505,14 @@ namespace OrbitRender.UI
                     if((width&1)!=0||(height&1)!=0) { message=Localization.Get("width-and-height-must-be-even-numbers"); return false; } }
                 if(!TryParseFloat(EndDelayText,out endDelay)||endDelay<0f||endDelay>30f) { message=Localization.Get("end-delay-must-be-between-0-and-30-seconds"); return false; }
                 options=new RenderRequestOptions { Preset=Preset,EndDelaySeconds=endDelay,CaptureAudio=CaptureAudio,AudioGainDb=RendererSettings.ClampAudioGainDb(AudioGainDb),
+                    AudioCodec=AudioCodecCatalog.CompatibleSelection(AudioCodec,OutputFormat.Extension(Container,Codec)),
                     ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
                     ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
                     Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
                 if(Preset==RendererPreset.Custom){options.Width=width;options.Height=height;options.BitrateMbps=bitrate;} return true; }
             internal void ApplyTo(RendererSettings s, RenderRequestOptions o)
             { s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;s.BitrateMbps=o.BitrateMbps.Value;}
-                s.EndDelaySeconds=o.EndDelaySeconds.Value;s.CaptureAudio=CaptureAudio;s.AudioGainDb=o.AudioGainDb.Value;s.ShowRenderPreview=ShowRenderPreview;s.BgaMode=BgaMode;
+                s.EndDelaySeconds=o.EndDelaySeconds.Value;s.CaptureAudio=CaptureAudio;s.AudioGainDb=o.AudioGainDb.Value;s.AudioCodec=o.AudioCodec.Value;s.ShowRenderPreview=ShowRenderPreview;s.BgaMode=BgaMode;
                 s.ShowPlanetRings=ShowPlanetRings;s.ShowSongTitle=ShowSongTitle;s.ShowCountdown=ShowCountdown;s.ShowResultText=ShowResultText;s.ShowHitJudgments=ShowHitJudgments;
                 s.Container=Container;s.FileNameFormat=FileNameFormat;s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }
             private void SetVideoValues(int w,int h,int f,int vf,int b){WidthText=w.ToString(CultureInfo.InvariantCulture);HeightText=h.ToString(CultureInfo.InvariantCulture);

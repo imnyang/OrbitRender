@@ -17,6 +17,7 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 - Preview, FullHD, QHD, UHD 4K, Custom 프로필
 - 해상도, Target FPS 15–1024 / Video FPS 15–240, 1–200 Mbps 비트레이트, End delay 설정
 - H.264/AVC, H.265/HEVC, VP9, AV1 코덱 선택 지원 (자동 출력은 VP9 WebM, 나머지 MP4; MP4/TS/MKV/MOV 직접 선택 가능)
+- 오디오 코덱 `자동 / AAC / Opus` 선택 지원. 자동은 WebM에서 Opus 160kbps, 나머지에서 AAC 320kbps를 사용합니다. Opus는 MP4/MKV/WebM에서 선택할 수 있으며 동시 인코딩도 지원합니다. MP4의 재생 호환성이 중요하면 AAC를 사용하세요. RPC 요청에서는 `audioCodec: "Auto"`, `"AAC"`, `"Opus"`로 지정합니다.
 - NVIDIA NVENC, Intel Quick Sync, AMD AMF, 소프트웨어 인코더 드롭다운 선택 및 FFmpeg 실제 인코딩으로 사용 가능 여부 확인
 - 게임 오디오 캡처와 영상·오디오 mux
 - 설정 가능한 출력 폴더

@@ -24,7 +24,8 @@ namespace OrbitRender
     {
         public RenderProfile(int width, int height, int targetFps, int videoFps, int bitrateMbps, string ffmpegPreset,
             float endDelaySeconds = 2f, string ffmpegCodec = "libx264", VideoCodec videoCodec = VideoCodec.H264,
-            VideoBitDepth bitDepth = VideoBitDepth.Eight, VideoContainer container = VideoContainer.Auto)
+            VideoBitDepth bitDepth = VideoBitDepth.Eight, VideoContainer container = VideoContainer.Auto,
+            AudioCodec audioCodec = AudioCodec.Auto)
         {
             Width = width;
             Height = height;
@@ -37,6 +38,7 @@ namespace OrbitRender
             VideoCodec = VideoCodecCatalog.Normalize(videoCodec);
             BitDepth = VideoCodecCatalog.Normalize(bitDepth);
             Container = container;
+            AudioCodec = AudioCodecCatalog.Resolve(audioCodec, ContainerExtension);
         }
 
         public int Width { get; }
@@ -53,8 +55,9 @@ namespace OrbitRender
         public VideoContainer Container { get; }
         public string ContainerExtension => OutputFormat.Extension(Container, VideoCodec);
         public string ContainerMimeType => OutputFormat.MimeType(ContainerExtension);
-        public string AudioEncoder => ContainerExtension == ".webm" ? "libopus" : "aac";
-        public string AudioBitrate => ContainerExtension == ".webm" ? "160k" : "320k";
+        public AudioCodec AudioCodec { get; }
+        public string AudioEncoder => AudioCodecCatalog.Encoder(AudioCodec);
+        public string AudioBitrate => AudioCodecCatalog.Bitrate(AudioCodec);
     }
 
     public sealed class RendererSettings : UnityModManager.ModSettings, IDrawable
@@ -100,6 +103,9 @@ namespace OrbitRender
 
         [Draw(DrawType.Ignore)]
         public float AudioGainDb = 0f;
+
+        [Draw(DrawType.Ignore)]
+        public AudioCodec AudioCodec = AudioCodec.Auto;
 
         [Draw("Show render preview", DrawType.Toggle)]
         public bool ShowRenderPreview = true;
@@ -192,6 +198,7 @@ namespace OrbitRender
             EndDelaySeconds = 2f;
             CaptureAudio = true;
             AudioGainDb = 0f;
+            AudioCodec = AudioCodec.Auto;
             ShowRenderPreview = true;
             BgaMode = false;
             ShowPlanetRings = true;
@@ -218,7 +225,8 @@ namespace OrbitRender
         internal RenderProfile ResolveProfile(RendererPreset? presetOverride, int? widthOverride,
             int? heightOverride, int? targetFpsOverride, int? videoFpsOverride, int? bitrateOverride, float? endDelayOverride,
             VideoCodec? codecOverride, VideoBitDepth? bitDepthOverride,
-            EncoderSpeed? encodingOverride = null, VideoEncoder? encoderOverride = null, VideoContainer? containerOverride = null)
+            EncoderSpeed? encodingOverride = null, VideoEncoder? encoderOverride = null, VideoContainer? containerOverride = null,
+            AudioCodec? audioCodecOverride = null)
         {
             var preset = presetOverride ?? Preset;
             // A target-FPS override does not turn a built-in resolution preset
@@ -262,7 +270,9 @@ namespace OrbitRender
                 bitrateOverride.HasValue ? Clamp(bitrateOverride.Value, MinBitrate, MaxBitrate) : baseProfile.BitrateMbps,
                 GetEncoderPreset(encoding), endDelay, GetEncoderCodec(codecOverride ?? Codec, encoder,
                     bitDepthOverride ?? BitDepth, containerOverride ?? Container), codecOverride ?? Codec,
-                bitDepthOverride ?? BitDepth, containerOverride ?? Container);
+                bitDepthOverride ?? BitDepth, containerOverride ?? Container,
+                audioCodecOverride ?? AudioCodecCatalog.CompatibleSelection(AudioCodec,
+                    OutputFormat.Extension(containerOverride ?? Container, codecOverride ?? Codec)));
         }
 
         public override void Save(UnityModManager.ModEntry modEntry)
@@ -379,6 +389,7 @@ namespace OrbitRender
             BitDepth = VideoCodecCatalog.Normalize(BitDepth);
             if (!Enum.IsDefined(typeof(VideoEncoder), Encoder)) Encoder = VideoEncoder.Auto;
             if (!Enum.IsDefined(typeof(VideoContainer), Container)) Container = VideoContainer.Auto;
+            AudioCodec = AudioCodecCatalog.CompatibleSelection(AudioCodec, OutputFormat.Extension(Container, Codec));
             if (string.IsNullOrWhiteSpace(FileNameFormat)) FileNameFormat = OutputFormat.DefaultFileName;
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
             EndDelaySeconds = Clamp(EndDelaySeconds, 0f, 30f);

@@ -10,6 +10,7 @@ OrbitRender is a Unity Mod Manager mod that renders ADOFAI custom levels to vide
 - Preview, FullHD, QHD, UHD 4K, and Custom profiles.
 - Configurable resolution, Target FPS 15–1024 / Video FPS 15–240, 1–200 Mbps CBR bitrate, end delay, audio, and output directory.
 - Selectable H.264/AVC, H.265/HEVC, VP9, and AV1 codecs (Auto uses WebM for VP9 and MP4 for the others; MP4/TS/MKV/MOV can be selected explicitly).
+- Audio codec selection: `Auto / AAC / Opus`. Auto uses Opus at 160 kbps for WebM and AAC at 320 kbps otherwise. Opus is selectable for MP4/MKV/WebM and supports concurrent encoding. Choose AAC when MP4 playback compatibility matters. RPC requests accept `audioCodec: "Auto"`, `"AAC"`, or `"Opus"`.
 - Selectable NVIDIA NVENC, Intel Quick Sync, AMD AMF, and software backends with GPU auto-detection.
 - Optional game-audio capture and final audio/video mux.
 - BGA Mode hides tiles, holds, tile effects, planets, planet particles, and gameplay hit sounds while preserving the background, camera, decorations, and music timing.
