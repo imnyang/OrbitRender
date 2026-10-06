@@ -71,6 +71,12 @@ Duplicate filenames receive `_1`, `_2`, etc.; invalid filename characters are sa
 
 Before rendering, the selected encoder is verified with a real one-frame smoke test. If a hardware encoder fails, the renderer asks for consent before using Software for that render; declining leaves the saved setting unchanged and cancels the render.
 
+### Custom presets
+
+Use **Basic → My presets** in the export dialog or UMM settings to name and **Save new** export settings. Selecting a saved preset restores resolution, FPS, bitrate, audio, game visibility, encoding and filename options. Names must contain 1–64 characters and are unique regardless of case. Presets support **Overwrite**, **Rename**, and **Delete** with confirmation.
+
+Presets persist in mod settings across game restarts. Output folders, FFmpeg paths and selected tile ranges remain specific to the current environment. Editing loaded settings does not change the saved preset until you overwrite it. Resetting render settings preserves custom presets.
+
 ### Filename templates
 
 Existing `Render_{level}_{date}_{time}_{id}` templates still work. Use **Insert variable** in the export dialog to insert variables and examples. The filename preview updates as you edit; invalid syntax must be corrected before exporting.

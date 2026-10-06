@@ -8,9 +8,11 @@
  </PropertyGroup>
  <ItemGroup>
   <Reference Include="mscorlib"><Private>false</Private></Reference>
+  <Reference Include="System.Xml"><Private>false</Private></Reference>
   <Reference Include="System"><Private>false</Private></Reference><Reference Include="System.Core"><Private>false</Private></Reference>
   <Compile Include="Program.cs"/>
   <Compile Include="UiLayoutTests.cs"/>
+  <Compile Include="UserPresetTests.cs"/>
   <Compile Include="FileNameTemplateTests.cs"/>
   <Compile Include="..\OrbitRender\FileNameTemplate.cs" Link="FileNameTemplate.cs"/>
   <Compile Include="..\OrbitRender\UI\UiLayout.cs" Link="UiLayout.cs"/>

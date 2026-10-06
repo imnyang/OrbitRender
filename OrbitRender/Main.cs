@@ -248,6 +248,7 @@ namespace OrbitRender
 
         private static void DrawRenderSettings()
         {
+            UserPresetSettingsUi.Draw(Settings, ResetLocalizedFieldState);
             GUILayout.Label(Localization.Get("preset"));
             var previousPreset = Settings.Preset;
             Settings.Preset = SettingsUi.DrawPreset(Settings.Preset);

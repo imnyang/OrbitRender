@@ -87,6 +87,9 @@ if [[ "$RUN_TESTS" == "1" ]]; then
     /t:Rebuild \
     /v:minimal
 
+  mono "$ROOT_DIR/Tests/bin/Release/RendererTests.exe" --user-presets \
+    "$RELEASE_ROOT/OrbitRender.dll" "$GAME_DIR/A Dance of Fire and Ice_Data/Managed"
+
   # macOS normally exposes a per-user TMPDIR under /var/folders, but it can
   # become stale or unavailable when the shell inherits an old environment.
   # Fall back to /tmp instead of passing a non-existent path to the test.

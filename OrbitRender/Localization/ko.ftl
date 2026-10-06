@@ -1,5 +1,19 @@
 # OrbitRender Korean translations
 
+user-presets = 내 프리셋
+user-preset-select = 프리셋 불러오기…
+user-preset-name = 프리셋 이름
+user-preset-hint = 설정을 바꿔도 저장된 프리셋은 유지됩니다. 덮어쓰기는 선택한 프리셋의 설정만 바꿉니다.
+user-preset-save-new = 새로 저장
+user-preset-update = 덮어쓰기
+user-preset-rename = 이름 변경
+user-preset-delete = 삭제
+user-preset-delete-question = ‘{0}’ 프리셋을 삭제할까요? 현재 내보내기 설정은 유지됩니다.
+user-preset-delete-confirm = 프리셋 삭제
+user-preset-invalid-name = 프리셋 이름을 1~64자로 입력하세요. 제어 문자는 사용할 수 없습니다.
+user-preset-duplicate-name = 같은 이름의 프리셋이 있습니다. 다른 이름을 쓰거나 덮어쓰기를 선택하세요.
+user-preset-missing = 프리셋을 다시 선택하세요.
+
 diagnostics-have-not-been-run = 진단을 아직 실행하지 않았습니다.
 click-run-diagnostics-to-check-ffmpeg-the-output-folder = 진단 실행을 눌러 FFmpeg, 출력 폴더, 인코더 및 게임 오디오를 확인하세요.
 configure-the-defaults-used-when-exporting-a-video-per = 영상 내보내기에 사용할 기본값입니다. 개별 내보내기 설정은 영상 내보내기 창에서 바꿀 수 있습니다.

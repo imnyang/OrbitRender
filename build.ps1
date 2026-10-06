@@ -134,6 +134,15 @@ if ($Test) {
         throw 'Test build failed.'
     }
 
+    & ./Tests/bin/Release/RendererTests.exe `
+        --user-presets `
+        (Join-Path $releaseDirectory 'OrbitRender.dll') `
+        (Join-Path $GameDir 'A Dance of Fire and Ice_Data/Managed')
+
+    if ($LASTEXITCODE -ne 0) {
+        throw 'User preset tests failed.'
+    }
+
     $testOutput = Join-Path `
         $env:TEMP `
         ('orbit-render-tests-' + [guid]::NewGuid().ToString('N'))

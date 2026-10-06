@@ -30,6 +30,9 @@ namespace OrbitRender.UI
         private static Text audioPreviewText;
         private static EncoderAvailability.CombinedResult encoderAvailability;
         private static bool encoderAvailabilityComplete;
+        private static UserRenderPreset selectedUserPreset;
+        private static string userPresetName = string.Empty;
+        private static bool confirmPresetDelete;
 
         internal static bool IsOpen => open;
         internal static void CloseDialog() => Close();
@@ -40,6 +43,9 @@ namespace OrbitRender.UI
             Close();
             editor = owner;
             draft = Draft.From(Main.Settings);
+            selectedUserPreset = null;
+            userPresetName = string.Empty;
+            confirmPresetDelete = false;
             selectedTab = 0;
             filenameHelpVisible = false;
             filenamePreviewSignature = null;
@@ -264,6 +270,7 @@ namespace OrbitRender.UI
             encoderAvailability = null;
             if (selectedTab == 0)
             {
+                AddUserPresets();
                 AddRadioGroup(Localization.Get("preset"), new[] { Localization.Get("custom"), Localization.Get("preview"),
                     "FullHD", "QHD", "UHD 4K" }, (int)draft.Preset, value => {
                         draft.Preset = (RendererPreset)value; if (draft.Preset != RendererPreset.Custom) draft.ApplyPreset(); RebuildContent();
@@ -437,6 +444,98 @@ namespace OrbitRender.UI
             label.fontStyle = FontStyle.Bold; UguiFactory.Preferred(label, 0f, 30f); }
         private static void AddLabel(string value, int size, float height, Color color)
         { var label = UguiFactory.Text(content, value, size, TextAnchor.MiddleLeft, color); UguiFactory.Preferred(label, 0f, height); }
+
+        private static void AddUserPresets()
+        {
+            AddHeading(Localization.Get("user-presets"));
+            var presets = UserRenderPresets.Items(Main.Settings).Where(p => p != null).ToArray();
+            var choices = new[] { Localization.Get("user-preset-select") }.Concat(presets.Select(p => p.Name)).ToArray();
+            var selection = Array.IndexOf(presets, selectedUserPreset) + 1;
+            var dropdown = UguiFactory.Dropdown(content, choices, selection, index => {
+                confirmPresetDelete = false;
+                selectedUserPreset = index > 0 ? presets[index - 1] : null;
+                if (selectedUserPreset != null)
+                {
+                    AudioPreview.Stop();
+                    var settings = new RendererSettings();
+                    selectedUserPreset.ApplyTo(settings);
+                    var saveAsDefault = draft.SaveAsDefault;
+                    draft = Draft.From(settings);
+                    draft.SaveAsDefault = saveAsDefault;
+                    userPresetName = selectedUserPreset.Name;
+                    error = string.Empty;
+                    filenamePreviewSignature = null;
+                }
+                RebuildContent();
+            });
+            UguiFactory.Preferred(dropdown, 0f, 34f);
+            AddLabel(Localization.Get("user-preset-hint"), 11, 32f, UguiFactory.Muted);
+            var nameRow = UguiFactory.Row(content, 34f);
+            var nameLabel = UguiFactory.Text(nameRow.transform, Localization.Get("user-preset-name"));
+            UguiFactory.Preferred(nameLabel, 100f, 34f);
+            var nameInput = UguiFactory.Input(nameRow.transform, userPresetName, value => userPresetName = value);
+            nameInput.characterLimit = 64;
+            nameInput.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            var actions = UguiFactory.Row(content, 34f);
+            UguiFactory.Preferred(UguiFactory.Button(actions.transform, Localization.Get("user-preset-save-new"),
+                () => SaveUserPreset(false)), 120f, 34f);
+            var update = UguiFactory.Button(actions.transform, Localization.Get("user-preset-update"),
+                () => SaveUserPreset(true));
+            UguiFactory.Preferred(update, 120f, 34f);
+            update.interactable = selectedUserPreset != null;
+            var rename = UguiFactory.Button(actions.transform, Localization.Get("user-preset-rename"), () => {
+                var message = UserRenderPresets.Rename(Main.Settings, selectedUserPreset, userPresetName);
+                if (message != null) { error = Localization.Get(message); Refresh(RendererController.Instance); return; }
+                Main.Settings.Save(Main.Entry);
+                error = string.Empty;
+                RebuildContent();
+            });
+            UguiFactory.Preferred(rename, 100f, 34f);
+            rename.interactable = selectedUserPreset != null;
+            var delete = UguiFactory.Button(actions.transform, Localization.Get("user-preset-delete"),
+                () => { confirmPresetDelete = true; RebuildContent(); });
+            UguiFactory.Preferred(delete, 100f, 34f);
+            delete.interactable = selectedUserPreset != null;
+            if (confirmPresetDelete && selectedUserPreset != null)
+            {
+                AddLabel(Localization.Format("user-preset-delete-question", selectedUserPreset.Name),
+                    UiLayout.LabelFontSize, 38f, UguiFactory.Error);
+                var confirmation = UguiFactory.Row(content, 34f);
+                UguiFactory.Preferred(UguiFactory.Button(confirmation.transform, Localization.Get("user-preset-delete-confirm"), () => {
+                    UserRenderPresets.Items(Main.Settings).Remove(selectedUserPreset);
+                    Main.Settings.Save(Main.Entry);
+                    selectedUserPreset = null;
+                    userPresetName = string.Empty;
+                    confirmPresetDelete = false;
+                    error = string.Empty;
+                    RebuildContent();
+                }), 150f, 34f);
+                UguiFactory.Preferred(UguiFactory.Button(confirmation.transform, Localization.Get("cancel"),
+                    () => { confirmPresetDelete = false; RebuildContent(); }), 100f, 34f);
+            }
+        }
+
+        private static void SaveUserPreset(bool update)
+        {
+            if (!draft.TryCreateOptions(out var options, out var message))
+            { error = message; Refresh(RendererController.Instance); return; }
+            RefreshFilenamePreview();
+            if (!string.IsNullOrEmpty(filenameError))
+            { error = filenameError; Refresh(RendererController.Instance); return; }
+            var source = new RendererSettings();
+            draft.ApplyTo(source, options);
+            var savedName = update && selectedUserPreset != null ? selectedUserPreset.Name : userPresetName;
+            message = UserRenderPresets.Save(Main.Settings, savedName, source,
+                update ? selectedUserPreset : null);
+            if (message != null) { error = Localization.Get(message); Refresh(RendererController.Instance); return; }
+            Main.Settings.Save(Main.Entry);
+            selectedUserPreset = UserRenderPresets.Items(Main.Settings).First(p => p != null
+                && string.Equals(p.Name, savedName.Trim(), StringComparison.OrdinalIgnoreCase));
+            userPresetName = selectedUserPreset.Name;
+            confirmPresetDelete = false;
+            error = string.Empty;
+            RebuildContent();
+        }
 
         private static void Confirm(RendererController renderer, bool selectionOnly)
         {

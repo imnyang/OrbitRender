@@ -62,6 +62,10 @@ namespace OrbitRender
 
     public sealed class RendererSettings : UnityModManager.ModSettings, IDrawable
     {
+        [Draw(DrawType.Ignore)]
+        public System.Collections.Generic.List<UserRenderPreset> UserPresets =
+            new System.Collections.Generic.List<UserRenderPreset>();
+
         private const int MinWidth = 320;
         private const int MaxWidth = 3840;
         private const int MinHeight = 180;
@@ -317,7 +321,7 @@ namespace OrbitRender
             return File.Exists(local) ? Path.GetFullPath(local) : configured;
         }
 
-        private static RenderProfile GetPresetProfile(RendererPreset preset)
+        internal static RenderProfile GetPresetProfile(RendererPreset preset)
         {
             switch (preset)
             {

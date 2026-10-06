@@ -1,4 +1,18 @@
 # OrbitRender English translations
+
+user-presets = My presets
+user-preset-select = Load a preset…
+user-preset-name = Preset name
+user-preset-hint = Edits keep the saved preset intact. Overwrite updates the selected preset's settings.
+user-preset-save-new = Save new
+user-preset-update = Overwrite
+user-preset-rename = Rename
+user-preset-delete = Delete
+user-preset-delete-question = Delete “{0}”? Your current export settings will be kept.
+user-preset-delete-confirm = Delete preset
+user-preset-invalid-name = Enter a name with 1–64 characters, without control characters.
+user-preset-duplicate-name = A preset with this name already exists. Choose another name or use Overwrite.
+user-preset-missing = Select the preset again.
 completion-elapsed = Completed: {0:0.##}s
 completion-back = ← Back
 completion-open-folder = Open in Folder

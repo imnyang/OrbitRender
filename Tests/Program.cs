@@ -14,6 +14,11 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--user-presets")
+            {
+                UserPresetTests.Run(args[1], args[2]);
+                return 0;
+            }
             UiLayoutTests.Run();
             if (args.Length == 1 && args[0] == "--ui-layout")
             {
