@@ -484,7 +484,8 @@ namespace OrbitRender.Renderer
             MaximizeRenderPerformance();
             encoder = new FFmpegEncoder(FFmpegPath, partialPath, profile.Width, profile.Height,
                 profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset, !captureAudioForRun,
-                profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat());
+                profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat(),
+                deferStart: NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled);
             if (editor != null)
             {
                 Main.Entry.Logger.Log("Preparing editor render: playMode=" + editor.playMode
@@ -585,6 +586,7 @@ namespace OrbitRender.Renderer
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun);
             capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvases);
             capture.TryEnableNative(profile);
+            encoder.Check();
             if (!showPlanetRingsForRun)
             {
                 planetRings = PlanetRingRenderState.Capture();
@@ -625,6 +627,7 @@ namespace OrbitRender.Renderer
                     var gameFrameStart = System.Diagnostics.Stopwatch.GetTimestamp();
                     yield return null;
                     yield return EndOfFrame;
+                    capture.RenderGameplayFrame();
                     if (level == null || (editor != null ? editor.customLevel : ADOBase.customLevel) != level || ADOBase.controller == null || ADOBase.conductor == null)
                         throw new InvalidOperationException("The level was unloaded during rendering.");
                     gameFrameTicks += System.Diagnostics.Stopwatch.GetTimestamp() - gameFrameStart;

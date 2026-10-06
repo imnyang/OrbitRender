@@ -180,6 +180,15 @@ namespace OrbitRender.Renderer
         public long BindCalls => bindCalls;
         public long BindPropertyWrites => bindPropertyWrites;
         internal string RawFrameFormat => readbackFormat == TextureFormat.RGB24 ? "rgb24" : "rgba";
+        private readonly bool manualGameplay = Environment.GetEnvironmentVariable("ORBITRENDER_MANUAL_CAMERAS") == "1";
+
+        internal void RenderGameplayFrame()
+        {
+            if (!manualGameplay) return;
+            foreach (var state in cameras)
+                if (state.Camera != null && state.Camera != hudOverlayCamera && state.Camera.gameObject.activeInHierarchy)
+                    state.Camera.Render();
+        }
 
         private sealed class LayerState
         {
@@ -497,9 +506,9 @@ namespace OrbitRender.Renderer
                     }
                     // Camera.Render ignored the component's enabled flag on the old
                     // manual path; keep that behavior while using the automatic pass.
-                    if (state.Camera != hudOverlayCamera && !state.Camera.enabled)
+                    if (state.Camera != hudOverlayCamera && state.Camera.enabled == manualGameplay)
                     {
-                        state.Camera.enabled = true;
+                        state.Camera.enabled = !manualGameplay;
                         RecordBindWrite();
                     }
                 }

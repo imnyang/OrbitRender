@@ -370,7 +370,7 @@ internal static class Program
         string codec = "libx264")
     {
         using (var encoder = new FFmpegEncoder(ffmpeg, output, 320, 180, 30, 4, "ultrafast", false,
-            codec, "yuv420p", format))
+            codec, "yuv420p", format, deferStart: format == RawVideoPixelFormat.Rgb24))
         {
             var bytesPerPixel = format == RawVideoPixelFormat.Rgb24 ? 3 : 4;
             for (var frameIndex = 0; frameIndex < 6; frameIndex++)

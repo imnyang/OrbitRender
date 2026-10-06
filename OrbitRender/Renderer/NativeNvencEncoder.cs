@@ -25,6 +25,7 @@ namespace OrbitRender.Renderer
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint AbiFn();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int CreateFn(ref Config config, out ulong handle, [Out] byte[] error, UIntPtr capacity);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int QueueFn(ulong handle, ulong index, out int eventId, [Out] byte[] error, UIntPtr capacity);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int WaitFn(ulong handle, uint milliseconds, [Out] byte[] error, UIntPtr capacity);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int StatsFn(ulong handle, out Stats stats, [Out] byte[] error, UIntPtr capacity);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int FinishFn(ulong handle, ulong expected, [Out] byte[] error, UIntPtr capacity);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void DestroyFn(ulong handle);
@@ -33,6 +34,7 @@ namespace OrbitRender.Renderer
         {
             public CreateFn Create;
             public QueueFn Queue;
+            public WaitFn Wait;
             public StatsFn Stats;
             public FinishFn Finish;
             public DestroyFn Destroy;
@@ -46,6 +48,8 @@ namespace OrbitRender.Renderer
                 if (Export<AbiFn>(module, "orbit_abi_version")() != 1) throw new InvalidOperationException("Unsupported orbitrender_rs ABI.");
                 Create = Export<CreateFn>(module, "orbit_create");
                 Queue = Export<QueueFn>(module, "orbit_queue");
+                var waitPointer = GetProcAddress(module, "orbit_wait_buffer");
+                if (waitPointer != IntPtr.Zero) Wait = Marshal.GetDelegateForFunctionPointer(waitPointer, typeof(WaitFn)) as WaitFn;
                 Stats = Export<StatsFn>(module, "orbit_stats");
                 Finish = Export<FinishFn>(module, "orbit_finish");
                 Destroy = Export<DestroyFn>(module, "orbit_destroy");
@@ -140,7 +144,12 @@ namespace OrbitRender.Renderer
                 if (status == 0) break;
                 if (status != 1) Check(status);
                 if (wait.Elapsed.TotalSeconds > 30) throw new TimeoutException("Native encoder stopped consuming GPU textures.");
-                Thread.Sleep(1);
+                if (api.Wait == null) Thread.Sleep(1);
+                else
+                {
+                    var waitStatus = api.Wait(handle, 1000, error, (UIntPtr)error.Length);
+                    if (waitStatus != 0 && waitStatus != 1) Check(waitStatus);
+                }
             }
             BufferWaitSeconds += wait.Elapsed.TotalSeconds;
             issueEvent(api.RenderEvent, eventId);

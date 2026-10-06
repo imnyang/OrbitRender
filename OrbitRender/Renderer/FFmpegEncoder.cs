@@ -30,7 +30,8 @@ namespace OrbitRender.Renderer
         private readonly BlockingCollection<Frame> work;
         private readonly StringBuilder stderr = new StringBuilder();
         private readonly Process process;
-        private readonly Thread writer;
+        private Thread writer;
+        private bool started;
         private readonly RawVideoPixelFormat rawPixelFormat;
         private readonly string executable, output;
         private readonly int fps;
@@ -78,13 +79,14 @@ namespace OrbitRender.Renderer
                 RawVideoPixelFormat.Rgba32) { }
 
         internal FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
-            string preset, bool fastStart, string codec, string pixelFormat, RawVideoPixelFormat rawPixelFormat)
+            string preset, bool fastStart, string codec, string pixelFormat, RawVideoPixelFormat rawPixelFormat,
+            bool deferStart = false)
             : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
-                rawPixelFormat) { }
+                rawPixelFormat, deferStart) { }
 
         private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool legacyCrf, bool fastStart, string codec, string pixelFormat,
-            RawVideoPixelFormat rawPixelFormat)
+            RawVideoPixelFormat rawPixelFormat, bool deferStart = false)
         {
             if (string.IsNullOrWhiteSpace(executable)) throw new FileNotFoundException("FFmpeg executable was not configured.");
             if (LooksLikeFilePath(executable) && !File.Exists(executable))
@@ -159,13 +161,21 @@ namespace OrbitRender.Renderer
                     if (stderr.Length > 16384) stderr.Remove(0, stderr.Length - 16384);
                 }
             };
+            if (!deferStart) StartFallback();
+        }
+
+        private void StartFallback()
+        {
+            if (started) return;
+            if (disposed) throw new ObjectDisposedException(nameof(FFmpegEncoder));
             try
             {
                 process.Start();
+                started = true;
                 try { process.PriorityClass = ProcessPriorityClass.High; }
                 catch { /* Restricted environments may not allow priority changes. */ }
                 process.BeginErrorReadLine();
-                for (int i = 0; i < bufferCount; i++) free.Add(new Frame(frameByteCount));
+                for (int i = 0; i < free.BoundedCapacity; i++) free.Add(new Frame(FrameByteCount));
                 writer = new Thread(WriteFrames) { IsBackground = true, Name = "OrbitRender FFmpeg" };
                 writer.Start();
             }
@@ -201,6 +211,7 @@ namespace OrbitRender.Renderer
         public void Check()
         {
             if (NativeBackend != null) { var depth = NativeBackend.QueueDepth; return; }
+            StartFallback();
             if (failure != null) throw new IOException("FFmpeg input failed: " + ErrorText(), failure);
             if (process.HasExited) throw new IOException("FFmpeg exited (" + process.ExitCode + "): " + ErrorText());
         }
@@ -211,10 +222,13 @@ namespace OrbitRender.Renderer
             if (NativeBackend != null || WrittenFrames != 0 || work.Count != 0)
                 throw new InvalidOperationException("Native encoding must be selected before frame zero.");
             work.CompleteAdding();
-            if (!writer.Join(5000)) throw new TimeoutException("Cannot stop the unused FFmpeg input worker.");
-            AbortProcess();
-            if (!process.WaitForExit(5000)) throw new TimeoutException("Cannot stop the unused FFmpeg encoder.");
-            if (File.Exists(output)) File.Delete(output);
+            if (started)
+            {
+                if (!writer.Join(5000)) throw new TimeoutException("Cannot stop the unused FFmpeg input worker.");
+                AbortProcess();
+                if (!process.WaitForExit(5000)) throw new TimeoutException("Cannot stop the unused FFmpeg encoder.");
+                if (File.Exists(output)) File.Delete(output);
+            }
             while (free.TryTake(out var unused)) { }
             NativeBackend = native;
         }
@@ -407,6 +421,7 @@ namespace OrbitRender.Renderer
         public void Finish(long expectedFrames)
         {
             if (NativeBackend != null) { NativeBackend.Finish(expectedFrames, executable, output, fps); return; }
+            Check();
             work.CompleteAdding();
             if (!writer.Join(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg input did not finish."); }
             if (failure != null) throw new IOException("FFmpeg input failed: " + ErrorText(), failure);
