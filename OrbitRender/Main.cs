@@ -88,7 +88,10 @@ namespace OrbitRender
                         diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
                         diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
                     }
-                    DrawSettings();
+                    var previousGuiEnabled = GUI.enabled;
+                    GUI.enabled = previousGuiEnabled && !PresetSaveModal.IsOpen;
+                    try { DrawSettings(); }
+                    finally { GUI.enabled = previousGuiEnabled; }
                 };
                 entry.OnUpdate = (mod, deltaTime) => UpdateManager.PumpMainThread();
                 entry.OnSaveGUI = mod => Settings?.Save(mod);
@@ -249,14 +252,6 @@ namespace OrbitRender
         private static void DrawRenderSettings()
         {
             UserPresetSettingsUi.Draw(Settings, ResetLocalizedFieldState);
-            GUILayout.Label(Localization.Get("preset"));
-            var previousPreset = Settings.Preset;
-            Settings.Preset = SettingsUi.DrawPreset(Settings.Preset);
-            if (Settings.Preset != previousPreset)
-            {
-                Settings.OnChange();
-                ResetLocalizedFieldState();
-            }
 
             if (Settings.Preset == RendererPreset.Custom)
             {

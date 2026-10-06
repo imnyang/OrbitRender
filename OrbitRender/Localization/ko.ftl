@@ -1,6 +1,11 @@
 # OrbitRender Korean translations
 
 user-presets = 내 프리셋
+user-preset-save-title = 프리셋 저장
+user-preset-save-confirm = 저장
+user-preset-manage = 프리셋 관리
+user-preset-close-management = 관리 닫기
+user-preset-empty = 저장된 프리셋이 없습니다. 프리셋 관리에서 새로 저장하세요.
 user-preset-select = 프리셋 불러오기…
 user-preset-name = 프리셋 이름
 user-preset-hint = 설정을 바꿔도 저장된 프리셋은 유지됩니다. 덮어쓰기는 선택한 프리셋의 설정만 바꿉니다.
@@ -11,7 +16,7 @@ user-preset-delete = 삭제
 user-preset-delete-question = ‘{0}’ 프리셋을 삭제할까요? 현재 내보내기 설정은 유지됩니다.
 user-preset-delete-confirm = 프리셋 삭제
 user-preset-invalid-name = 프리셋 이름을 1~64자로 입력하세요. 제어 문자는 사용할 수 없습니다.
-user-preset-duplicate-name = 같은 이름의 프리셋이 있습니다. 다른 이름을 쓰거나 덮어쓰기를 선택하세요.
+user-preset-duplicate-name = 같은 이름의 프리셋이 있습니다. 다른 이름을 입력하세요.
 user-preset-missing = 프리셋을 다시 선택하세요.
 
 diagnostics-have-not-been-run = 진단을 아직 실행하지 않았습니다.

@@ -73,9 +73,9 @@ Before rendering, the selected encoder is verified with a real one-frame smoke t
 
 ### Custom presets
 
-Use **Basic → My presets** in the export dialog or UMM settings to name and **Save new** export settings. Selecting a saved preset restores resolution, FPS, bitrate, audio, game visibility, encoding and filename options. Names must contain 1–64 characters and are unique regardless of case. Presets support **Overwrite**, **Rename**, and **Delete** with confirmation.
+Use the **Basic → Preset** dropdown in the export dialog or UMM settings to select built-in and saved custom presets. **Preset Save** opens a modal for the new preset's name. Select **Save** to add the current settings to the dropdown, or **Cancel** / Esc to close without saving. Presets store resolution, FPS, bitrate, audio, game visibility, encoding and filename options. Names must contain 1–64 characters and are unique regardless of case.
 
-Presets persist in mod settings across game restarts. Output folders, FFmpeg paths and selected tile ranges remain specific to the current environment. Editing loaded settings does not change the saved preset until you overwrite it. Resetting render settings preserves custom presets.
+Presets persist in mod settings across game restarts. Output folders, FFmpeg paths and selected tile ranges remain specific to the current environment. Editing loaded settings keeps the saved preset intact; save changes under a new name. Resetting render settings preserves custom presets.
 
 ### Filename templates
 

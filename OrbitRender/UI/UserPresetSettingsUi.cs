@@ -7,81 +7,59 @@ namespace OrbitRender.UI
     internal static class UserPresetSettingsUi
     {
         private static UserRenderPreset selected;
-        private static string name = "";
-        private static string error;
-        private static bool deleting;
+        private static bool choosing;
+        private static Vector2 listScroll;
 
         internal static void Draw(RendererSettings settings, Action applied)
         {
-            GUILayout.Label(Localization.Get("user-presets"));
             var presets = UserRenderPresets.Items(settings).Where(p => p != null).ToArray();
             if (selected != null && !presets.Contains(selected)) selected = null;
-            var choices = new[] { Localization.Get("user-preset-select") }.Concat(presets.Select(p => p.Name)).ToArray();
-            var current = Array.IndexOf(presets, selected) + 1;
-            var next = GUILayout.SelectionGrid(current, choices, Math.Min(3, choices.Length));
-            if (next != current)
-            {
-                selected = next > 0 ? presets[next - 1] : null;
-                deleting = false;
-                error = null;
-                if (selected != null)
-                {
-                    name = selected.Name;
-                    AudioPreview.Stop();
-                    selected.ApplyTo(settings);
-                    applied();
-                }
-            }
+            var builtins = new[] { Localization.Get("custom"), Localization.Get("preview"), "FullHD", "QHD", "UHD 4K" };
+            var choices = builtins.Concat(presets.Select(p => p.Name)).ToArray();
             GUILayout.BeginHorizontal();
-            GUILayout.Label(Localization.Get("user-preset-name"), GUILayout.Width(100f));
-            name = GUILayout.TextField(name, 64);
-            GUILayout.EndHorizontal();
-            GUILayout.Label(Localization.Get("user-preset-hint"));
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button(Localization.Get("user-preset-save-new")))
-                Save(settings, null);
-            var previousEnabled = GUI.enabled;
-            GUI.enabled = previousEnabled && selected != null;
-            if (GUILayout.Button(Localization.Get("user-preset-update")))
-                Save(settings, selected);
-            if (GUILayout.Button(Localization.Get("user-preset-rename")))
+            GUILayout.Label(Localization.Get("preset"), GUILayout.Width(80f));
+            var caption = selected != null ? selected.Name : builtins[Mathf.Clamp((int)settings.Preset, 0, builtins.Length - 1)];
+            if (GUILayout.Button(caption + "  ▼", GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true)))
+                choosing = !choosing;
+            if (GUILayout.Button("Preset Save", GUILayout.Width(120f)))
             {
-                error = UserRenderPresets.Rename(settings, selected, name);
-                if (error == null) settings.Save(Main.Entry);
-            }
-            if (GUILayout.Button(Localization.Get("user-preset-delete"))) deleting = true;
-            GUI.enabled = previousEnabled;
-            GUILayout.EndHorizontal();
-            if (deleting && selected != null)
-            {
-                GUILayout.Label(Localization.Format("user-preset-delete-question", selected.Name));
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(Localization.Get("user-preset-delete-confirm")))
-                {
-                    UserRenderPresets.Items(settings).Remove(selected);
+                choosing = false;
+                // Capture now, so changing the main settings cannot affect a
+                // save dialog that is already open.
+                var source = new RendererSettings();
+                UserRenderPreset.Capture("", settings).ApplyTo(source);
+                PresetSaveModal.Open(name => {
+                    var failure = UserRenderPresets.Save(settings, name, source);
+                    if (failure != null) return Localization.Get(failure);
                     settings.Save(Main.Entry);
-                    selected = null;
-                    name = "";
-                    deleting = false;
-                    error = null;
-                }
-                if (GUILayout.Button(Localization.Get("cancel"))) deleting = false;
-                GUILayout.EndHorizontal();
+                    selected = UserRenderPresets.Items(settings).First(p => p != null
+                        && string.Equals(p.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+                    return null;
+                });
             }
-            if (error != null) GUILayout.Label(Localization.Get(error));
-            GUILayout.Space(8f);
-        }
-
-        private static void Save(RendererSettings settings, UserRenderPreset replacement)
-        {
-            var savedName = replacement != null ? replacement.Name : name;
-            error = UserRenderPresets.Save(settings, savedName, settings, replacement);
-            if (error != null) return;
-            settings.Save(Main.Entry);
-            selected = UserRenderPresets.Items(settings).First(p => p != null
-                && string.Equals(p.Name, savedName.Trim(), StringComparison.OrdinalIgnoreCase));
-            name = selected.Name;
-            deleting = false;
+            GUILayout.EndHorizontal();
+            if (!choosing) return;
+            listScroll = GUILayout.BeginScrollView(listScroll,
+                GUILayout.Height(Math.Min(168f, choices.Length * 28f)));
+            for (var index = 0; index < choices.Length; index++)
+            {
+                if (!GUILayout.Button(choices[index], GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true))) continue;
+                choosing = false;
+                AudioPreview.Stop();
+                if (index < builtins.Length)
+                {
+                    selected = null;
+                    settings.Preset = (RendererPreset)index;
+                    settings.OnChange();
+                }
+                else
+                {
+                    selected = presets[index - builtins.Length];
+                    selected.ApplyTo(settings);
+                }
+                applied();
+            }
+            GUILayout.EndScrollView();
         }
     }
 }
