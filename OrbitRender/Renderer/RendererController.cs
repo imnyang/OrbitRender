@@ -584,6 +584,7 @@ namespace OrbitRender.Renderer
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun);
             capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvases);
+            capture.TryEnableNative(profile);
             if (!showPlanetRingsForRun)
             {
                 planetRings = PlanetRingRenderState.Capture();
@@ -775,7 +776,11 @@ namespace OrbitRender.Renderer
                 audio != null, CaptureWaitSeconds,
                 TotalRenderSeconds, GameFrameSeconds, ReadbackWaitSeconds, ReadbackLatencySeconds, ReadbackCopySeconds,
                 PeakPendingReadbacks, EncoderWriteSeconds, PeakEncoderQueueDepth, WrittenFrames,
-                AudioCaptureSeconds, FinalizationSeconds, encoder.RawPixelFormat, OutputPath));
+                AudioCaptureSeconds, FinalizationSeconds, encoder.NativeBackend != null ? "gpu-rgba" : encoder.RawPixelFormat.ToString(), OutputPath));
+            if (encoder.NativeBackend != null)
+                Main.Entry.Logger.Log(string.Format("Native NVENC: GPU buffers={0}, renderEventWait={1:F2}s, bufferWait={2:F2}s, encoded={3}.",
+                    encoder.NativeBackend.PeakQueueDepth, encoder.NativeBackend.RenderEventWaitSeconds,
+                    encoder.NativeBackend.BufferWaitSeconds, encoder.NativeBackend.WrittenFrames));
             if (latePlaySoundSchedules > 0)
                 Main.Entry.Logger.Log("Adjusted " + latePlaySoundSchedules
                     + " late Play Sound Effect schedule(s) to the next captured audio sample.");
