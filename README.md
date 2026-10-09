@@ -1,5 +1,7 @@
 # OrbitRender
 
+https://github.com/imnyang/OrbitRender/blob/main/README.en.md
+
 OrbitRender는 A Dance of Fire and Ice(ADOFAI)의 커스텀 레벨을 영상으로 렌더링하는 Unity Mod Manager 모드입니다.
 
 해상도, FPS, 비트레이트, 인코더 등을 직접 설정할 수 있으며, 게임을 실시간으로 녹화하지 않고 프레임 단위로 렌더링합니다.
