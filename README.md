@@ -23,6 +23,7 @@ ADOFAI 커스텀 레벨을 지정한 해상도와 FPS로 영상으로 렌더링�
 - 설정 가능한 출력 폴더
 - BGA Mode: 타일·홀드·타일 이펙트·공·공 파티클·힛사운드 제외
 - localhost RPC API 및 `bgaMode` 작업별 override
+- `--renderer-rpc`가 기본 HTTP 연동 경로이며, AdofaiIpc가 설치·활성화돼 있으면 실행 옵션 없이도 `orbitrender` namespace로 호출 가능 (선택적 연동)
 
 ## 설치
 

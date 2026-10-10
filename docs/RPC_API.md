@@ -42,6 +42,37 @@ The server binds only to the loopback address. Do not expose it through an unaut
 
 Unknown paths return `404` with a JSON error object.
 
+### Optional AdofaiIpc integration
+
+`--renderer-rpc` (or `--renderer-rpc-port=...`) remains the primary entry point.
+When an installed AdofaiIpc mod is loaded and listening, OrbitRender registers
+the `orbitrender` namespace, even without `--renderer-rpc`. The launch option
+only enables the primary HTTP listener. No
+AdofaiIpc installation, bootstrap, or DLL reference is required. Missing,
+disabled, or incompatible AdofaiIpc does not prevent the primary RPC server or
+in-game rendering from working. The bridge checks for a running gateway once
+per second to support either mod load order and gateway reactivation.
+
+Call `POST /ipc` on the AdofaiIpc gateway with `namespace: "orbitrender"` and one
+of these methods. Both transports share the same jobs and renderer queue.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `health` | `{}` | Same renderer health as `/health` |
+| `jobs.list` | `{}` | Same job list as `/jobs` |
+| `render.create` | Same JSON fields as `POST /render` | Queued job; use its `id` for subsequent IPC calls |
+| `render.status` | `{ "id": "job-id" }` | Job snapshot |
+| `render.cancel` | `{ "id": "job-id" }` | Cancellation acknowledgement |
+| `render.download` | `{ "id": "job-id" }` | AdofaiIpc download ticket (`Url`, `ByteLength`) for a completed job |
+
+The `statusUrl` and `downloadUrl` returned by `render.create` remain relative to
+the primary renderer RPC server, not the gateway. IPC downloads require
+AdofaiIpc's streaming API (0.4.0+); request a ticket when ready to download, since
+it expires after 60 seconds and can only be used once. Errors use AdofaiIpc's
+protocol error envelope, not the primary server's HTTP status codes. The optional
+namespace accepts all origins, matching the existing renderer RPC policy.
+Disabling/unloading OrbitRender removes the namespace and its unused tickets.
+
 ## 3. Health
 
 ### Request

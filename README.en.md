@@ -1,5 +1,9 @@
 # OrbitRender
 
+The primary external API is enabled with `--renderer-rpc`. If AdofaiIpc is
+installed and running, jobs are available through the optional `orbitrender`
+namespace even without that launch option. See [RPC API Specification](docs/RPC_API.md).
+
 OrbitRender is a Unity Mod Manager mod that renders ADOFAI custom levels to video at a selected resolution and frame rate.
 
 ## Features

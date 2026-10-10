@@ -17,6 +17,7 @@ namespace OrbitRender
         internal static bool RpcEnabled { get; private set; }
         internal static int RpcPort { get; private set; } = 1108;
         internal static RendererRpcServer RpcServer { get; private set; }
+        private static ADOFAIIpcBridge ipcBridge;
         internal static RendererSettings Settings;
         private static Harmony harmony;
         private static GameObject host;
@@ -93,7 +94,11 @@ namespace OrbitRender
                     try { DrawSettings(); }
                     finally { GUI.enabled = previousGuiEnabled; }
                 };
-                entry.OnUpdate = (mod, deltaTime) => UpdateManager.PumpMainThread();
+                entry.OnUpdate = (mod, deltaTime) =>
+                {
+                    UpdateManager.PumpMainThread();
+                    ipcBridge?.Pump();
+                };
                 entry.OnSaveGUI = mod => Settings?.Save(mod);
                 entry.OnUnload = mod =>
                 {
@@ -143,11 +148,15 @@ namespace OrbitRender
 
         private static void StartRpcServer()
         {
-            if (!RpcEnabled || RpcServer != null || RendererController.Instance == null) return;
+            if (RpcServer != null || RendererController.Instance == null) return;
             try
             {
                 RpcServer = new RendererRpcServer(RendererController.Instance, RpcPort);
-                RpcServer.Start();
+                // The shared job service is always available to optional AdofaiIpc.
+                // Only the primary HTTP listener requires the launch option.
+                if (RpcEnabled) RpcServer.Start();
+                ipcBridge = new ADOFAIIpcBridge(RpcServer);
+                ipcBridge.Pump();
             }
             catch (Exception ex)
             {
@@ -158,6 +167,8 @@ namespace OrbitRender
 
         private static void StopRpcServer()
         {
+            ipcBridge?.Dispose();
+            ipcBridge = null;
             var server = RpcServer;
             RpcServer = null;
             try { server?.Dispose(); } catch (Exception ex) { Entry.Logger.Error("Renderer RPC shutdown: " + ex); }

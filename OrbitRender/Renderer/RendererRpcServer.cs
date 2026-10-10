@@ -314,38 +314,64 @@ namespace OrbitRender.Renderer
             }
             string body;
             using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8)) body = reader.ReadToEnd();
+            var result = CreateJob(body, out var status);
+            WriteJson(context, status, result);
+        }
+
+        internal object CreateJob(string body, out int status)
+        {
+            status = 400;
+            if (controller.Busy)
+            {
+                status = 409;
+                return new { error = "A render is already in progress." };
+            }
             var payload = JsonConvert.DeserializeObject<RpcRenderPayload>(body ?? "{}");
             var path = payload?.LevelPath ?? payload?.Path;
             if (string.IsNullOrWhiteSpace(path))
             {
-                WriteJson(context, 400, new { error = "JSON field 'levelPath' is required." });
-                return;
+                return new { error = "JSON field 'levelPath' is required." };
             }
             try { path = Path.GetFullPath(path); }
-            catch (Exception ex) { WriteJson(context, 400, new { error = "Invalid levelPath: " + ex.Message }); return; }
+            catch (Exception ex) { return new { error = "Invalid levelPath: " + ex.Message }; }
             if (!File.Exists(path))
             {
-                WriteJson(context, 400, new { error = "Level file does not exist: " + path });
-                return;
+                return new { error = "Level file does not exist: " + path };
             }
             var options = ParseOptions(payload, out var optionsError);
             if (optionsError != null)
             {
-                WriteJson(context, 400, new { error = optionsError });
-                return;
+                return new { error = optionsError };
             }
             var id = Guid.NewGuid().ToString("N");
             var job = new RpcRenderJob(id, path,
                 payload.CaptureAudio ?? payload.Audio ?? (Main.Settings == null || Main.Settings.CaptureAudio), options);
             jobs[id] = job;
             controller.EnqueueRpcRender(new RpcRenderRequest { Job = job });
-            WriteJson(context, 202, new
+            status = 202;
+            return new
             {
                 id,
                 state = "queued",
                 statusUrl = "/render/" + id,
                 downloadUrl = "/render/" + id + "/download"
-            });
+            };
+        }
+
+        internal object Health() => new { ok = true, renderer = controller.State.ToString().ToLowerInvariant() };
+        internal object ListJobs() => jobs.Values.Select(job => job.Snapshot()).ToArray();
+        internal RpcRenderJob FindJob(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id) || !jobs.TryGetValue(id, out var job))
+                throw new ArgumentException("Unknown render job.");
+            return job;
+        }
+        internal object CancelJob(string id)
+        {
+            var job = FindJob(id);
+            if (job.IsTerminal) throw new InvalidOperationException("Render job has already finished.");
+            controller.EnqueueRpcCancel(new RpcCancelRequest { JobId = job.Id });
+            return new { id = job.Id, state = "cancelling" };
         }
 
         private static RpcRenderOptions ParseOptions(RpcRenderPayload payload, out string error)
