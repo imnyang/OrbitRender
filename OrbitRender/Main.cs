@@ -97,7 +97,6 @@ namespace OrbitRender
                 entry.OnUpdate = (mod, deltaTime) =>
                 {
                     UpdateManager.PumpMainThread();
-                    ipcBridge?.Pump();
                 };
                 entry.OnSaveGUI = mod => Settings?.Save(mod);
                 entry.OnUnload = mod =>
@@ -156,7 +155,7 @@ namespace OrbitRender
                 // Only the primary HTTP listener requires the launch option.
                 if (RpcEnabled) RpcServer.Start();
                 ipcBridge = new ADOFAIIpcBridge(RpcServer);
-                ipcBridge.Pump();
+                ipcBridge.Initialize();
             }
             catch (Exception ex)
             {

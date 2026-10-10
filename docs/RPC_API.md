@@ -51,7 +51,9 @@ only enables the primary HTTP listener. No
 AdofaiIpc installation, bootstrap, or DLL reference is required. Missing,
 disabled, or incompatible AdofaiIpc does not prevent the primary RPC server or
 in-game rendering from working. The bridge checks for a running gateway once
-per second to support either mod load order and gateway reactivation.
+when OrbitRender loads or is re-enabled. AdofaiIpc must already be loaded and
+listening at that point. If the gateway starts or restarts later, re-enable
+OrbitRender to register the namespace again.
 
 Call `POST /ipc` on the AdofaiIpc gateway with `namespace: "orbitrender"` and one
 of these methods. Both transports share the same jobs and renderer queue.

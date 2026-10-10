@@ -11,7 +11,6 @@ namespace OrbitRender.Renderer
     {
         private const string Namespace = "orbitrender";
         private readonly RendererRpcServer renderer;
-        private DateTime nextProbe;
         private object attemptedServer;
         private Type facade;
         private object registration;
@@ -19,10 +18,9 @@ namespace OrbitRender.Renderer
 
         internal ADOFAIIpcBridge(RendererRpcServer renderer) { this.renderer = renderer; }
 
-        internal void Pump()
+        internal void Initialize()
         {
-            if (disposed || DateTime.UtcNow < nextProbe) return;
-            nextProbe = DateTime.UtcNow.AddSeconds(1);
+            if (disposed) return;
             try
             {
                 var assembly = AppDomain.CurrentDomain.GetAssemblies().LastOrDefault(
