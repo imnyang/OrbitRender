@@ -137,6 +137,7 @@ namespace OrbitRender.Renderer
         private readonly RenderTexture target;
         private readonly RenderTexture gameTarget;
         private RenderTexture customFrameHold;
+        private RenderTexture nativeSource;
         private bool customFrameHoldValid;
         private int customFrameRateRevision = -1;
         private double customFrameNextRefreshTime;
@@ -169,7 +170,8 @@ namespace OrbitRender.Renderer
         private int peakPending;
         public double BackpressureSeconds { get; private set; }
         internal Texture PreviewTexture => target;
-        public double EncoderBufferWaitSeconds => encoderBufferWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+        public double EncoderBufferWaitSeconds => encoder.NativeBackend != null ? encoder.NativeBackend.BufferWaitSeconds
+            : encoderBufferWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackWaitSeconds => readbackWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackCopySeconds => readbackCopyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackLatencySeconds => readbackLatencyTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -178,6 +180,15 @@ namespace OrbitRender.Renderer
         public long BindCalls => bindCalls;
         public long BindPropertyWrites => bindPropertyWrites;
         internal string RawFrameFormat => readbackFormat == TextureFormat.RGB24 ? "rgb24" : "rgba";
+        private readonly bool manualGameplay = Environment.GetEnvironmentVariable("ORBITRENDER_MANUAL_CAMERAS") == "1";
+
+        internal void RenderGameplayFrame()
+        {
+            if (!manualGameplay) return;
+            foreach (var state in cameras)
+                if (state.Camera != null && state.Camera != hudOverlayCamera && state.Camera.gameObject.activeInHierarchy)
+                    state.Camera.Render();
+        }
 
         private sealed class LayerState
         {
@@ -274,6 +285,37 @@ namespace OrbitRender.Renderer
                 Position = camera.transform.position,
                 Rotation = camera.transform.rotation
             });
+        }
+
+        internal void TryEnableNative(RenderProfile profile)
+        {
+            if (NativeNvencEncoder.IsDisabled || !NativeNvencEncoder.IsInstalled
+                || SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D11
+                || !string.Equals(profile.FfmpegCodec, "h264_nvenc", StringComparison.OrdinalIgnoreCase)
+                || profile.PixelFormat != "yuv420p") return;
+            NativeNvencEncoder native = null;
+            try
+            {
+                nativeSource = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32) {
+                    name = "OrbitRender Native Encoder Input", antiAliasing = 1, useMipMap = false, autoGenerateMips = false
+                };
+                if (!nativeSource.Create()) throw new InvalidOperationException("Cannot allocate native capture texture.");
+                ClearTexture(nativeSource, Color.black);
+                native = NativeNvencEncoder.TryCreate(nativeSource.GetNativeTexturePtr(), encoder.NativeBitstreamPath,
+                    width, height, profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset,
+                    (callback, eventId) => GL.IssuePluginEvent(callback, eventId), () => GL.Flush(), out var failure);
+                if (native == null) throw new InvalidOperationException(failure ?? "Native encoder is unavailable.");
+            }
+            catch (Exception ex)
+            {
+                native?.Dispose();
+                if (nativeSource != null) { nativeSource.Release(); UnityEngine.Object.Destroy(nativeSource); nativeSource = null; }
+                Main.Entry.Logger.Log("Native NVENC unavailable; using FFmpeg: " + ex.Message);
+                return;
+            }
+            try { encoder.EnableNative(native); }
+            catch { native.Dispose(); throw; }
+            Main.Entry.Logger.Log("orbitrender_rs active: D3D11 GPU textures -> NVENC H.264 8-bit; CPU readback and rawvideo pipe bypassed. B-frames/lookahead disabled.");
         }
 
         private void ConfigureCaptureCanvas(Canvas canvas, Camera renderCamera)
@@ -464,9 +506,9 @@ namespace OrbitRender.Renderer
                     }
                     // Camera.Render ignored the component's enabled flag on the old
                     // manual path; keep that behavior while using the automatic pass.
-                    if (state.Camera != hudOverlayCamera && !state.Camera.enabled)
+                    if (state.Camera != hudOverlayCamera && state.Camera.enabled == manualGameplay)
                     {
-                        state.Camera.enabled = true;
+                        state.Camera.enabled = !manualGameplay;
                         RecordBindWrite();
                     }
                 }
@@ -514,6 +556,14 @@ namespace OrbitRender.Renderer
             Drain(false);
             lastPending = null;
             var source = SelectCaptureSource();
+            if (encoder.NativeBackend != null)
+            {
+                // Match the existing FFmpeg vflip in GPU memory.
+                Graphics.Blit(source, nativeSource, new Vector2(1f, -1f), new Vector2(0f, 1f));
+                encoder.NativeBackend.Submit(index, false);
+                BackpressureSeconds = encoder.NativeBackend.BufferWaitSeconds + encoder.NativeBackend.RenderEventWaitSeconds;
+                return;
+            }
             if (!encoder.TryRent(out var buffer))
             {
                 long waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -577,6 +627,12 @@ namespace OrbitRender.Renderer
         }
         public bool TryRepeat(long index)
         {
+            if (encoder.NativeBackend != null)
+            {
+                encoder.NativeBackend.Submit(index, true);
+                BackpressureSeconds = encoder.NativeBackend.BufferWaitSeconds + encoder.NativeBackend.RenderEventWaitSeconds;
+                return true;
+            }
             var frame = lastPending?.Frame;
             if (frame == null || frame.Index + frame.RepeatCount != index) return false;
             checked { frame.RepeatCount++; }
@@ -648,6 +704,9 @@ namespace OrbitRender.Renderer
         {
             if (disposed) return;
             disposed = true;
+            // The native backend retains a COM reference to its source texture.
+            // Stop its worker before releasing the Unity render target.
+            encoder.NativeBackend?.Dispose();
             // Readbacks must release the texture before it can be destroyed, even
             // when encoder failure/cancellation means their frames are discarded.
             foreach (var frame in pending) if (!frame.Ready) frame.Request.WaitForCompletion();
@@ -696,6 +755,7 @@ namespace OrbitRender.Renderer
             hudLayers.Clear();
             hudLayerObjects.Clear();
             if (fallback != null) UnityEngine.Object.Destroy(fallback);
+            if (nativeSource != null) { nativeSource.Release(); UnityEngine.Object.Destroy(nativeSource); }
             if (customFrameHold != null) { customFrameHold.Release(); UnityEngine.Object.Destroy(customFrameHold); }
             if (gameTarget != null) { gameTarget.Release(); UnityEngine.Object.Destroy(gameTarget); }
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }

@@ -1,6 +1,7 @@
 bin/
 obj/
 /packages/
+/OrbitRender/Native/
 riderModule.iml
 /_ReSharper.Caches/
 .idea/

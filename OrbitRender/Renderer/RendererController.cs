@@ -485,7 +485,8 @@ namespace OrbitRender.Renderer
             MaximizeRenderPerformance();
             encoder = new FFmpegEncoder(FFmpegPath, partialPath, profile.Width, profile.Height,
                 profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset, !captureAudioForRun,
-                profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat());
+                profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat(),
+                deferStart: NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled);
             if (editor != null)
             {
                 Main.Entry.Logger.Log("Preparing editor render: playMode=" + editor.playMode
@@ -585,6 +586,8 @@ namespace OrbitRender.Renderer
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun);
             capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvases);
+            capture.TryEnableNative(profile);
+            encoder.Check();
             if (!showPlanetRingsForRun)
             {
                 planetRings = PlanetRingRenderState.Capture();
@@ -625,6 +628,7 @@ namespace OrbitRender.Renderer
                     var gameFrameStart = System.Diagnostics.Stopwatch.GetTimestamp();
                     yield return null;
                     yield return EndOfFrame;
+                    capture.RenderGameplayFrame();
                     if (level == null || (editor != null ? editor.customLevel : ADOBase.customLevel) != level || ADOBase.controller == null || ADOBase.conductor == null)
                         throw new InvalidOperationException("The level was unloaded during rendering.");
                     gameFrameTicks += System.Diagnostics.Stopwatch.GetTimestamp() - gameFrameStart;
@@ -776,7 +780,11 @@ namespace OrbitRender.Renderer
                 audio != null, CaptureWaitSeconds,
                 TotalRenderSeconds, GameFrameSeconds, ReadbackWaitSeconds, ReadbackLatencySeconds, ReadbackCopySeconds,
                 PeakPendingReadbacks, EncoderWriteSeconds, PeakEncoderQueueDepth, WrittenFrames,
-                AudioCaptureSeconds, FinalizationSeconds, encoder.RawPixelFormat, OutputPath));
+                AudioCaptureSeconds, FinalizationSeconds, encoder.NativeBackend != null ? "gpu-rgba" : encoder.RawPixelFormat.ToString(), OutputPath));
+            if (encoder.NativeBackend != null)
+                Main.Entry.Logger.Log(string.Format("Native NVENC: GPU buffers={0}, renderEventWait={1:F2}s, bufferWait={2:F2}s, encoded={3}.",
+                    encoder.NativeBackend.PeakQueueDepth, encoder.NativeBackend.RenderEventWaitSeconds,
+                    encoder.NativeBackend.BufferWaitSeconds, encoder.NativeBackend.WrittenFrames));
             if (latePlaySoundSchedules > 0)
                 Main.Entry.Logger.Log("Adjusted " + latePlaySoundSchedules
                     + " late Play Sound Effect schedule(s) to the next captured audio sample.");

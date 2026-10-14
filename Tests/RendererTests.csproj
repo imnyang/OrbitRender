@@ -23,6 +23,7 @@
   <Compile Include="..\OrbitRender\Renderer\EncoderAvailability.cs" Link="EncoderAvailability.cs"/>
   <Compile Include="..\OrbitRender\Renderer\RenderClock.cs" Link="RenderClock.cs"/>
   <Compile Include="..\OrbitRender\Renderer\FFmpegEncoder.cs" Link="FFmpegEncoder.cs"/>
+  <Compile Include="..\OrbitRender\Renderer\NativeNvencEncoder.cs" Link="NativeNvencEncoder.cs"/>
   <Compile Include="..\OrbitRender\Renderer\ConcurrentAudioEncoder.cs" Link="ConcurrentAudioEncoder.cs"/>
  </ItemGroup>
  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets"/>
