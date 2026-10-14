@@ -40,7 +40,7 @@ namespace OrbitRender
             while (mainThreadActions.TryDequeue(out action))
             {
                 try { action(); }
-                catch (Exception ex) { Main.Entry?.Logger.Error("Update action failed: " + ex); }
+                catch (Exception ex) { Main.Entry?.Logger.Error("[Update] Update action failed: " + ex); }
                 if (RendererController.Instance != null && RendererController.Instance.Busy) return;
             }
         }
@@ -68,7 +68,7 @@ namespace OrbitRender
                 if (!TryParseVersion(tag, out latestVersion))
                 {
                     RestoreDisplayName(entry);
-                    entry.Logger.Log("Automatic update skipped: GitHub release tag is not a supported version: " + tag);
+                    entry.Logger.Log("[Update] Automatic update skipped: GitHub release tag is not a supported version: " + tag);
                     return;
                 }
 
@@ -76,7 +76,7 @@ namespace OrbitRender
                 if (!TryParseVersion(entry.Version == null ? null : entry.Version.ToString(), out currentVersion))
                 {
                     RestoreDisplayName(entry);
-                    entry.Logger.Log("Automatic update skipped: installed version is not a supported version: " + entry.Version);
+                    entry.Logger.Log("[Update] Automatic update skipped: installed version is not a supported version: " + entry.Version);
                     return;
                 }
                 if (latestVersion.CompareTo(currentVersion) <= 0)
@@ -89,7 +89,7 @@ namespace OrbitRender
                 if (asset == null)
                 {
                     RestoreDisplayName(entry);
-                    entry.Logger.Log("Automatic update skipped: release " + tag + " has no OrbitRender ZIP asset.");
+                    entry.Logger.Log("[Update] Automatic update skipped: release " + tag + " has no OrbitRender ZIP asset.");
                     return;
                 }
 
@@ -106,13 +106,13 @@ namespace OrbitRender
                 SetDisplayName(entry, "Updating... applying");
                 QueueHotApply(packageRoot, entry.Path, tempRoot, entry, latestVersion);
                 tempRoot = null;
-                entry.Logger.Log("Update " + FormatVersion(latestVersion) + " downloaded. It will be applied while ADOFAI is running.");
+                entry.Logger.Log("[Update] Update " + FormatVersion(latestVersion) + " downloaded. It will be applied while ADOFAI is running.");
             }
             catch (Exception ex)
             {
                 if (tempRoot != null) TryDelete(tempRoot);
                 RestoreDisplayName(entry);
-                entry.Logger.Log("Automatic update check failed: " + ex.Message);
+                entry.Logger.Log("[Update] Automatic update check failed: " + ex.Message);
             }
         }
 
@@ -135,19 +135,19 @@ namespace OrbitRender
                 catch (Exception ex)
                 {
                     SetDisplayName(entry, "Update pending restart");
-                    entry.Logger.Log("Hot update could not replace the loaded files: " + ex.Message);
+                    entry.Logger.Log("[Update] Hot update could not replace the loaded files: " + ex.Message);
                     // Keep the staged package and fall back to the old safe
                     // path if UMM or the OS still has the DLL locked.
                     try
                     {
                         StartApplyHelper(packageRoot, targetDirectory, tempRoot, Process.GetCurrentProcess().Id);
-                        entry.Logger.Log("The update will be installed after ADOFAI exits.");
+                        entry.Logger.Log("[Update] The update will be installed after ADOFAI exits.");
                     }
                     catch (Exception fallbackException)
                     {
                         TryDelete(tempRoot);
                         RestoreDisplayName(entry);
-                        entry.Logger.Error("Could not schedule the update installer: " + fallbackException);
+                        entry.Logger.Error("[Update] Could not schedule the update installer: " + fallbackException);
                     }
                 }
             });
@@ -216,22 +216,22 @@ namespace OrbitRender
                 RefreshEntryMetadata(entry, packageRoot);
                 TryDelete(tempRoot);
                 RestoreDisplayName(entry);
-                entry.Logger.Log("Update " + FormatVersion(version) + " applied without restarting ADOFAI.");
+                entry.Logger.Log("[Update] Update " + FormatVersion(version) + " applied without restarting ADOFAI.");
             }
             catch (Exception ex)
             {
-                entry.Logger.Log("Hot reload failed: " + ex.Message);
+                entry.Logger.Log("[Update] Hot reload failed: " + ex.Message);
                 SetDisplayName(entry, "Update pending restart");
                 try
                 {
                     StartApplyHelper(packageRoot, targetDirectory, tempRoot, Process.GetCurrentProcess().Id);
-                    entry.Logger.Log("The update will be installed after ADOFAI exits.");
+                    entry.Logger.Log("[Update] The update will be installed after ADOFAI exits.");
                 }
                 catch (Exception fallbackException)
                 {
                     TryDelete(tempRoot);
                     RestoreDisplayName(entry);
-                    entry.Logger.Error("Could not schedule the update installer: " + fallbackException);
+                    entry.Logger.Error("[Update] Could not schedule the update installer: " + fallbackException);
                 }
             }
         }

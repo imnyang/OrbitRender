@@ -21,7 +21,7 @@ namespace OrbitRender.UI
             }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Error("Could not open folder picker: " + ex);
+                Main.Entry.Logger.Error("[UI] Could not open folder picker: " + ex);
                 return string.Empty;
             }
         }
@@ -40,7 +40,7 @@ namespace OrbitRender.UI
             }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Error("Could not open file picker: " + ex);
+                Main.Entry.Logger.Error("[UI] Could not open file picker: " + ex);
                 return string.Empty;
             }
         }
@@ -64,7 +64,7 @@ namespace OrbitRender.UI
             }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Log("Could not resolve file picker directory: " + ex.Message);
+                Main.Entry.Logger.Log("[UI] Could not resolve file picker directory: " + ex.Message);
             }
             return GetGameDirectory();
         }

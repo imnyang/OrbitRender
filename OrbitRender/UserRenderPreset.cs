@@ -12,12 +12,13 @@ namespace OrbitRender
         public int Height = 1080;
         public int Fps = 60;
         public int VideoFps = 60;
-        public int BitrateMbps = 18;
+        public int BitrateMbps = 36;
         public float EndDelaySeconds = 2f;
         public bool CaptureAudio = true;
         public float AudioGainDb = 0f;
         public AudioCodec AudioCodec = AudioCodec.Auto;
         public bool ShowRenderPreview = true;
+        public bool UseRustRenderer = false;
         public bool BgaMode = false;
         public bool ShowPlanetRings = true;
         public bool ShowSongTitle = true;
@@ -47,6 +48,7 @@ namespace OrbitRender
                 AudioGainDb = settings.AudioGainDb,
                 AudioCodec = settings.AudioCodec,
                 ShowRenderPreview = settings.ShowRenderPreview,
+                UseRustRenderer = settings.UseRustRenderer,
                 BgaMode = settings.BgaMode,
                 ShowPlanetRings = settings.ShowPlanetRings,
                 ShowSongTitle = settings.ShowSongTitle,
@@ -76,6 +78,7 @@ namespace OrbitRender
             settings.AudioGainDb = AudioGainDb;
             settings.AudioCodec = AudioCodec;
             settings.ShowRenderPreview = ShowRenderPreview;
+            settings.UseRustRenderer = UseRustRenderer;
             settings.BgaMode = BgaMode;
             settings.ShowPlanetRings = ShowPlanetRings;
             settings.ShowSongTitle = ShowSongTitle;

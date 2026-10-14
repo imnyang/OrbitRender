@@ -17,8 +17,8 @@ namespace OrbitRender.Patches
             FrameRate = Enabled ? __instance.frameRate : 0f;
             Revision++;
             Main.Entry.Logger.Log(Enabled
-                ? "Custom frame-rate hold enabled: " + FrameRate.ToString("0.###") + " fps."
-                : "Custom frame-rate hold disabled.");
+                ? "[Patch] Custom frame-rate hold enabled: " + FrameRate.ToString("0.###") + " fps."
+                : "[Patch] Custom frame-rate hold disabled.");
         }
 
         internal static void ResetRuntimeState()

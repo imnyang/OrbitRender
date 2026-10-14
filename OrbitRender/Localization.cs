@@ -104,7 +104,7 @@ namespace OrbitRender
             }
             catch (Exception ex)
             {
-                try { Main.Entry?.Logger.Error("Could not load localization catalog for " + culture + ": " + ex); }
+                try { Main.Entry?.Logger.Error("[Localization] Could not load localization catalog for " + culture + ": " + ex); }
                 catch { }
             }
 

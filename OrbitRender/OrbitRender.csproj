@@ -40,6 +40,9 @@
  <Content Include="LICENSE.md"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="Localization/*.ftl"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <EmbeddedResource Include="Localization/*.ftl" />
+ <Content Include="Native/windows-x64/orbitrender_rs.dll" Condition="Exists('Native/windows-x64/orbitrender_rs.dll')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+ <Content Include="Native/windows-x64/THIRD-PARTY-LICENSES.txt" Condition="Exists('Native/windows-x64/THIRD-PARTY-LICENSES.txt')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+ <Content Include="Native/windows-x64/LICENSE_NATIVE" Condition="Exists('Native/windows-x64/LICENSE_NATIVE')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  </ItemGroup>
  <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets"/>
 </Project>

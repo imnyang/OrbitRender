@@ -22,7 +22,7 @@ namespace OrbitRender.Patches
             }
             catch (Exception ex)
             {
-                Main.Entry?.Logger.Error("Could not add Export Video to the editor file menu: " + ex);
+                Main.Entry?.Logger.Error("[Patch] Could not add Export Video to the editor file menu: " + ex);
             }
         }
 
@@ -36,7 +36,7 @@ namespace OrbitRender.Patches
             var source = sourceField?.GetValue(editor) as Button;
             if (panel == null || source == null)
             {
-                Main.Entry?.Logger.Log("Export Video menu button was skipped because the editor file panel is unavailable.");
+                Main.Entry?.Logger.Log("[Patch] Export Video menu button was skipped because the editor file panel is unavailable.");
                 return;
             }
 

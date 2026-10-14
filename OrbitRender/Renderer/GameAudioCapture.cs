@@ -58,7 +58,7 @@ namespace OrbitRender.Renderer
             try { concurrentEncoder = new ConcurrentAudioEncoder(executable, output, SampleRate, Channels, gainDb, audioCodec); }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Log("Concurrent audio encoding unavailable; using final mux: " + ex.Message);
+                Main.Entry.Logger.Log("[Audio] Concurrent audio encoding unavailable; using final mux: " + ex.Message);
             }
         }
 
@@ -69,7 +69,7 @@ namespace OrbitRender.Renderer
             try { concurrentEncoder.Write(data, count); }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Log("Concurrent audio encoding stopped; using final mux: " + ex.Message);
+                Main.Entry.Logger.Log("[Audio] Concurrent audio encoding stopped; using final mux: " + ex.Message);
                 concurrentEncoder.Dispose();
                 concurrentEncoder = null;
             }
@@ -85,7 +85,7 @@ namespace OrbitRender.Renderer
             try { encoder.Finish(); return true; }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Log("Concurrent audio encoding failed; using final mux: " + ex.Message);
+                Main.Entry.Logger.Log("[Audio] Concurrent audio encoding failed; using final mux: " + ex.Message);
                 return false;
             }
             finally
@@ -118,15 +118,15 @@ namespace OrbitRender.Renderer
                 if (!started)
                 {
                     rendererUnavailable = true;
-                    Main.Entry.Logger.Log("Unity AudioRenderer could not start; audio will be padded with silence.");
+                    Main.Entry.Logger.Log("[Audio] Unity AudioRenderer could not start; audio will be padded with silence.");
                 }
                 filter?.StartCapture(SampleRate, Channels);
                 InitializeListenerOutputCapture();
                 useFilterFallback = false;
                 useListenerOutputFallback = !started && listenerOutputAvailable;
                 Main.Entry.Logger.Log(filter == null
-                    ? "AudioListener filter unavailable on the mixed listener; using master-output polling fallback."
-                    : "AudioListener filter fallback attached and waiting for mixer samples.");
+                    ? "[Audio] AudioListener filter unavailable on the mixed listener; using master-output polling fallback."
+                    : "[Audio] AudioListener filter fallback attached and waiting for mixer samples.");
             }
             catch { Dispose(); throw; }
         }
@@ -214,15 +214,15 @@ namespace OrbitRender.Renderer
             if (useListenerOutputFallback)
             {
                 CaptureListenerOutput(targetSamples - SampleFrames);
-                Main.Entry.Logger.Log("Game audio capture used AudioListener.GetOutputData fallback. Peak: "
+                Main.Entry.Logger.Log("[Audio] Game audio capture used AudioListener.GetOutputData fallback. Peak: "
                     + Peak.ToString("F6") + ".");
             }
             if (useFilterFallback) CaptureFilterSamples(targetSamples - SampleFrames);
             if (useFilterFallback)
-                Main.Entry.Logger.Log("Game audio capture used the AudioListener filter fallback. Dropped interleaved samples: "
+                Main.Entry.Logger.Log("[Audio] Game audio capture used the AudioListener filter fallback. Dropped interleaved samples: "
                     + (filter != null ? filter.DroppedSamples.ToString() : "0") + ".");
             else if (filter != null && zeroSampleReads > 0)
-                Main.Entry.Logger.Log("AudioListener filter fallback received no samples; unavailable Unity AudioRenderer reads will be padded with silence.");
+                Main.Entry.Logger.Log("[Audio] AudioListener filter fallback received no samples; unavailable Unity AudioRenderer reads will be padded with silence.");
             // Unity's audio mixer can round the final block. Correct only that
             // boundary; reject drift instead of silently stretching the song.
             int tolerance = Math.Max(AudioSettings.GetConfiguration().dspBufferSize * 2, SampleRate / fps * 2);
@@ -235,7 +235,7 @@ namespace OrbitRender.Renderer
             {
                 long missing = targetSamples - SampleFrames;
                 AppendSilence(missing);
-                Main.Entry.Logger.Log("Unity AudioRenderer audio was short by " + missing
+                Main.Entry.Logger.Log("[Audio] Unity AudioRenderer audio was short by " + missing
                     + " sample frames (unavailable reads: " + zeroSampleReads
                     + "); padded the WAV with silence.");
             }
@@ -255,7 +255,7 @@ namespace OrbitRender.Renderer
                 try { concurrentEncoder.CloseInput(); }
                 catch (Exception ex)
                 {
-                    Main.Entry.Logger.Log("Concurrent audio input failed; using final mux: " + ex.Message);
+                    Main.Entry.Logger.Log("[Audio] Concurrent audio input failed; using final mux: " + ex.Message);
                     concurrentEncoder.Dispose();
                     concurrentEncoder = null;
                 }
@@ -302,7 +302,7 @@ namespace OrbitRender.Renderer
             catch (Exception ex)
             {
                 listenerOutputAvailable = false;
-                Main.Entry.Logger.Log("AudioListener.GetOutputData fallback unavailable: " + ex.Message);
+                Main.Entry.Logger.Log("[Audio] AudioListener.GetOutputData fallback unavailable: " + ex.Message);
             }
         }
 
@@ -340,7 +340,7 @@ namespace OrbitRender.Renderer
             catch (Exception ex)
             {
                 listenerOutputAvailable = false;
-                Main.Entry.Logger.Log("AudioListener.GetOutputData failed during capture: " + ex.Message);
+                Main.Entry.Logger.Log("[Audio] AudioListener.GetOutputData failed during capture: " + ex.Message);
             }
         }
 

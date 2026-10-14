@@ -299,6 +299,7 @@ namespace OrbitRender.UI
                 AddRadioGroup(Localization.Get("video-bit-depth"), new[] { "8-bit", "10-bit" },
                     (int)draft.BitDepth, v => { draft.BitDepth = (VideoBitDepth)v; RebuildContent(); });
                 AddHeading(Localization.Get("render-options"));
+                AddToggle(Localization.Get("use-rust-renderer"), draft.UseRustRenderer, v => draft.UseRustRenderer = v);
                 AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
                 AddToggle(Localization.Get("open-output-folder-after-render"), draft.OpenOutputFolder, v => draft.OpenOutputFolder = v);
             }
@@ -530,7 +531,7 @@ namespace OrbitRender.UI
             internal string FileNameFormat;
             internal string WidthText, HeightText, FpsText, VideoFpsText, BitrateText, EndDelayText, AudioGainDbText;
             internal float AudioGainDb;
-            internal bool CaptureAudio, ShowRenderPreview, BgaMode, ShowPlanetRings, ShowSongTitle, ShowCountdown,
+            internal bool UseRustRenderer, CaptureAudio, ShowRenderPreview, BgaMode, ShowPlanetRings, ShowSongTitle, ShowCountdown,
                 ShowResultText, ShowHitJudgments, OpenOutputFolder, SaveAsDefault;
             internal EncoderSpeed Encoding; internal VideoEncoder Encoder; internal VideoCodec Codec; internal VideoBitDepth BitDepth;
             internal static Draft From(RendererSettings s) => new Draft { Preset = s.Preset,
@@ -538,13 +539,13 @@ namespace OrbitRender.UI
                 FpsText = s.Fps.ToString(CultureInfo.InvariantCulture), VideoFpsText = s.VideoFps.ToString(CultureInfo.InvariantCulture),
                 BitrateText = s.BitrateMbps.ToString(CultureInfo.InvariantCulture), EndDelayText = s.EndDelaySeconds.ToString("0.##", CultureInfo.InvariantCulture),
                 AudioGainDb = RendererSettings.ClampAudioGainDb(s.AudioGainDb), CaptureAudio = s.CaptureAudio, AudioCodec = s.AudioCodec,
-                ShowRenderPreview = s.ShowRenderPreview, BgaMode = s.BgaMode, ShowPlanetRings = s.ShowPlanetRings,
+                UseRustRenderer = s.UseRustRenderer, ShowRenderPreview = s.ShowRenderPreview, BgaMode = s.BgaMode, ShowPlanetRings = s.ShowPlanetRings,
                 ShowSongTitle = s.ShowSongTitle, ShowCountdown = s.ShowCountdown, ShowResultText = s.ShowResultText,
                 ShowHitJudgments = s.ShowHitJudgments, OpenOutputFolder = s.OpenOutputFolder, Encoding = s.Encoding,
                 Encoder = s.Encoder, Codec = s.Codec, BitDepth = s.BitDepth, Container = s.Container, FileNameFormat = s.FileNameFormat };
             internal void ApplyPreset() { switch (Preset) { case RendererPreset.Preview: SetVideoValues(1280,720,30,30,8); break;
                 case RendererPreset.QHD: SetVideoValues(2560,1440,60,60,30); break; case RendererPreset.UHD4K: SetVideoValues(3840,2160,60,60,50); break;
-                case RendererPreset.FullHD: SetVideoValues(1920,1080,60,60,18); break; } }
+                case RendererPreset.FullHD: SetVideoValues(1920,1080,60,60,36); break; } }
             internal System.Collections.Generic.Dictionary<string, object> FilenameVariables()
             {
                 int.TryParse(WidthText, out var width); int.TryParse(HeightText, out var height);
@@ -563,12 +564,12 @@ namespace OrbitRender.UI
                 if(!TryParseFloat(EndDelayText,out endDelay)||endDelay<0f||endDelay>30f) { message=Localization.Get("end-delay-must-be-between-0-and-30-seconds"); return false; }
                 options=new RenderRequestOptions { Preset=Preset,EndDelaySeconds=endDelay,CaptureAudio=CaptureAudio,AudioGainDb=RendererSettings.ClampAudioGainDb(AudioGainDb),
                     AudioCodec=AudioCodecCatalog.CompatibleSelection(AudioCodec,OutputFormat.Extension(Container,Codec)),
-                    ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
+                    UseRustRenderer=UseRustRenderer,ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
                     ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
                     Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
                 if(Preset==RendererPreset.Custom){options.Width=width;options.Height=height;options.BitrateMbps=bitrate;} return true; }
             internal void ApplyTo(RendererSettings s, RenderRequestOptions o)
-            { s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;s.BitrateMbps=o.BitrateMbps.Value;}
+            { s.UseRustRenderer=UseRustRenderer;s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;s.BitrateMbps=o.BitrateMbps.Value;}
                 s.EndDelaySeconds=o.EndDelaySeconds.Value;s.CaptureAudio=CaptureAudio;s.AudioGainDb=o.AudioGainDb.Value;s.AudioCodec=o.AudioCodec.Value;s.ShowRenderPreview=ShowRenderPreview;s.BgaMode=BgaMode;
                 s.ShowPlanetRings=ShowPlanetRings;s.ShowSongTitle=ShowSongTitle;s.ShowCountdown=ShowCountdown;s.ShowResultText=ShowResultText;s.ShowHitJudgments=ShowHitJudgments;
                 s.Container=Container;s.FileNameFormat=FileNameFormat;s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }

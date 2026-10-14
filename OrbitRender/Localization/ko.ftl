@@ -193,3 +193,5 @@ completion-shortcuts = Space / K   재생 · 일시정지\n← / →   5초 이�
 completion-player-hint = Space  재생 · 일시정지   ·   ← / →  탐색   ·   , / .  정지 중 프레임 이동
 completion-frame = 프레임 {0:N0}
 audio-codec = 오디오 코덱
+use-rust-renderer = Rust 시험 버전 사용
+rust-renderer-help = Direct3D 11 / NVIDIA H.264 8-bit 지원. 사용 불가 시 FFmpeg로 전환합니다.

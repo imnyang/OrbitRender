@@ -203,7 +203,7 @@ namespace OrbitRender.Renderer
             listener.Start();
             thread = new Thread(ListenLoop) { IsBackground = true, Name = "OrbitRender RPC" };
             thread.Start();
-            Main.Entry.Logger.Log("Renderer RPC listening on http://127.0.0.1:" + port + "/");
+            Main.Entry.Logger.Log("[RPC] Renderer RPC listening on http://127.0.0.1:" + port + "/");
         }
 
         public void Rebind(RendererController replacement)
@@ -228,7 +228,7 @@ namespace OrbitRender.Renderer
                 catch (ObjectDisposedException) { break; }
                 catch (Exception ex)
                 {
-                    if (!stopping) Main.Entry.Logger.Error("Renderer RPC listener: " + ex);
+                    if (!stopping) Main.Entry.Logger.Error("[RPC] Renderer RPC listener: " + ex);
                     break;
                 }
                 ThreadPool.QueueUserWorkItem(_ => Handle(context));
@@ -295,7 +295,7 @@ namespace OrbitRender.Renderer
             }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Error("Renderer RPC request: " + ex);
+                Main.Entry.Logger.Error("[RPC] Renderer RPC request: " + ex);
                 try { WriteJson(context, 500, new { error = ex.Message }); } catch { }
             }
         }
@@ -577,7 +577,7 @@ namespace OrbitRender.Renderer
             try { listener.Stop(); } catch { }
             try { listener.Close(); } catch { }
             if (thread != null && thread.IsAlive && !thread.Join(500))
-                Main.Entry.Logger.Log("Renderer RPC listener thread did not stop immediately.");
+                Main.Entry.Logger.Log("[RPC] Renderer RPC listener thread did not stop immediately.");
             thread = null;
         }
 

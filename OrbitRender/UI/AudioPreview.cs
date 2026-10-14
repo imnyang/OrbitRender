@@ -75,7 +75,7 @@ namespace OrbitRender.UI
             loadRoutine = null;
             if (songRequest.result != UnityWebRequest.Result.Success)
             {
-                Main.Entry.Logger.Log("Audio preview could not load song: " + songRequest.error);
+                Main.Entry.Logger.Log("[Audio] Audio preview could not load song: " + songRequest.error);
                 ErrorMessage = Localization.Get("audio-preview-load-failed");
                 StopPlayback();
                 yield break;
@@ -110,7 +110,7 @@ namespace OrbitRender.UI
             }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Log("Audio preview playback failed: " + ex);
+                Main.Entry.Logger.Log("[Audio] Audio preview playback failed: " + ex);
             }
             ErrorMessage = Localization.Get("audio-preview-load-failed");
             if (previewObject != null)
