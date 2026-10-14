@@ -43,7 +43,7 @@ namespace OrbitRender.Patches
             }
         }
 
-        internal static void PreSchedulePlaySoundEffects()
+        internal static void PreSchedulePlaySoundEffects(double minimumSongTime = double.NegativeInfinity)
         {
             preScheduled.Clear();
             if (!RendererController.ControlsTime || ADOBase.lm == null
@@ -66,6 +66,13 @@ namespace OrbitRender.Patches
                 {
                     var playSound = effect as ffxPlaySound;
                     if (playSound == null) continue;
+                    // A checkpoint start must not replay every earlier sound
+                    // at frame zero through the late-schedule fallback.
+                    if (playSound.startTime < minimumSongTime)
+                    {
+                        preScheduled.Add(playSound);
+                        continue;
+                    }
                     if (!(bool)ready.Invoke(playSound, null))
                     {
                         skipped++;

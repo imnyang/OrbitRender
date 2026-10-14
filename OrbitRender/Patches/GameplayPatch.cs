@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
 using OrbitRender.Renderer;
 using UnityEngine;
@@ -100,6 +101,9 @@ namespace OrbitRender.Patches
         {
             yield return AccessTools.PropertyGetter(typeof(RDInput), "backPress");
             yield return AccessTools.PropertyGetter(typeof(RDInput), "backIsPressed");
+            // scrController.Update reads cancelPress directly for Escape's
+            // quit/back action, independently of UpdateInput and backPress.
+            yield return AccessTools.PropertyGetter(typeof(RDInput), "cancelPress");
         }
 
         static bool Prefix(ref bool __result)
@@ -171,6 +175,30 @@ namespace OrbitRender.Patches
         static bool Prefix() => !RendererController.InputBlocked;
     }
 
+    // Update also checks Unity input directly to leave play mode. Keep the
+    // rest of Update running: it advances the scene being rendered.
+    [HarmonyPatch(typeof(scnEditor), "Update")]
+    internal static class EditorEscapeInputPatch
+    {
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var original = AccessTools.Method(typeof(Input), nameof(Input.GetKeyDown), new[] { typeof(KeyCode) });
+            var guarded = AccessTools.Method(typeof(EditorEscapeInputPatch), nameof(GetKeyDown));
+            foreach (var instruction in instructions)
+            {
+                if (instruction.Calls(original))
+                {
+                    instruction.opcode = OpCodes.Call;
+                    instruction.operand = guarded;
+                }
+                yield return instruction;
+            }
+        }
+
+        private static bool GetKeyDown(KeyCode key)
+            => !(key == KeyCode.Escape && RendererController.InputBlocked) && Input.GetKeyDown(key);
+    }
+
     [HarmonyPatch(typeof(scnEditor), "TryQuitToMenu")]
     internal static class EditorQuitInputPatch
     {
@@ -190,6 +218,12 @@ namespace OrbitRender.Patches
 
     [HarmonyPatch(typeof(scrTempEscToQuit), "Update")]
     internal static class TemporaryEscapeInputPatch
+    {
+        static bool Prefix() => !RendererController.InputBlocked;
+    }
+
+    [HarmonyPatch(typeof(scrTempEscToQuit), "LateUpdate")]
+    internal static class TemporaryEscapeLateInputPatch
     {
         static bool Prefix() => !RendererController.InputBlocked;
     }

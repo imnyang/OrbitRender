@@ -135,7 +135,7 @@ namespace OrbitRender.Renderer
         private long selectionEndFrameForRun;
         private long timelineFramesForRun;
         private RenderProfile profile;
-        private float escapeHeldAt = -1f;
+        private long escapeHeldAt = -1;
         private bool forceCancelTriggered;
         private bool processPriorityChanged;
         private System.Diagnostics.ProcessPriorityClass processPriorityBefore;
@@ -215,7 +215,7 @@ namespace OrbitRender.Renderer
             encoderFallbackPending = false;
             encoderFallbackReason = null;
             ClearQueuedInput();
-            escapeHeldAt = -1f;
+            escapeHeldAt = -1;
             forceCancelTriggered = false;
             var settings = Main.Settings ?? new RendererSettings();
             showPreviewForRun = requestOptions?.ShowRenderPreview ?? settings.ShowRenderPreview;
@@ -543,11 +543,11 @@ namespace OrbitRender.Renderer
             yield return PrepareCustomSoundEffects();
             if (editor != null)
             {
-                // Always pre-roll from tile zero. Mid-level checkpoint scrubbing
-                // does not reconstruct every camera tween, flash, shader and
-                // audio event on complex levels. Selection mode still captures
-                // no video frames before its first selected tile.
-                editor.SelectFloor(editor.floors[0], cameraJump: false);
+                // A single selected floor makes editor.Play use the game's
+                // checkpoint/Scrub path, including its effect reconstruction.
+                var startTile = selectionStartTileForRun ?? 0;
+                editor.SelectFloor(editor.floors.First(f => f != null && f.seqID == startTile), cameraJump: false);
+                CameraFilterPatch.ResetRuntimeState();
                 editor.Play();
                 editorStateReady = false;
             }
@@ -583,7 +583,7 @@ namespace OrbitRender.Renderer
             // Camera Filter Pack components keep their private animation clock
             // while the level is reset. Start every export from the same phase
             // so a second render is visually identical to the first one.
-            CameraFilterPatch.ResetRuntimeState();
+            if (!selectionStartTileForRun.HasValue) CameraFilterPatch.ResetRuntimeState();
             FrameRateEventPatch.ResetRuntimeState();
             LogRenderChain("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
@@ -618,19 +618,8 @@ namespace OrbitRender.Renderer
             var hasRenderedGameFrame = false;
             long timelineFrame = 0;
             long lastCapturedSimulationIndex = -1;
-            var simulateSelectionPreroll = selectionStartTileForRun.HasValue
-                && CanSimulateSelectionPreroll();
-            if (selectionStartTileForRun.HasValue)
-                Main.Entry.Logger.Log(simulateSelectionPreroll
-                    ? "Selection pre-roll: simulate events and audio without drawing gameplay cameras."
-                    : "Selection pre-roll: preserve camera rendering for effects that may require frame history.");
             while (true)
             {
-                // Keep the original simulation/audio cadence. Resume drawing
-                // before advancing the first selected frame, including when
-                // Video FPS and InGame FPS have different sampling rates.
-                capture.SimulateWithoutDrawing = simulateSelectionPreroll
-                    && timelineFrame < selectionStartFrameForRun;
                 var desiredSimulationFrame = SimulationFrameForVideoFrame(timelineFrame);
                 var sampledCurrentGameFrame = false;
                 while (!hasRenderedGameFrame || Clock.FrameIndex <= desiredSimulationFrame)
@@ -1070,7 +1059,6 @@ namespace OrbitRender.Renderer
             {
                 Main.Entry.Logger.Log("Game audio capture started: "
                     + audio.SampleRate + " Hz, " + audio.Channels + " channels.");
-                AudioSchedulePatch.PreSchedulePlaySoundEffects();
             }
         }
         internal void MusicScheduled()
@@ -1082,9 +1070,28 @@ namespace OrbitRender.Renderer
             var floors = ADOBase.lm.listFloors;
             if (selectionStartTileForRun.HasValue)
             {
+                // OnMusicScheduled has now run the game's Scrub, which moves
+                // dspTimeSong to the selected checkpoint. Match secondary
+                // music sources to the same clip position before DSP advances.
+                if (selectionStartTileForRun.Value > 0)
+                {
+                    var seek = conductor.song.time;
+                    var start = conductor.dspTime + 0.1;
+                    foreach (var source in new[] { conductor.song, conductor.song2, conductor.song3 })
+                    {
+                        if (source == null || source.clip == null) continue;
+                        source.Stop();
+                        if (seek >= source.clip.length) continue;
+                        source.time = Math.Max(0f, seek);
+                        source.PlayScheduled(start);
+                    }
+                }
+                if (audio != null) AudioSchedulePatch.PreSchedulePlaySoundEffects(
+                    Clock.SongPosition(conductor.dspTimeSong, pitch, conductor.addoffset, 0));
                 ConfigureSelectionFrames(conductor, floors, pitch);
                 return;
             }
+            if (audio != null) AudioSchedulePatch.PreSchedulePlaySoundEffects();
             double last = floors[floors.Count - 1].entryTime;
             double endDelay = profile != null ? profile.EndDelaySeconds : 2.0;
             if (double.IsNaN(endDelay) || double.IsInfinity(endDelay) || endDelay < 0) endDelay = 2.0;
@@ -1264,7 +1271,7 @@ namespace OrbitRender.Renderer
                 UpdateForceCancelKey();
                 return;
             }
-            escapeHeldAt = -1f;
+            escapeHeldAt = -1;
             forceCancelTriggered = false;
             if (OrbitRender.UI.CompletionScreen.BlocksInput) return;
             if (Input.GetKeyDown(KeyCode.F6) && Main.Enabled && ADOBase.editor != null
@@ -1277,12 +1284,15 @@ namespace OrbitRender.Renderer
         {
             if (!Input.GetKey(KeyCode.Escape))
             {
-                escapeHeldAt = -1f;
+                escapeHeldAt = -1;
                 forceCancelTriggered = false;
                 return;
             }
-            if (escapeHeldAt < 0f) escapeHeldAt = Time.unscaledTime;
-            if (!forceCancelTriggered && Time.unscaledTime - escapeHeldAt >= 1f)
+            // Unity's frame clock is driven by capture pacing during export;
+            // measure the emergency hold in actual elapsed time instead.
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (escapeHeldAt < 0) escapeHeldAt = now;
+            if (!forceCancelTriggered && now - escapeHeldAt >= System.Diagnostics.Stopwatch.Frequency)
             {
                 forceCancelTriggered = true;
                 ForceCancel();

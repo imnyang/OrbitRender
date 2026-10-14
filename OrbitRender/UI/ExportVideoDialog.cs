@@ -300,7 +300,6 @@ namespace OrbitRender.UI
                     (int)draft.BitDepth, v => { draft.BitDepth = (VideoBitDepth)v; RebuildContent(); });
                 AddHeading(Localization.Get("render-options"));
                 AddToggle(Localization.Get("use-rust-renderer"), draft.UseRustRenderer, v => draft.UseRustRenderer = v);
-                AddLabel(Localization.Get("rust-renderer-help"), UiLayout.LabelFontSize, 44f, UguiFactory.Muted);
                 AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
                 AddToggle(Localization.Get("open-output-folder-after-render"), draft.OpenOutputFolder, v => draft.OpenOutputFolder = v);
             }
