@@ -6,6 +6,7 @@
   <OutputType>Library</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><LangVersion>latest</LangVersion><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   <AssemblyName>OrbitRender</AssemblyName><RootNamespace>OrbitRender</RootNamespace>
   <OutputPath>bin/$(Configuration)/</OutputPath><Optimize>true</Optimize>
+  <NativeProjectDirectory Condition="'$(NativeProjectDirectory)' == ''">$(MSBuildProjectDirectory)/../../OrbitRender.rs</NativeProjectDirectory>
   <TargetFrameworkRootPath Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/</TargetFrameworkRootPath>
   <GameDir Condition="'$(GameDir)' == '' and '$(OS)' == 'Windows_NT'">L:/SteamLibrary/steamapps/common/A Dance of Fire and Ice</GameDir>
   <ManagedDir>$(GameDir)/A Dance of Fire and Ice_Data/Managed</ManagedDir>
@@ -38,11 +39,45 @@
  <Compile Include="**/*.cs" Exclude="obj/**;bin/**"/>
  <Content Include="Info.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="LICENSE.md"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
- <Content Include="Localization/*.ftl"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+ <Content Include="Native/**/*.dll">
+  <Link>%(Filename)%(Extension)</Link>
+  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+ </Content>
  <EmbeddedResource Include="Localization/*.ftl" />
  <Content Include="Native/windows-x64/orbitrender_rs.dll" Condition="Exists('Native/windows-x64/orbitrender_rs.dll')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="Native/windows-x64/THIRD-PARTY-LICENSES.txt" Condition="Exists('Native/windows-x64/THIRD-PARTY-LICENSES.txt')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="Native/windows-x64/LICENSE_NATIVE" Condition="Exists('Native/windows-x64/LICENSE_NATIVE')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  </ItemGroup>
  <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets"/>
+ <Target Name="BuildNativeDistribution" Condition="'$(OS)' == 'Windows_NT' and Exists('$(NativeProjectDirectory)/Cargo.toml')">
+  <Exec WorkingDirectory="$(NativeProjectDirectory)" Command="cargo build --locked --release --target x86_64-pc-windows-msvc --target-dir &quot;$(NativeProjectDirectory)/target&quot;" />
+  <ItemGroup>
+   <NativeDistributionContent Include="$(NativeProjectDirectory)/target/x86_64-pc-windows-msvc/release/orbitrender_rs.dll" />
+   <NativeDistributionContent Include="$(NativeProjectDirectory)/THIRD-PARTY-LICENSES.txt" />
+   <NativeDistributionContent Include="$(NativeProjectDirectory)/LICENSE">
+    <TargetName>LICENSE_NATIVE</TargetName>
+   </NativeDistributionContent>
+   <NativeDistributionContent>
+    <TargetName Condition="'%(NativeDistributionContent.TargetName)' == ''">%(Filename)%(Extension)</TargetName>
+   </NativeDistributionContent>
+  </ItemGroup>
+  <Copy SourceFiles="@(NativeDistributionContent)" DestinationFiles="@(NativeDistributionContent->'$(TargetDir)%(TargetName)')" />
+ </Target>
+ <Target Name="CreateDistributionZip" AfterTargets="Build" DependsOnTargets="BuildNativeDistribution">
+  <PropertyGroup>
+   <DistributionDirectory>$(MSBuildProjectDirectory)/../Build</DistributionDirectory>
+   <DistributionStagingDirectory>$(MSBuildProjectDirectory)/obj/$(Configuration)/Distribution</DistributionStagingDirectory>
+   <DistributionZip>$(DistributionDirectory)/OrbitRender-$([System.DateTime]::Now.ToString('yyyyMMdd-HHmmss-fff')).zip</DistributionZip>
+  </PropertyGroup>
+  <ItemGroup>
+   <DistributionContent Include="@(Content)" />
+  </ItemGroup>
+  <RemoveDir Directories="$(DistributionStagingDirectory)" />
+  <MakeDir Directories="$(DistributionDirectory);$(DistributionStagingDirectory)" />
+  <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DistributionStagingDirectory)" />
+  <Copy SourceFiles="@(DistributionContent)" DestinationFiles="@(DistributionContent->'$(DistributionStagingDirectory)/%(Filename)%(Extension)')" />
+  <Copy SourceFiles="@(NativeDistributionContent)" DestinationFiles="@(NativeDistributionContent->'$(DistributionStagingDirectory)/%(TargetName)')" />
+  <ZipDirectory SourceDirectory="$(DistributionStagingDirectory)" DestinationFile="$(DistributionZip)" />
+  <Message Text="Distribution ZIP: $(DistributionZip)" Importance="high" />
+ </Target>
 </Project>

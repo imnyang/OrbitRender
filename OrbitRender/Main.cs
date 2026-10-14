@@ -74,6 +74,7 @@ namespace OrbitRender
                     {
                         AudioPreview.Stop();
                         ExportVideoDialog.CloseDialog();
+                        NoticeModal.Close();
                         RendererController.Instance?.StopAndClean();
                     }
                     Enabled = enabled;
@@ -90,7 +91,7 @@ namespace OrbitRender
                         diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
                     }
                     var previousGuiEnabled = GUI.enabled;
-                    GUI.enabled = previousGuiEnabled && !PresetSaveModal.IsOpen;
+                    GUI.enabled = previousGuiEnabled && !PresetSaveModal.IsOpen && !NoticeModal.IsOpen;
                     try { DrawSettings(); }
                     finally { GUI.enabled = previousGuiEnabled; }
                 };
@@ -102,6 +103,7 @@ namespace OrbitRender
                 entry.OnUnload = mod =>
                 {
                     ExportVideoDialog.CloseDialog();
+                    NoticeModal.Close();
                     AudioPreview.Stop();
                     RendererController.Instance?.StopAndClean();
                     OrbitRender.Patches.RenderTimingPatches.Remove();

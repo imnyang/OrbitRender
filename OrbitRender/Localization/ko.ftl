@@ -195,3 +195,7 @@ completion-frame = 프레임 {0:N0}
 audio-codec = 오디오 코덱
 use-rust-renderer = Rust 시험 버전 사용
 rust-renderer-help = Direct3D 11 / NVIDIA H.264 8-bit 지원. 사용 불가 시 FFmpeg로 전환합니다.
+
+notice-title = 알림
+notice-error-title = 렌더 오류
+notice-confirm = 확인

@@ -195,3 +195,7 @@ credit-author = Created by {0}
 audio-codec = Audio codec
 use-rust-renderer = Use Rust experimental version
 rust-renderer-help = Supports Direct3D 11 / NVIDIA H.264 8-bit. Falls back to FFmpeg if unavailable.
+
+notice-title = Notice
+notice-error-title = Render error
+notice-confirm = OK

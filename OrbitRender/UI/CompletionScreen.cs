@@ -374,6 +374,7 @@ namespace OrbitRender.UI
 
         private static void HandleKeyboard(RendererController renderer)
         {
+            if (NoticeModal.IsOpen) return;
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (expanded) ToggleExpanded();

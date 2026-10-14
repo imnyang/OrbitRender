@@ -33,6 +33,12 @@ FFmpeg는 모드 배포 파일에 포함되어 있지 않습니다.
 
 ADOFAI 에디터에서 커스텀 레벨을 열고 `File → Export Video`를 선택하거나 `F6`을 누릅니다.
 
+## 빌드
+
+`./build.ps1` 또는 `GAME_DIR="게임 설치 경로" bash ./build.sh`로 빌드합니다. Rider에서 빌드해도 저장소의 `Build/` 폴더에 `OrbitRender-yyyyMMdd-HHmmss-fff.zip`이 자동 생성됩니다. ZIP 최상위에 모드 DLL, `Info.json`, 라이선스와 `OrbitRender/Native/` 아래의 Native DLL이 포함됩니다. Native DLL은 빌드 출력에서도 모드 루트에 배치됩니다. 번역 파일은 모드 DLL에 내장되므로 ZIP에 별도로 넣지 않습니다.
+
+Windows에서는 저장소 옆의 `../OrbitRender.rs`가 있으면 Cargo로 Native DLL도 Release 빌드하여 ZIP과 모드 출력 루트에 포함합니다. Rust 툴체인과 MSVC 빌드 도구가 필요합니다. 다른 위치는 MSBuild의 `/p:NativeProjectDirectory="경로"`로 지정할 수 있습니다.
+
 ## License
 
 OrbitRender is licensed under the GNU General Public License v3.0

@@ -35,7 +35,7 @@ namespace OrbitRender.Renderer
         // preflight and finalization. ControlsTime is intentionally narrower
         // because it only describes simulation ownership.
         internal static bool InputBlocked => (Instance != null && Instance.Busy)
-            || OrbitRender.UI.ExportVideoDialog.IsOpen || OrbitRender.UI.CompletionScreen.BlocksInput;
+            || OrbitRender.UI.ExportVideoDialog.IsOpen || OrbitRender.UI.CompletionScreen.BlocksInput || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen;
         internal static bool ShowHitJudgments => Instance != null && Instance.showHitJudgmentsForRun;
         internal static bool BgaModeActive => Instance != null && Instance.bgaModeForRun
             && (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering
@@ -404,16 +404,10 @@ namespace OrbitRender.Renderer
         {
             ToastText = text ?? string.Empty;
             toastUntil = Time.unscaledTime + Mathf.Max(0.5f, seconds);
-            if (!useGameNotification || ADOBase.editor == null) return;
-            try
-            {
-                // This is ADOFAI's own editor notification bar. The uGUI toast
-                // remains available while the render canvas owns presentation.
-                ADOBase.editor.ShowNotification(ToastText, null, seconds);
-            }
-            catch (Exception ex) { Main.Entry.Logger.Log("[Render] Game notification unavailable: " + ex.Message); }
+            if (State == RenderState.Failed || State == RenderState.Cancelled
+                || (State != RenderState.Completed && !Busy && !FfmpegInstaller.IsInstallPromptVisible))
+                OrbitRender.UI.NoticeModal.Open(ToastText, State == RenderState.Failed);
         }
-
         private void ShowProgressToast()
         {
             if (TotalFrames <= 0) return;
@@ -1287,7 +1281,7 @@ namespace OrbitRender.Renderer
             }
             escapeHeldAt = -1;
             forceCancelTriggered = false;
-            if (OrbitRender.UI.CompletionScreen.BlocksInput) return;
+            if (OrbitRender.UI.CompletionScreen.BlocksInput || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen) return;
             if (Input.GetKeyDown(KeyCode.F6) && Main.Enabled && ADOBase.editor != null
                 && !OrbitRender.UI.ExportVideoDialog.IsOpen
                 && !FfmpegInstaller.IsInstallPromptVisible)

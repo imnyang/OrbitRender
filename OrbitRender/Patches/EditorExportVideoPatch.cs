@@ -71,13 +71,13 @@ namespace OrbitRender.Patches
             var renderer = RendererController.Instance;
             if (renderer == null)
             {
-                editor.ShowNotification(Localization.Get("orbitrender-is-not-ready-yet"), null, 4f);
+                NoticeModal.Open(Localization.Get("orbitrender-is-not-ready-yet"));
                 return;
             }
 
             if (renderer.Busy)
             {
-                editor.ShowNotification(renderer.Message ?? Localization.Get("a-render-is-already-in-progress"), null, 4f);
+                NoticeModal.Open(renderer.Message ?? Localization.Get("a-render-is-already-in-progress"));
                 return;
             }
 

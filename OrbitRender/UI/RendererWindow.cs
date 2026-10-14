@@ -32,7 +32,7 @@ namespace OrbitRender.UI
             var nextMode = FfmpegInstaller.IsInstallPromptVisible ? 1
                 : renderer.EncoderFallbackPending ? 2
                 : renderer.State == RenderState.Completed && renderer.CompletionVisible ? 4
-                : renderer.Busy || renderer.ToastVisible ? 3 : 0;
+                : renderer.Busy ? 3 : 0;
             if (nextMode == 0) { Hide(); return; }
             if (canvasObject == null || mode != nextMode || builtScreenWidth != Screen.width || builtScreenHeight != Screen.height
                 || (nextMode == 3 && (builtRenderState != renderer.State

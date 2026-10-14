@@ -77,6 +77,7 @@ namespace OrbitRender.UI
     {
         private void Update()
         {
+            if (NoticeModal.IsOpen) return;
             if (!Main.Enabled || Main.Settings == null || Input.GetKeyDown(KeyCode.Escape))
                 PresetSaveModal.Close();
             else if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
