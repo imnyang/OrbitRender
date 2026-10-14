@@ -150,7 +150,7 @@ namespace OrbitRender
                 if (settings != null && !string.IsNullOrWhiteSpace(settings.FfmpegExecutable))
                 {
                     Interlocked.Exchange(ref state, Skipped);
-                    entry.Logger.Log("FFmpeg auto-install skipped because a custom executable is configured.");
+                    entry.Logger.Log("[FFmpeg] FFmpeg auto-install skipped because a custom executable is configured.");
                     return;
                 }
 
@@ -161,7 +161,7 @@ namespace OrbitRender
                 {
                     EnsureUnixExecutable(destination, spec);
                     Interlocked.Exchange(ref state, Ready);
-                    entry.Logger.Log("Using installed FFmpeg: " + destination);
+                    entry.Logger.Log("[FFmpeg] Using installed FFmpeg: " + destination);
                     return;
                 }
 
@@ -173,18 +173,18 @@ namespace OrbitRender
                 if (settings != null && settings.FfmpegInstallPrompted)
                 {
                     Interlocked.Exchange(ref state, Declined);
-                    entry.Logger.Log("FFmpeg is not installed; the first-run installation prompt was already answered.");
+                    entry.Logger.Log("[FFmpeg] FFmpeg is not installed; the first-run installation prompt was already answered.");
                     return;
                 }
 
                 Interlocked.Exchange(ref state, AwaitingConsent);
-                entry.Logger.Log("FFmpeg is not installed. Waiting for user confirmation before downloading the " + spec.Name + " binary.");
+                entry.Logger.Log("[FFmpeg] FFmpeg is not installed. Waiting for user confirmation before downloading the " + spec.Name + " binary.");
             }
             catch (Exception ex)
             {
                 error = ex.Message;
                 Interlocked.Exchange(ref state, Failed);
-                entry.Logger.Log("FFmpeg auto-install is unavailable: " + ex.Message);
+                entry.Logger.Log("[FFmpeg] FFmpeg auto-install is unavailable: " + ex.Message);
             }
         }
 
@@ -210,13 +210,13 @@ namespace OrbitRender
             {
                 settings.FfmpegInstallPrompted = true;
                 try { settings.Save(entry); }
-                catch (Exception ex) { entry.Logger.Log("Could not save the FFmpeg installation choice: " + ex.Message); }
+                catch (Exception ex) { entry.Logger.Log("[FFmpeg] Could not save the FFmpeg installation choice: " + ex.Message); }
             }
 
             Interlocked.Exchange(ref installStage, DownloadStage);
             Interlocked.Exchange(ref downloadedBytes, 0L);
             Interlocked.Exchange(ref downloadTotalBytes, -1L);
-            entry.Logger.Log("User approved the FFmpeg installation. Downloading the " + spec.Name + " binary.");
+            entry.Logger.Log("[FFmpeg] User approved the FFmpeg installation. Downloading the " + spec.Name + " binary.");
             ThreadPool.QueueUserWorkItem(_ => Install(entry, spec, destinationDirectory, destination));
         }
 
@@ -229,10 +229,10 @@ namespace OrbitRender
             {
                 settings.FfmpegInstallPrompted = true;
                 try { settings.Save(entry); }
-                catch (Exception ex) { entry?.Logger.Log("Could not save the FFmpeg installation choice: " + ex.Message); }
+                catch (Exception ex) { entry?.Logger.Log("[FFmpeg] Could not save the FFmpeg installation choice: " + ex.Message); }
             }
             Interlocked.Exchange(ref state, Declined);
-            entry?.Logger.Log("User declined the first-run FFmpeg installation.");
+            entry?.Logger.Log("[FFmpeg] User declined the first-run FFmpeg installation.");
         }
 
         private static void Install(UnityModManager.ModEntry entry, PlatformSpec spec,
@@ -265,13 +265,13 @@ namespace OrbitRender
                 InstallMetadata(extractionPath, destinationDirectory, spec);
                 error = null;
                 Interlocked.Exchange(ref state, Ready);
-                entry.Logger.Log("FFmpeg installed for " + spec.Name + ".");
+                entry.Logger.Log("[FFmpeg] FFmpeg installed for " + spec.Name + ".");
             }
             catch (Exception ex)
             {
                 error = ex.Message;
                 Interlocked.Exchange(ref state, Failed);
-                entry.Logger.Log("FFmpeg auto-install failed: " + ex.Message);
+                entry.Logger.Log("[FFmpeg] FFmpeg auto-install failed: " + ex.Message);
             }
             finally
             {

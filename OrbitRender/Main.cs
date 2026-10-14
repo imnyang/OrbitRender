@@ -112,14 +112,14 @@ namespace OrbitRender
                     Settings = null;
                     return true;
                 };
-                entry.Logger.Log("Renderer loaded. Unity " + Application.unityVersion);
+                entry.Logger.Log("[System] Renderer loaded. Unity " + Application.unityVersion);
                 return true;
             }
             catch (Exception ex)
             {
                 if (host != null) UnityEngine.Object.Destroy(host);
                 harmony?.UnpatchAll(entry.Info.Id);
-                entry.Logger.Error(ex.ToString());
+                entry.Logger.Error("[System] Load failed: " + ex);
                 return false;
             }
         }
@@ -161,7 +161,7 @@ namespace OrbitRender
             catch (Exception ex)
             {
                 RpcServer = null;
-                Entry.Logger.Error("Renderer RPC could not start on port " + RpcPort + ": " + ex);
+                Entry.Logger.Error("[System] Renderer RPC could not start on port " + RpcPort + ": " + ex);
             }
         }
 
@@ -171,7 +171,7 @@ namespace OrbitRender
             ipcBridge = null;
             var server = RpcServer;
             RpcServer = null;
-            try { server?.Dispose(); } catch (Exception ex) { Entry.Logger.Error("Renderer RPC shutdown: " + ex); }
+            try { server?.Dispose(); } catch (Exception ex) { Entry.Logger.Error("[System] Renderer RPC shutdown: " + ex); }
         }
 
         private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -186,7 +186,7 @@ namespace OrbitRender
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<RendererController>();
                 RpcServer?.Rebind(RendererController.Instance);
-                Entry.Logger.Log("Renderer host recreated after scene load: " + scene.name);
+                Entry.Logger.Log("[System] Renderer host recreated after scene load: " + scene.name);
             }
         }
 
@@ -534,7 +534,7 @@ namespace OrbitRender
             try { return FileDialogService.FindExistingDirectory(Settings.ResolveOutputDirectory()); }
             catch (Exception ex)
             {
-                Entry.Logger.Log("Could not resolve output folder for file picker: " + ex.Message);
+                Entry.Logger.Log("[System] Could not resolve output folder for file picker: " + ex.Message);
                 return FileDialogService.GetGameDirectory();
             }
         }
@@ -553,7 +553,7 @@ namespace OrbitRender
             }
             catch (Exception ex)
             {
-                Entry.Logger.Log("Could not resolve FFmpeg path for file picker: " + ex.Message);
+                Entry.Logger.Log("[System] Could not resolve FFmpeg path for file picker: " + ex.Message);
             }
             return FileDialogService.GetGameDirectory();
         }
@@ -589,15 +589,15 @@ namespace OrbitRender
                 diagnosticsHaveRun = true;
                 diagnosticsSummary = result.Summary;
                 diagnosticsReport = result.Report;
-                if (result.HasErrors) Entry.Logger.Error(diagnosticsSummary + Environment.NewLine + diagnosticsReport);
-                else Entry.Logger.Log(diagnosticsSummary + Environment.NewLine + diagnosticsReport);
+                if (result.HasErrors) Entry.Logger.Error("[Diagnostics] " + diagnosticsSummary + Environment.NewLine + diagnosticsReport);
+                else Entry.Logger.Log("[Diagnostics] " + diagnosticsSummary + Environment.NewLine + diagnosticsReport);
             }
             catch (Exception ex)
             {
                 diagnosticsHaveRun = true;
                 diagnosticsSummary = Localization.Get("diagnostics-failed-unexpectedly");
                 diagnosticsReport = ex.ToString();
-                Entry.Logger.Error("Renderer diagnostics failed: " + ex);
+                Entry.Logger.Error("[System] Renderer diagnostics failed: " + ex);
             }
         }
     }

@@ -294,7 +294,7 @@ namespace OrbitRender.Renderer
                 || !string.Equals(profile.FfmpegCodec, "h264_nvenc", StringComparison.OrdinalIgnoreCase)
                 || profile.PixelFormat != "yuv420p")
             {
-                Main.Entry.Logger.Log("Rust renderer unavailable: requires orbitrender_rs.dll, Direct3D 11 and NVIDIA H.264 8-bit; using FFmpeg.");
+                Main.Entry.Logger.Log("[Encoder] Rust renderer unavailable: requires orbitrender_rs.dll, Direct3D 11 and NVIDIA H.264 8-bit; using FFmpeg.");
                 return;
             }
             NativeNvencEncoder native = null;
@@ -314,12 +314,12 @@ namespace OrbitRender.Renderer
             {
                 native?.Dispose();
                 if (nativeSource != null) { nativeSource.Release(); UnityEngine.Object.Destroy(nativeSource); nativeSource = null; }
-                Main.Entry.Logger.Log("Native NVENC unavailable; using FFmpeg: " + ex.Message);
+                Main.Entry.Logger.Log("[Encoder] Native NVENC unavailable; using FFmpeg: " + ex.Message);
                 return;
             }
             try { encoder.EnableNative(native); }
             catch { native.Dispose(); throw; }
-            Main.Entry.Logger.Log("orbitrender_rs active: D3D11 GPU textures -> NVENC H.264 8-bit; CPU readback and rawvideo pipe bypassed. B-frames/lookahead disabled.");
+            Main.Entry.Logger.Log("[Encoder] orbitrender_rs active: D3D11 GPU textures -> NVENC H.264 8-bit; CPU readback and rawvideo pipe bypassed. B-frames/lookahead disabled.");
         }
 
         private void ConfigureCaptureCanvas(Canvas canvas, Camera renderCamera)
@@ -620,7 +620,7 @@ namespace OrbitRender.Renderer
                 {
                     frame.Direct = false;
                     directReadbackAvailable = false;
-                    Main.Entry.Logger.Log("Direct GPU readback unavailable; using copy path: " + ex.Message);
+                    Main.Entry.Logger.Log("[Encoder] Direct GPU readback unavailable; using copy path: " + ex.Message);
                 }
             }
             if (!frame.Direct)

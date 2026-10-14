@@ -72,12 +72,12 @@ namespace OrbitRender.Renderer
                     catch { file.Dispose(); throw; }
                 }, download: true);
                 registration.GetType().GetMethod("MarkReady").Invoke(registration, null);
-                Main.Entry.Logger.Log("Optional AdofaiIpc namespace registered: " + Namespace);
+                Main.Entry.Logger.Log("[System] Optional AdofaiIpc namespace registered: " + Namespace);
             }
             catch (Exception error)
             {
                 Unregister();
-                Main.Entry.Logger.Error("Optional AdofaiIpc integration unavailable: " + error.GetBaseException().Message);
+                Main.Entry.Logger.Error("[System] Optional AdofaiIpc integration unavailable: " + error.GetBaseException().Message);
             }
         }
 
@@ -107,7 +107,7 @@ namespace OrbitRender.Renderer
             if (registration == null) return;
             registration = null;
             try { facade.GetMethod("UnregisterNamespace").Invoke(null, new object[] { Namespace }); }
-            catch (Exception error) { Main.Entry.Logger.Error("Optional AdofaiIpc unregister: " + error.GetBaseException().Message); }
+            catch (Exception error) { Main.Entry.Logger.Error("[System] Optional AdofaiIpc unregister: " + error.GetBaseException().Message); }
         }
 
         public void Dispose() { disposed = true; Unregister(); }

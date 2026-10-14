@@ -87,7 +87,7 @@ namespace OrbitRender.Patches
                     scheduled++;
                 }
             }
-            Main.Entry.Logger.Log("Pre-scheduled " + scheduled
+            Main.Entry.Logger.Log("[Audio] Pre-scheduled " + scheduled
                 + " Play Sound Effect event(s) before audio capture."
                 + (skipped > 0 ? " Skipped " + skipped + " event(s) whose clip was not ready." : ""));
         }

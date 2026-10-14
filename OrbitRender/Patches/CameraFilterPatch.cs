@@ -53,7 +53,7 @@ namespace OrbitRender.Patches
             __instance.FastFilter = 2;
             if (logged) return;
             logged = true;
-            Debug.Log("[OrbitRender] Repaired CameraFilterPack_Blur_Movie FastFilter=0 with the default value 2.");
+            Debug.Log("[OrbitRender] [Patch] Repaired CameraFilterPack_Blur_Movie FastFilter=0 with the default value 2.");
         }
     }
 }

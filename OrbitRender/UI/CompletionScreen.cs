@@ -219,7 +219,7 @@ namespace OrbitRender.UI
             status.text = Localization.Get("completion-preview-unavailable");
             fallbackButton.gameObject.SetActive(true);
             playButton.interactable = seek.interactable = false;
-            Main.Entry.Logger.Log("Completed video preview unavailable: " + message);
+            Main.Entry.Logger.Log("[UI] Completed video preview unavailable: " + message);
         }
 
         private static void TogglePlayback()

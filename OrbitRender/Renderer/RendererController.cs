@@ -254,7 +254,7 @@ namespace OrbitRender.Renderer
             audioGainDbForRun = RendererSettings.ClampAudioGainDb(
                 activeRpcJob != null ? activeRpcJob.Options?.AudioGainDb ?? settings.AudioGainDb
                 : requestOptions?.AudioGainDb ?? settings.AudioGainDb);
-            Main.Entry.Logger.Log("Render audio: capture=" + captureAudioForRun + ", gain="
+            Main.Entry.Logger.Log("[Render] Render audio: capture=" + captureAudioForRun + ", gain="
                 + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                 + " dB.");
             audioRealtimePacing = false;
@@ -304,7 +304,7 @@ namespace OrbitRender.Renderer
             if (cancellation || State != RenderState.Preparing) return;
             if (result.Success)
             {
-                Main.Entry.Logger.Log("Encoder preflight passed: " + profile.FfmpegCodec
+                Main.Entry.Logger.Log("[Render] Encoder preflight passed: " + profile.FfmpegCodec
                     + " (" + profile.PixelFormat + ").");
                 StartRenderCore();
                 return;
@@ -321,7 +321,7 @@ namespace OrbitRender.Renderer
                 Message = Localization.Get("hardware-encoder-failed-use-software-encoder-for-this-r");
                 activeRpcJob?.SetState(RpcJobState.AwaitingConfirmation, reason);
                 ShowToast(Message, 30f, false);
-                Main.Entry.Logger.Error("Hardware encoder preflight failed: " + reason);
+                Main.Entry.Logger.Error("[Render] Hardware encoder preflight failed: " + reason);
             }
             else
             {
@@ -330,7 +330,7 @@ namespace OrbitRender.Renderer
                 activeRpcJob?.Fail(Message);
                 activeRpcJob = null;
                 ShowToast(Message, 10f, false);
-                Main.Entry.Logger.Error(Message);
+                Main.Entry.Logger.Error("[Render] " + Message);
             }
         }
 
@@ -353,7 +353,7 @@ namespace OrbitRender.Renderer
             State = RenderState.Preparing;
             Message = Localization.Get("checking-software-encoder-for-this-render");
             activeRpcJob?.SetState(RpcJobState.Preparing);
-            Main.Entry.Logger.Log("User approved one-render software fallback: " + profile.FfmpegCodec + ".");
+            Main.Entry.Logger.Log("[Render] User approved one-render software fallback: " + profile.FfmpegCodec + ".");
             ShowToast(Message, 4f, false);
             BeginEncoderPreflight();
         }
@@ -368,7 +368,7 @@ namespace OrbitRender.Renderer
             activeRpcJob?.Cancel();
             activeRpcJob = null;
             ShowToast(Message, 8f, false);
-            Main.Entry.Logger.Log(Message);
+            Main.Entry.Logger.Log("[Render] " + Message);
         }
 
         public void Cancel()
@@ -411,7 +411,7 @@ namespace OrbitRender.Renderer
                 // remains available while the render canvas owns presentation.
                 ADOBase.editor.ShowNotification(ToastText, null, seconds);
             }
-            catch (Exception ex) { Main.Entry.Logger.Log("Game notification unavailable: " + ex.Message); }
+            catch (Exception ex) { Main.Entry.Logger.Log("[Render] Game notification unavailable: " + ex.Message); }
         }
 
         private void ShowProgressToast()
@@ -459,7 +459,7 @@ namespace OrbitRender.Renderer
             string invalidReason = null;
             if (editor != null && (!editorStateReady || !IsEditorRenderStateValid(level, out invalidReason)))
             {
-                Main.Entry.Logger.Log("Rebuilding editor render state before export: "
+                Main.Entry.Logger.Log("[Render] Rebuilding editor render state before export: "
                     + (editorStateReady ? invalidReason : "previous recovery has not completed"));
                 RebuildEditorRenderState(editor, level);
                 yield return null;
@@ -492,7 +492,7 @@ namespace OrbitRender.Renderer
                     && NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled);
             if (editor != null)
             {
-                Main.Entry.Logger.Log("Preparing editor render: playMode=" + editor.playMode
+                Main.Entry.Logger.Log("[Render] Preparing editor render: playMode=" + editor.playMode
                     + ", strictlyEditing=" + editor.inStrictlyEditingMode + ", tiles=" + editor.floors.Count);
                 // playMode includes paused playback. The editor's initial setup
                 // does not initialize inStrictlyEditingMode, so that flag cannot
@@ -595,12 +595,12 @@ namespace OrbitRender.Renderer
             if (!showPlanetRingsForRun)
             {
                 planetRings = PlanetRingRenderState.Capture();
-                Main.Entry.Logger.Log("Planet ring visibility disabled for this render.");
+                Main.Entry.Logger.Log("[Render] Planet ring visibility disabled for this render.");
             }
             if (bgaModeForRun)
             {
                 bga = BgaRenderState.Capture();
-                Main.Entry.Logger.Log("BGA mode enabled: hidden renderers=" + bga.HiddenRendererCount);
+                Main.Entry.Logger.Log("[Render] BGA mode enabled: hidden renderers=" + bga.HiddenRendererCount);
             }
             State = RenderState.Rendering;
             // The progress window uses fixed GUI rectangles. Layout is needed
@@ -658,7 +658,7 @@ namespace OrbitRender.Renderer
                         audioRealtimePacing = true;
                         audioPacingOrigin = Time.realtimeSinceStartupAsDouble
                             - timelineFrame / (double)profile.VideoFps;
-                        Main.Entry.Logger.Log("Unity AudioRenderer returned no samples; pacing the render to realtime for the AudioListener fallback.");
+                        Main.Entry.Logger.Log("[Render] Unity AudioRenderer returned no samples; pacing the render to realtime for the AudioListener fallback.");
                     }
                 }
                 if (!selectionStartTileForRun.HasValue || timelineFrame >= selectionStartFrameForRun)
@@ -709,14 +709,14 @@ namespace OrbitRender.Renderer
                         var controllerSeqId = ADOBase.controller != null
                             ? ADOBase.controller.currentSeqID.ToString() : "<none>";
                         Main.Entry.Logger.Error(string.Format(
-                            "Final tile was not observed: playerFloor={0}, controllerSeqID={1}, floors={2}.",
+                            "[Render] Final tile was not observed: playerFloor={0}, controllerSeqID={1}, floors={2}.",
                             playerSeqId, controllerSeqId, floors != null ? floors.Count.ToString() : "<none>"));
                         throw new InvalidOperationException("Autoplay did not reach the last tile after the render tail was extended.");
                     }
                     TotalFrames = checked(TotalFrames + extensionStep);
                     tailExtensionFrames += extensionStep;
                     Main.Entry.Logger.Log(string.Format(
-                        "Final tile not reached; extending render tail by {0} frames ({1:F2}s total).",
+                        "[Render] Final tile not reached; extending render tail by {0} frames ({1:F2}s total).",
                         extensionStep, tailExtensionFrames / (double)profile.VideoFps));
                 }
                 if (TotalFrames == 0 && Clock.Time > 10)
@@ -738,18 +738,18 @@ namespace OrbitRender.Renderer
                 {
                     var preencodedAudio = audio.FinishConcurrentEncoding();
                     if (audio.ConcurrentWriteSeconds > 0)
-                        Main.Entry.Logger.Log(string.Format("Concurrent audio: pipe writes={0:F2}s, finish wait={1:F2}s, ready={2}.",
+                        Main.Entry.Logger.Log(string.Format("[Render] Concurrent audio: pipe writes={0:F2}s, finish wait={1:F2}s, ready={2}.",
                             audio.ConcurrentWriteSeconds, audio.ConcurrentFinishSeconds, preencodedAudio));
                     audio.Dispose();
                     if (preencodedAudio)
                     {
-                        Main.Entry.Logger.Log("Muxing concurrently encoded " + profile.AudioCodec + " audio (gain="
+                        Main.Entry.Logger.Log("[Render] Muxing concurrently encoded " + profile.AudioCodec + " audio (gain="
                             + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB).");
                         try { FFmpegEncoder.MuxPreencodedAudio(FFmpegPath, partialPath, audioEncodedPath, muxPath, profile.AudioCodec); }
                         catch (Exception ex)
                         {
-                            Main.Entry.Logger.Log("Concurrent audio mux failed; retrying from WAV: " + ex.Message);
+                            Main.Entry.Logger.Log("[Render] Concurrent audio mux failed; retrying from WAV: " + ex.Message);
                             if (File.Exists(muxPath)) File.Delete(muxPath);
                             preencodedAudio = false;
                         }
@@ -758,7 +758,7 @@ namespace OrbitRender.Renderer
                     {
                         var audioOffset = selectionStartTileForRun.HasValue
                             ? selectionStartFrameForRun / (double)profile.VideoFps : 0.0;
-                        Main.Entry.Logger.Log("Applying audio gain "
+                        Main.Entry.Logger.Log("[Render] Applying audio gain "
                             + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB during final audio mux.");
                         FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
@@ -779,7 +779,15 @@ namespace OrbitRender.Renderer
                     ? Localization.Get("audio-mix-was-silent-check-game-sound-settings")
                     : "");
             ShowToast(Message, 8f);
-            Main.Entry.Logger.Log(string.Format("Completed: {0} frames in {1:F2}s, {2:F1} frames/s ({3:F2}x video). Target={4}fps Video={5}fps {6}x{7} {8}Mbps {9}/{10}. Audio={11}. Capture/encoder wait={12:F2}s. Metrics: totalWall={13:F2}s, game={14:F2}s, readbackWait={15:F2}s, readbackLatency={16:F2}s, readbackCopy={17:F2}s, pendingPeak={18}, encoderWrite={19:F2}s, encoderQueuePeak={20}, written={21}, audioCapture={22:F2}s, finalization={23:F2}s, raw={24}. Output={25}",
+            Main.Entry.Logger.Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "[Render] Completed | {0:N0} frames | {1:F2} s | {2:F1} frames/s | {3:F2}x video speed\n"
+                + "  Video      : {6} x {7} | target {4} fps | output {5} fps | {8} Mbps\n"
+                + "  Encoding   : {9} | preset {10} | raw {24}\n"
+                + "  Audio      : captured={11} | capture {22:F2} s\n"
+                + "  Timing     : total {13:F2} s | game {14:F2} s | capture/encoder wait {12:F2} s | finalization {23:F2} s\n"
+                + "  Readback   : wait {15:F2} s | latency {16:F2} s | copy {17:F2} s | pending peak {18}\n"
+                + "  Encoder    : write {19:F2} s | queue peak {20} | written {21:N0} frames\n"
+                + "  Output     : {25}",
                 CapturedFrames, ElapsedSeconds, GenerationFps, GenerationFps / profile.VideoFps,
                 profile.TargetFps, profile.VideoFps, profile.Width, profile.Height, profile.BitrateMbps, profile.FfmpegCodec, profile.FfmpegPreset,
                 audio != null, CaptureWaitSeconds,
@@ -787,13 +795,19 @@ namespace OrbitRender.Renderer
                 PeakPendingReadbacks, EncoderWriteSeconds, PeakEncoderQueueDepth, WrittenFrames,
                 AudioCaptureSeconds, FinalizationSeconds, encoder.NativeBackend != null ? "gpu-rgba" : encoder.RawPixelFormat.ToString(), OutputPath));
             if (encoder.NativeBackend != null)
-                Main.Entry.Logger.Log(string.Format("Native NVENC: GPU buffers={0}, renderEventWait={1:F2}s, bufferWait={2:F2}s, encoded={3}.",
+                Main.Entry.Logger.Log(string.Format("[Render] Native NVENC: GPU buffers={0}, renderEventWait={1:F2}s, bufferWait={2:F2}s, encoded={3}.",
                     encoder.NativeBackend.PeakQueueDepth, encoder.NativeBackend.RenderEventWaitSeconds,
                     encoder.NativeBackend.BufferWaitSeconds, encoder.NativeBackend.WrittenFrames));
             if (latePlaySoundSchedules > 0)
-                Main.Entry.Logger.Log("Adjusted " + latePlaySoundSchedules
+                Main.Entry.Logger.Log("[Render] Adjusted " + latePlaySoundSchedules
                     + " late Play Sound Effect schedule(s) to the next captured audio sample.");
-            Main.Entry.Logger.Log(string.Format("Performance detail: prepare={0:F2}s, bga={1:F2}s, rings={2:F2}s, text={3:F2}s, cameraBind={4:F2}s, bindCalls={5}, bindPropertyWrites={6}, previewUI={7:F2}s, progressUI={8:F2}s, encoderBufferWait={9:F2}s, repeatedReadbacksAvoided={10}, processWorkingSetPeak={11:F1} MiB.",
+            Main.Entry.Logger.Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "[Render] Performance details\n"
+                + "  Scene      : prepare {0:F2} s | BGA {1:F2} s | rings {2:F2} s | text {3:F2} s\n"
+                + "  Camera     : bind {4:F2} s | calls {5:N0} | property writes {6:N0}\n"
+                + "  UI         : preview {7:F2} s | progress {8:F2} s\n"
+                + "  Encoder    : buffer wait {9:F2} s | repeated readbacks avoided {10:N0}\n"
+                + "  Memory     : peak working set {11:F1} MiB",
                 preparationTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 bgaTicks / (double)System.Diagnostics.Stopwatch.Frequency,
                 ringTicks / (double)System.Diagnostics.Stopwatch.Frequency,
@@ -827,13 +841,13 @@ namespace OrbitRender.Renderer
         private IEnumerator PrepareCustomSoundEffects()
         {
             if (level == null) yield break;
-            Main.Entry.Logger.Log("Preloading Play Sound Effect clips before the Target FPS clock starts.");
+            Main.Entry.Logger.Log("[Render] Preloading Play Sound Effect clips before the Target FPS clock starts.");
             var reloadMethod = AccessTools.Method(typeof(scnGame), "ReloadCustomSoundsCo");
             if (reloadMethod == null)
                 throw new MissingMethodException(typeof(scnGame).FullName, "ReloadCustomSoundsCo");
             var reload = reloadMethod.Invoke(level, new object[] { false }) as IEnumerator;
             if (reload != null) yield return reload;
-            Main.Entry.Logger.Log("Play Sound Effect clip preload completed.");
+            Main.Entry.Logger.Log("[Render] Play Sound Effect clip preload completed.");
         }
 
         private long SimulationFrameForVideoFrame(long videoFrameIndex)
@@ -882,7 +896,7 @@ namespace OrbitRender.Renderer
                 case ".aiff": audioType = AudioType.AIFF; break;
                 case ".mp3": audioType = AudioType.MPEG; break;
                 default:
-                    Main.Entry.Logger.Log("Song decode skipped for unsupported extension: " + extension);
+                    Main.Entry.Logger.Log("[Render] Song decode skipped for unsupported extension: " + extension);
                     yield break;
             }
 
@@ -923,7 +937,7 @@ namespace OrbitRender.Renderer
             songRequest = request;
             pendingSongRequest = null;
             Main.Entry.Logger.Log(string.Format(
-                "Song decoded in full: {0:F2}s ({1}).", clip.length, Path.GetFileName(songPath)));
+                "[Render] Song decoded in full: {0:F2}s ({1}).", clip.length, Path.GetFileName(songPath)));
         }
 
         private void OverrideInputOffsetForRender()
@@ -940,7 +954,7 @@ namespace OrbitRender.Renderer
             preset.inputOffset = 0;
             scrConductor.currentPreset = preset;
             inputOffsetOverridden = true;
-            Main.Entry.Logger.Log("Temporarily set input offset to 0 ms for rendering (saved "
+            Main.Entry.Logger.Log("[Render] Temporarily set input offset to 0 ms for rendering (saved "
                 + overriddenInputOffset + " ms).");
         }
 
@@ -953,7 +967,7 @@ namespace OrbitRender.Renderer
             scrConductor.currentPreset = preset;
             overriddenInputOffset = 0;
             inputOffsetOverridden = false;
-            Main.Entry.Logger.Log("Restored input offset after rendering: " + value + " ms.");
+            Main.Entry.Logger.Log("[Render] Restored input offset after rendering: " + value + " ms.");
         }
 
         private void DisposeSongRequest()
@@ -975,7 +989,7 @@ namespace OrbitRender.Renderer
             var directory = Path.GetDirectoryName(OutputPath);
             if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
             {
-                Main.Entry.Logger.Log("Could not open render output folder: directory is unavailable.");
+                Main.Entry.Logger.Log("[Render] Could not open render output folder: directory is unavailable.");
                 return;
             }
 
@@ -1007,7 +1021,7 @@ namespace OrbitRender.Renderer
             {
                 // Opening a folder is a convenience and must not turn a
                 // successfully completed render into a failed one.
-                Main.Entry.Logger.Error("Could not open render output folder: " + ex.Message);
+                Main.Entry.Logger.Error("[Render] Could not open render output folder: " + ex.Message);
             }
         }
 
@@ -1036,7 +1050,7 @@ namespace OrbitRender.Renderer
             scheduledMusicStartDsp = songStart;
             scheduledMusicLengthSeconds = LongestClipLength(conductor, pitch);
             Main.Entry.Logger.Log(string.Format(
-                "Audio schedule: start={0:F3}s, level offset={1:F3}s, countdown={2:F3}s, pitch={3:F3}.",
+                "[Render] Audio schedule: start={0:F3}s, level offset={1:F3}s, countdown={2:F3}s, pitch={3:F3}.",
                 songStart - Clock.DspOrigin, conductor.addoffset, countdown, pitch));
 
             if (captureAudioForRun && audio == null)
@@ -1057,7 +1071,7 @@ namespace OrbitRender.Renderer
             conductor.PlayHitTimes();
             if (audio != null)
             {
-                Main.Entry.Logger.Log("Game audio capture started: "
+                Main.Entry.Logger.Log("[Render] Game audio capture started: "
                     + audio.SampleRate + " Hz, " + audio.Channels + " channels.");
             }
         }
@@ -1110,7 +1124,7 @@ namespace OrbitRender.Renderer
             if (double.IsNaN(end) || double.IsInfinity(end) || end <= 0)
                 throw new InvalidOperationException("Invalid final tile time.");
             TotalFrames = checked((long)Math.Ceiling(end * profile.VideoFps) + 1);
-            Main.Entry.Logger.Log(string.Format("Render end: chart={0:F2}s, music={1:F2}s, delay={2:F2}s, total frames={3}",
+            Main.Entry.Logger.Log(string.Format("[Render] Render end: chart={0:F2}s, music={1:F2}s, delay={2:F2}s, total frames={3}",
                 chartEnd, musicEnd, endDelay, TotalFrames));
         }
 
@@ -1146,7 +1160,7 @@ namespace OrbitRender.Renderer
                 FrameAtOrAfter(endTime, profile.VideoFps));
             TotalFrames = checked(selectionEndFrameForRun - selectionStartFrameForRun + 1);
             Main.Entry.Logger.Log(string.Format(
-                "Selection render: tiles={0}-{1}, capture start={2:F2}s, end={3:F2}s, frames={4}.",
+                "[Render] Selection render: tiles={0}-{1}, capture start={2:F2}s, end={3:F2}s, frames={4}.",
                 selectionStartTileForRun.Value, selectionEndTileForRun.Value,
                 selectionStartFrameForRun / (double)profile.VideoFps,
                 selectionEndFrameForRun / (double)profile.VideoFps, TotalFrames));
@@ -1186,7 +1200,7 @@ namespace OrbitRender.Renderer
             // the existing cameras to the render target.
             var orthoSize = camera.camobj != null && camera.camobj.orthographic
                 ? camera.camobj.orthographicSize : float.NaN;
-            Main.Entry.Logger.Log(string.Format("Prepared render camera: zoom={0:F3}, ortho={1:F3}, player={2}",
+            Main.Entry.Logger.Log(string.Format("[Render] Prepared render camera: zoom={0:F3}, ortho={1:F3}, player={2}",
                 camera.zoomSize, orthoSize, ADOBase.controller != null && ADOBase.controller.playerOne != null));
         }
         private void ValidateLoadedLevel()
@@ -1327,7 +1341,7 @@ namespace OrbitRender.Renderer
             }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Log("Could not raise renderer process priority: " + ex.Message);
+                Main.Entry.Logger.Log("[Render] Could not raise renderer process priority: " + ex.Message);
             }
         }
 
@@ -1337,7 +1351,7 @@ namespace OrbitRender.Renderer
             try
             {
                 var configuration = AudioSettings.GetConfiguration();
-                Main.Entry.Logger.Log("Unity audio configuration: " + configuration.sampleRate
+                Main.Entry.Logger.Log("[Render] Unity audio configuration: " + configuration.sampleRate
                     + " Hz, DSP buffer=" + configuration.dspBufferSize + " samples, real voices="
                     + configuration.numRealVoices + ", virtual voices=" + configuration.numVirtualVoices + ".");
                 var requestedBuffer = RecommendedAudioDspBufferSize(configuration.sampleRate,
@@ -1355,13 +1369,13 @@ namespace OrbitRender.Renderer
                 configuration.dspBufferSize = requestedBuffer;
                 var reset = AudioSettings.Reset(configuration);
                 var actual = AudioSettings.GetConfiguration();
-                Main.Entry.Logger.Log("Renderer audio DSP buffer request: " + requestedBuffer
+                Main.Entry.Logger.Log("[Render] Renderer audio DSP buffer request: " + requestedBuffer
                     + " samples for InGame FPS " + (profile != null ? profile.TargetFps.ToString() : "60")
                     + ", reset=" + reset + ", actual=" + actual.dspBufferSize + ".");
             }
             catch (System.Exception ex)
             {
-                Main.Entry.Logger.Log("Could not normalize the Unity audio DSP buffer: " + ex.Message);
+                Main.Entry.Logger.Log("[Render] Could not normalize the Unity audio DSP buffer: " + ex.Message);
             }
         }
 
@@ -1383,7 +1397,7 @@ namespace OrbitRender.Renderer
         {
             if (!processPriorityChanged) return;
             try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = processPriorityBefore; }
-            catch (Exception ex) { Main.Entry.Logger.Log("Could not restore renderer process priority: " + ex.Message); }
+            catch (Exception ex) { Main.Entry.Logger.Log("[Render] Could not restore renderer process priority: " + ex.Message); }
             finally { processPriorityChanged = false; }
         }
 
@@ -1498,7 +1512,7 @@ namespace OrbitRender.Renderer
             var waitFrames = 0;
             var editorDeadline = Time.realtimeSinceStartup + 60f;
             var sceneRequested = false;
-            Main.Entry.Logger.Log("RPC preparing level: " + job.LevelPath + ", loader=" + (scrLoader.instance != null));
+            Main.Entry.Logger.Log("[Render] RPC preparing level: " + job.LevelPath + ", loader=" + (scrLoader.instance != null));
             while (ADOBase.editor == null || (sceneRequested && !ADOBase.isLevelEditor))
             {
                 if (cancellation) throw new OperationCanceledException();
@@ -1509,11 +1523,11 @@ namespace OrbitRender.Renderer
                     {
                         OpenLevelEditorScene();
                         sceneRequested = true;
-                        Main.Entry.Logger.Log("RPC requested scnEditor scene.");
+                        Main.Entry.Logger.Log("[Render] RPC requested scnEditor scene.");
                     }
                     catch (Exception ex)
                     {
-                        Main.Entry.Logger.Log("Waiting for the game loader before opening the editor: " + ex.Message);
+                        Main.Entry.Logger.Log("[Render] Waiting for the game loader before opening the editor: " + ex.Message);
                     }
                 }
                 waitFrames++;
@@ -1526,7 +1540,7 @@ namespace OrbitRender.Renderer
             if (targetEditor.playMode) targetEditor.SwitchToEditMode();
             var previousLevel = targetEditor.customLevel;
             targetEditor.OpenLevel(job.LevelPath);
-            Main.Entry.Logger.Log("RPC dispatched editor.OpenLevel: customLevel=" + (previousLevel != null)
+            Main.Entry.Logger.Log("[Render] RPC dispatched editor.OpenLevel: customLevel=" + (previousLevel != null)
                 + ", isLoading=" + targetEditor.isLoading);
 
             var sawLoading = false;
@@ -1553,7 +1567,7 @@ namespace OrbitRender.Renderer
             {
                 var finalEditor = ADOBase.editor;
                 var finalLevel = finalEditor != null ? finalEditor.customLevel : null;
-                Main.Entry.Logger.Log("RPC level load state: editor=" + (finalEditor != null)
+                Main.Entry.Logger.Log("[Render] RPC level load state: editor=" + (finalEditor != null)
                     + ", isLoading=" + (finalEditor != null && finalEditor.isLoading)
                     + ", levelData=" + (finalLevel != null && finalLevel.levelData != null)
                     + ", floors=" + (finalEditor != null && finalEditor.floors != null ? finalEditor.floors.Count.ToString() : "null")
@@ -1599,7 +1613,7 @@ namespace OrbitRender.Renderer
                 Message = ex.Message;
                 job.Fail(ex.Message);
                 ShowToast(Localization.Format("render-failed-value", Message), 10f);
-                Main.Entry.Logger.Error("RPC render preparation: " + ex);
+                Main.Entry.Logger.Error("[Render] RPC render preparation: " + ex);
             }
             activeRpcJob = null;
         }
@@ -1660,7 +1674,7 @@ namespace OrbitRender.Renderer
             State = RenderState.Failed;
             Message = ex.Message;
             ShowToast(Localization.Format("render-failed-value", Message), 10f);
-            Main.Entry.Logger.Error(ex.ToString());
+            Main.Entry.Logger.Error("[Render] Failed: " + ex);
         }
         internal void AbortWithError(Exception ex) { Fail(ex); StopAndClean(); }
         public void StopAndClean()
@@ -1776,7 +1790,7 @@ namespace OrbitRender.Renderer
 
             if (!IsEditorRenderStateValid(targetLevel, out var reason))
             {
-                Main.Entry.Logger.Log("Editor render state validation failed; rebuilding once: " + reason);
+                Main.Entry.Logger.Log("[Render] Editor render state validation failed; rebuilding once: " + reason);
                 RebuildEditorRenderState(targetEditor, targetLevel);
                 yield return null;
             }
@@ -1785,7 +1799,7 @@ namespace OrbitRender.Renderer
             editorStateReady = IsEditorRenderStateValid(targetLevel, out reason);
             LogRenderChain("after editor recovery", targetLevel);
             if (!editorStateReady)
-                Main.Entry.Logger.Error("Editor render state is still invalid after recovery: " + reason);
+                Main.Entry.Logger.Error("[Render] Editor render state is still invalid after recovery: " + reason);
             editorRecoveryRoutine = null;
         }
 
@@ -1933,7 +1947,7 @@ namespace OrbitRender.Renderer
             var camera = scrCamera.instance;
             if (camera == null)
             {
-                Main.Entry.Logger.Log("Render chain [" + stage + "]: <missing>");
+                Main.Entry.Logger.Log("[Render] Render chain [" + stage + "]: <missing>");
                 return;
             }
             var target = AccessTools.Field(typeof(scrCamera), "camRT")?.GetValue(camera) as RenderTexture;
@@ -1943,7 +1957,7 @@ namespace OrbitRender.Renderer
             var backgroundRenderers = background != null
                 ? background.GetComponentsInChildren<UnityEngine.Renderer>(true)
                 : new UnityEngine.Renderer[0];
-            Main.Entry.Logger.Log("Render chain [" + stage + "]: "
+            Main.Entry.Logger.Log("[Render] Render chain [" + stage + "]: "
                 + DescribeCamera("Bgcamstatic", camera.Bgcamstatic) + "; "
                 + DescribeCamera("BGcam", camera.BGcam) + "; "
                 + DescribeCamera("camobj", camera.camobj) + "; camRT="
@@ -2000,7 +2014,7 @@ namespace OrbitRender.Renderer
             try { action(); }
             catch (Exception ex)
             {
-                Main.Entry.Logger.Error("Cleanup: " + ex);
+                Main.Entry.Logger.Error("[Render] Cleanup: " + ex);
                 State = RenderState.Failed;
                 Message = Localization.Format("cleanup-failed-value", ex.Message);
             }
@@ -2129,7 +2143,7 @@ namespace OrbitRender.Renderer
                 source.pitch = pitch;
                 if (source.clip != null) source.time = 0f;
                 Main.Entry.Logger.Log(string.Format(
-                    "Restored audio source: clip={0}, length={1:F2}s, volume={2:F3}, pitch={3:F3}.",
+                    "[Render] Restored audio source: clip={0}, length={1:F2}s, volume={2:F3}, pitch={3:F3}.",
                     source.clip != null ? source.clip.name : "<none>",
                     source.clip != null ? source.clip.length : 0.0f, volume, pitch));
             }
