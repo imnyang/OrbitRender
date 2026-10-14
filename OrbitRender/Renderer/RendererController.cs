@@ -124,6 +124,7 @@ namespace OrbitRender.Renderer
         private bool captureAudioForRun;
         private float audioGainDbForRun;
         private bool showPreviewForRun;
+        private bool useRustRendererForRun;
         private bool audioRealtimePacing;
         private double audioPacingOrigin;
         private long latePlaySoundSchedules;
@@ -218,6 +219,7 @@ namespace OrbitRender.Renderer
             forceCancelTriggered = false;
             var settings = Main.Settings ?? new RendererSettings();
             showPreviewForRun = requestOptions?.ShowRenderPreview ?? settings.ShowRenderPreview;
+            useRustRendererForRun = requestOptions?.UseRustRenderer ?? settings.UseRustRenderer;
             var rpcOptions = activeRpcJob != null ? activeRpcJob.Options : null;
             bgaModeForRun = requestOptions?.BgaMode ?? rpcOptions?.BgaMode ?? settings.BgaMode;
             showPlanetRingsForRun = requestOptions?.ShowPlanetRings ?? rpcOptions?.ShowPlanetRings
@@ -486,7 +488,8 @@ namespace OrbitRender.Renderer
             encoder = new FFmpegEncoder(FFmpegPath, partialPath, profile.Width, profile.Height,
                 profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset, !captureAudioForRun,
                 profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat(),
-                deferStart: NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled);
+                deferStart: useRustRendererForRun
+                    && NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled);
             if (editor != null)
             {
                 Main.Entry.Logger.Log("Preparing editor render: playMode=" + editor.playMode
@@ -586,7 +589,8 @@ namespace OrbitRender.Renderer
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun);
             capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvases);
-            capture.TryEnableNative(profile);
+            if (useRustRendererForRun)
+                capture.TryEnableNative(profile);
             encoder.Check();
             if (!showPlanetRingsForRun)
             {

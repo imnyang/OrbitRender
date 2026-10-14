@@ -97,7 +97,7 @@ namespace OrbitRender
         public int VideoFps = 60;
 
         [Draw("Video bitrate (Mbps)", DrawType.Field, Min = MinBitrate, Max = MaxBitrate, VisibleOn = "Preset|Custom")]
-        public int BitrateMbps = 18;
+        public int BitrateMbps = 36;
 
         [Draw("End delay (seconds)", DrawType.Field, Min = 0, Max = 30, Precision = 2)]
         public float EndDelaySeconds = 2f;
@@ -113,6 +113,9 @@ namespace OrbitRender
 
         [Draw("Show render preview", DrawType.Toggle)]
         public bool ShowRenderPreview = true;
+
+        [Draw("Use Rust experimental version", DrawType.Toggle)]
+        public bool UseRustRenderer = false;
 
         [Draw("BGA mode (hide tiles, planets & hit sounds)", DrawType.Toggle)]
         public bool BgaMode = false;
@@ -198,12 +201,13 @@ namespace OrbitRender
             Height = 1080;
             Fps = 60;
             VideoFps = 60;
-            BitrateMbps = 18;
+            BitrateMbps = 36;
             EndDelaySeconds = 2f;
             CaptureAudio = true;
             AudioGainDb = 0f;
             AudioCodec = AudioCodec.Auto;
             ShowRenderPreview = true;
+            UseRustRenderer = false;
             BgaMode = false;
             ShowPlanetRings = true;
             ShowSongTitle = true;
@@ -329,7 +333,7 @@ namespace OrbitRender
                 case RendererPreset.QHD: return new RenderProfile(2560, 1440, 60, 60, 30, "veryfast");
                 case RendererPreset.UHD4K: return new RenderProfile(3840, 2160, 60, 60, 50, "fast");
                 case RendererPreset.FullHD:
-                default: return new RenderProfile(1920, 1080, 60, 60, 18, "veryfast");
+                default: return new RenderProfile(1920, 1080, 60, 60, 36, "veryfast");
             }
         }
 

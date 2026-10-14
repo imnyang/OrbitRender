@@ -292,7 +292,11 @@ namespace OrbitRender.Renderer
             if (NativeNvencEncoder.IsDisabled || !NativeNvencEncoder.IsInstalled
                 || SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D11
                 || !string.Equals(profile.FfmpegCodec, "h264_nvenc", StringComparison.OrdinalIgnoreCase)
-                || profile.PixelFormat != "yuv420p") return;
+                || profile.PixelFormat != "yuv420p")
+            {
+                Main.Entry.Logger.Log("Rust renderer unavailable: requires orbitrender_rs.dll, Direct3D 11 and NVIDIA H.264 8-bit; using FFmpeg.");
+                return;
+            }
             NativeNvencEncoder native = null;
             try
             {

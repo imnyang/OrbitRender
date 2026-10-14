@@ -15,6 +15,7 @@ namespace OrbitRender.Renderer
         internal float? AudioGainDb;
         internal AudioCodec? AudioCodec;
         internal bool? ShowRenderPreview;
+        internal bool? UseRustRenderer;
         internal bool? BgaMode;
         internal bool? ShowPlanetRings;
         internal bool? ShowSongTitle;
