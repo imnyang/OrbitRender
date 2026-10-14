@@ -104,6 +104,7 @@ namespace OrbitRender
                     ExportVideoDialog.CloseDialog();
                     AudioPreview.Stop();
                     RendererController.Instance?.StopAndClean();
+                    OrbitRender.Patches.RenderTimingPatches.Remove();
                     StopRpcServer();
                     SceneManager.sceneLoaded -= OnSceneLoaded;
                     UnityEngine.Object.Destroy(host);

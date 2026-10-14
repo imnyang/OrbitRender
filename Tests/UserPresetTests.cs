@@ -25,6 +25,7 @@ internal static class UserPresetTests
         try
         {
             var assembly = Assembly.LoadFrom(modPath);
+            PatchCompatibilityTests.Run(assembly, managedDirectory);
             var settingsType = assembly.GetType("OrbitRender.RendererSettings", true);
             var presetType = assembly.GetType("OrbitRender.UserRenderPreset", true);
             var storeType = assembly.GetType("OrbitRender.UserRenderPresets", true);

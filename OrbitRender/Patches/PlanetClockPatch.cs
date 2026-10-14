@@ -11,49 +11,46 @@ namespace OrbitRender.Patches
     // render the game can run faster than the output timeline, which
     // makes that pulse and the planet's visual state advance at the wrong
     // speed. Keep it on the same deterministic clock as the song.
-    [HarmonyPatch(typeof(PlanetRenderer), "LateUpdate")]
     internal static class PlanetRendererClockPatch
     {
-        private static float UnscaledTime()
+        private static float UnscaledTime(float actual)
         {
             return RendererController.ControlsTime
                 ? (float)RendererController.Instance.Clock.Time
-                : Time.unscaledTime;
+                : actual;
         }
 
-        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, System.Reflection.MethodBase __originalMethod)
         {
             var getter = AccessTools.PropertyGetter(typeof(Time), nameof(Time.unscaledTime));
             var replacement = AccessTools.Method(typeof(PlanetRendererClockPatch), nameof(UnscaledTime));
             var count = 0;
             foreach (var instruction in instructions)
             {
+                yield return instruction;
                 if (instruction.Calls(getter))
                 {
-                    instruction.operand = replacement;
+                    yield return new CodeInstruction(OpCodes.Call, replacement);
                     count++;
                 }
-                yield return instruction;
             }
-            if (count == 0)
-                throw new InvalidOperationException("Unsupported PlanetRenderer.LateUpdate: unscaled clock was not found.");
+            RenderPatchCompatibility.Report(__originalMethod, count != 0, "unscaled clock call was not found");
         }
     }
 
     // Keep the planet's non-tween state transitions at the output frame rate
     // as well. Time.captureFramerate normally does this, but the game can
     // replace capture timing while custom levels or filters are loading.
-    [HarmonyPatch(typeof(scrPlanet), "Update")]
     internal static class PlanetUpdateClockPatch
     {
         private static readonly HashSet<int> updatedPlanetsThisFrame = new HashSet<int>();
         private static int trackedFrame = -1;
 
-        private static float DeltaTime()
+        private static float DeltaTime(float actual)
         {
             return RendererController.ControlsTime
                 ? RendererController.DeterministicDelta
-                : Time.deltaTime;
+                : actual;
         }
 
         internal static bool WasUpdatedThisFrame(scrPlanet planet)
@@ -64,6 +61,7 @@ namespace OrbitRender.Patches
 
         private static void Postfix(scrPlanet __instance)
         {
+            if (!RendererController.ControlsTime) return;
             if (__instance == null) return;
             if (trackedFrame != Time.frameCount)
             {
@@ -73,22 +71,21 @@ namespace OrbitRender.Patches
             updatedPlanetsThisFrame.Add(__instance.GetInstanceID());
         }
 
-        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, System.Reflection.MethodBase __originalMethod)
         {
             var getter = AccessTools.PropertyGetter(typeof(Time), nameof(Time.deltaTime));
             var replacement = AccessTools.Method(typeof(PlanetUpdateClockPatch), nameof(DeltaTime));
             var count = 0;
             foreach (var instruction in instructions)
             {
+                yield return instruction;
                 if (instruction.Calls(getter))
                 {
-                    instruction.operand = replacement;
+                    yield return new CodeInstruction(OpCodes.Call, replacement);
                     count++;
                 }
-                yield return instruction;
             }
-            if (count == 0)
-                throw new InvalidOperationException("Unsupported scrPlanet.Update: delta clock was not found.");
+            RenderPatchCompatibility.Report(__originalMethod, count != 0, "delta clock call was not found");
         }
     }
 
@@ -97,7 +94,6 @@ namespace OrbitRender.Patches
     // frame and can trigger one frame after the tile crossing. Predict only
     // in that ordering case so autoplay remains aligned with the rendered
     // planet position without changing normal gameplay.
-    [HarmonyPatch(typeof(scrPlanet), "AutoShouldHitNow")]
     internal static class AutoplayTimingPatch
     {
         private static float AdjustMargin(scrPlanet planet, float margin)
@@ -120,7 +116,7 @@ namespace OrbitRender.Patches
             return margin + (float)frameAngle;
         }
 
-        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, System.Reflection.MethodBase __originalMethod)
         {
             var adjustMargin = AccessTools.Method(typeof(AutoplayTimingPatch), nameof(AdjustMargin));
             var replaced = 0;
@@ -143,8 +139,7 @@ namespace OrbitRender.Patches
                 }
                 yield return instruction;
             }
-            if (replaced == 0)
-                throw new InvalidOperationException("Unsupported scrPlanet.AutoShouldHitNow: default auto margin was not found.");
+            RenderPatchCompatibility.Report(__originalMethod, replaced != 0, "default auto margin was not found");
         }
     }
 }

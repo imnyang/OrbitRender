@@ -10,12 +10,11 @@ namespace OrbitRender.Patches
     // DOTween's independent tweens measure realtimeSinceStartup, even with
     // captureFramerate enabled. Keep the original timestamp bookkeeping, but
     // replace its elapsed interval so UI/independent effects cannot race encoding.
-    [HarmonyPatch(typeof(DOTweenComponent), "Update")]
     internal static class TweenClockPatch
     {
         static float Delta(float actual) => RendererController.ControlsTime
             ? RendererController.DeterministicDelta : actual;
-        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, System.Reflection.MethodBase __originalMethod)
         {
             var field = AccessTools.Field(typeof(DOTweenComponent), "_unscaledDeltaTime");
             int count = 0;
@@ -30,7 +29,7 @@ namespace OrbitRender.Patches
                 }
                 yield return instruction;
             }
-            if (count == 0) throw new InvalidOperationException("Unsupported DOTween independent clock.");
+            RenderPatchCompatibility.Report(__originalMethod, count != 0, "DOTween independent clock was not found");
         }
     }
 }

@@ -10,7 +10,6 @@ namespace OrbitRender.Patches
 {
     // Keep the game's beat propagation and deltaSongPos calculation. Replace only
     // the DSP source, including its stall fallback, in the verified Update method.
-    [HarmonyPatch]
     internal static class ConductorPatch
     {
         static IEnumerable<System.Reflection.MethodBase> TargetMethods()
@@ -18,11 +17,11 @@ namespace OrbitRender.Patches
             yield return AccessTools.Method(typeof(scrConductor), "Update");
             yield return AccessTools.Method(typeof(scrCountdown), "Update");
         }
-        static double DspTime() => RendererController.ControlsTime ? RendererController.Instance.Clock.DspTime : AudioSettings.dspTime;
-        static double UnscaledTime() => RendererController.ControlsTime ? RendererController.Instance.Clock.Time : Time.unscaledTimeAsDouble;
-        static float UnscaledDelta() => RendererController.ControlsTime
-            ? RendererController.DeterministicDelta : Time.unscaledDeltaTime;
-        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        static double DspTime(double actual) => RendererController.ControlsTime ? RendererController.Instance.Clock.DspTime : actual;
+        static double UnscaledTime(double actual) => RendererController.ControlsTime ? RendererController.Instance.Clock.Time : actual;
+        static float UnscaledDelta(float actual) => RendererController.ControlsTime
+            ? RendererController.DeterministicDelta : actual;
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, System.Reflection.MethodBase __originalMethod)
         {
             var dsp = AccessTools.PropertyGetter(typeof(AudioSettings), nameof(AudioSettings.dspTime));
             var time = AccessTools.PropertyGetter(typeof(Time), nameof(Time.unscaledTimeAsDouble));
@@ -30,12 +29,14 @@ namespace OrbitRender.Patches
             int replacements = 0;
             foreach (var instruction in instructions)
             {
-                if (instruction.Calls(dsp)) { instruction.operand = AccessTools.Method(typeof(ConductorPatch), nameof(DspTime)); replacements++; }
-                else if (instruction.Calls(time)) instruction.operand = AccessTools.Method(typeof(ConductorPatch), nameof(UnscaledTime));
-                else if (instruction.Calls(delta)) instruction.operand = AccessTools.Method(typeof(ConductorPatch), nameof(UnscaledDelta));
+                // Preserve the original call so other transpilers can still find it,
+                // and preserve its result (including other mods' changes) outside rendering.
                 yield return instruction;
+                if (instruction.Calls(dsp)) { yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ConductorPatch), nameof(DspTime))); replacements++; }
+                else if (instruction.Calls(time)) yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ConductorPatch), nameof(UnscaledTime)));
+                else if (instruction.Calls(delta)) yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ConductorPatch), nameof(UnscaledDelta)));
             }
-            if (replacements == 0) throw new InvalidOperationException("Unsupported scrConductor.Update: DSP clock was not found.");
+            RenderPatchCompatibility.Report(__originalMethod, replacements != 0, "DSP clock call was not found");
         }
     }
 

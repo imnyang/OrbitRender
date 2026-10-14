@@ -448,6 +448,7 @@ namespace OrbitRender.Renderer
         {
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
+            RenderTimingPatches.Apply();
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
             ValidateLoadedLevel();
@@ -1649,6 +1650,7 @@ namespace OrbitRender.Renderer
             var recoveryEditor = editor;
             var recoveryLevel = level;
             saved = null;
+            TryCleanup(RenderTimingPatches.Remove);
             TryCleanup(RestoreInputOffsetAfterRender);
             renderTimer.Stop();
             TryCleanup(() => capture?.Dispose()); capture = null;
