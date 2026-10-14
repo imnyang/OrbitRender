@@ -618,8 +618,19 @@ namespace OrbitRender.Renderer
             var hasRenderedGameFrame = false;
             long timelineFrame = 0;
             long lastCapturedSimulationIndex = -1;
+            var simulateSelectionPreroll = selectionStartTileForRun.HasValue
+                && CanSimulateSelectionPreroll();
+            if (selectionStartTileForRun.HasValue)
+                Main.Entry.Logger.Log(simulateSelectionPreroll
+                    ? "Selection pre-roll: simulate events and audio without drawing gameplay cameras."
+                    : "Selection pre-roll: preserve camera rendering for effects that may require frame history.");
             while (true)
             {
+                // Keep the original simulation/audio cadence. Resume drawing
+                // before advancing the first selected frame, including when
+                // Video FPS and InGame FPS have different sampling rates.
+                capture.SimulateWithoutDrawing = simulateSelectionPreroll
+                    && timelineFrame < selectionStartFrameForRun;
                 var desiredSimulationFrame = SimulationFrameForVideoFrame(timelineFrame);
                 var sampledCurrentGameFrame = false;
                 while (!hasRenderedGameFrame || Clock.FrameIndex <= desiredSimulationFrame)
@@ -732,6 +743,7 @@ namespace OrbitRender.Renderer
                 capture.Drain(true);
                 // No Unity yields during finalization; gameplay must not progress further.
                 if (audio != null) audio.Complete(timelineFramesForRun, profile.VideoFps);
+                StopRenderAudioPlayback();
                 encoder.Finish(CapturedFrames);
                 if (audio != null)
                 {
@@ -1662,6 +1674,9 @@ namespace OrbitRender.Renderer
             var recoveryEditor = editor;
             var recoveryLevel = level;
             saved = null;
+            // Stop voices before AudioRenderer.Stop resumes the live mixer.
+            // Song-only cleanup leaves scheduled map effects playing aloud.
+            if (restore != null) TryCleanup(StopRenderAudioPlayback);
             TryCleanup(RenderTimingPatches.Remove);
             TryCleanup(RestoreInputOffsetAfterRender);
             renderTimer.Stop();
@@ -1705,6 +1720,13 @@ namespace OrbitRender.Renderer
             foreach (var temporary in new[] { audioPath, audioEncodedPath, muxPath })
                 if (!string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
+        }
+
+        private static void StopRenderAudioPlayback()
+        {
+            AudioListener.pause = true;
+            foreach (var source in UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsSortMode.None))
+                if (source != null) source.Stop();
         }
 
         private void ValidateSelection()
