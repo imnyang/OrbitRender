@@ -13,6 +13,7 @@ namespace OrbitRender.UI
         private static GameObject backdropObject, panelObject;
         private static GameObject metrics;
         private static RawImage preview;
+        private static Button pauseQueue;
         private static Text state, title, detail, percent, frames, speed, eta, hint, path, elapsedLabel;
         private static Image progress;
         private static int mode;
@@ -49,6 +50,7 @@ namespace OrbitRender.UI
             canvasObject = null; backdropObject = null; panelObject = null; metrics = null; preview = null;
             state = title = detail = percent = frames = speed = eta = hint = path = elapsedLabel = null;
             progress = null; mode = 0;
+            pauseQueue = null;
         }
 
         private static void Hide()
@@ -127,7 +129,8 @@ namespace OrbitRender.UI
         {
             var live = renderer.State == RenderState.Rendering;
             var completed = renderer.State == RenderState.Completed;
-            var card = Card(live ? 480f : 680f, completed ? 236f : builtShowProgress ? 274f : 176f);
+            var queued = RendererController.Queue.Active != null;
+            var card = Card(live ? 480f : 680f, (completed ? 236f : builtShowProgress ? 274f : 176f) + (queued ? 42f : 0f));
             var rect = card.GetComponent<RectTransform>();
             if (live)
             {
@@ -164,6 +167,9 @@ namespace OrbitRender.UI
                 24 + width - 118, 216, 118, 28);
             AtButton(card.transform, Localization.Get("copy-path"), () => GUIUtility.systemCopyBuffer = renderer.OutputPath,
                 false, 24 + width - 110, 170, 110, 28);
+            if (queued)
+                pauseQueue = AtButton(card.transform, Localization.Get("queue-pause-after-current"),
+                    RendererController.Queue.Pause, false, 24, builtShowProgress ? 256 : 152, width, 28);
         }
 
         private static Text Metric(int index, string label, float width)
@@ -190,6 +196,12 @@ namespace OrbitRender.UI
                     renderer.RenderPreviewTexture.width / (float)Mathf.Max(1, renderer.RenderPreviewTexture.height);
             panelObject.SetActive(renderer.ToastVisible || renderer.EncoderFallbackPending);
             if (!panelObject.activeSelf) return;
+            if (pauseQueue != null)
+            {
+                pauseQueue.interactable = RendererController.Queue.IsRunning;
+                pauseQueue.GetComponentInChildren<Text>().text = Localization.Get(RendererController.Queue.IsRunning
+                    ? "queue-pause-after-current" : "queue-paused");
+            }
             state.text = StateLabel(renderer.State); state.color = StateColor(renderer.State);
             title.text = StateTitle(renderer.State);
             detail.text = renderer.Message ?? renderer.ToastText ?? string.Empty;
@@ -211,7 +223,9 @@ namespace OrbitRender.UI
                 frames.text = renderer.ProgressText ?? string.Empty;
                 speed.text = renderer.SpeedText ?? string.Empty;
                 eta.text = renderer.EtaText ?? string.Empty;
-                hint.text = Localization.Get("hold-esc-for-1-second-to-cancel");
+                hint.text = RendererController.Queue.Active != null
+                    ? Localization.Format("queue-remaining", RendererController.Queue.PendingCount)
+                    : Localization.Get("hold-esc-for-1-second-to-cancel");
             }
             else if (completed)
             {

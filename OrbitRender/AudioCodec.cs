@@ -2,12 +2,14 @@ using System;
 
 namespace OrbitRender
 {
-    public enum AudioCodec { Auto, AAC, Opus }
+    public enum AudioCodec { Auto, AAC, Opus, Flac }
 
     internal static class AudioCodecCatalog
     {
         internal static AudioCodec Normalize(AudioCodec codec) =>
             Enum.IsDefined(typeof(AudioCodec), codec) ? codec : AudioCodec.Auto;
+
+        internal static AudioCodec[] Choices => new[] { AudioCodec.Auto, AudioCodec.AAC, AudioCodec.Opus, AudioCodec.Flac };
 
         internal static bool IsSupported(AudioCodec codec, string extension)
         {
@@ -17,6 +19,8 @@ namespace OrbitRender
                 return extension == ".mp4" || extension == ".mkv" || extension == ".mov" || extension == ".ts";
             if (codec == AudioCodec.Opus)
                 return extension == ".mp4" || extension == ".mkv" || extension == ".webm";
+            if (codec == AudioCodec.Flac)
+                return extension == ".mkv" || extension == ".mov";
             return false;
         }
 
@@ -33,11 +37,13 @@ namespace OrbitRender
                 : codec;
         }
 
-        internal static string Encoder(AudioCodec codec) => codec == AudioCodec.Opus ? "libopus" : "aac";
-        internal static string Bitrate(AudioCodec codec) => codec == AudioCodec.Opus ? "160k" : "320k";
+        internal static string Encoder(AudioCodec codec) => codec == AudioCodec.Opus ? "libopus" : codec == AudioCodec.Flac ? "flac" : "aac";
+        internal static string Bitrate(AudioCodec codec) => codec == AudioCodec.Opus ? "160k" : codec == AudioCodec.Flac ? "lossless" : "320k";
         internal static string EncodingArguments(AudioCodec codec) =>
-            " -c:a " + Encoder(codec) + " -b:a " + Bitrate(codec)
+            codec == AudioCodec.Flac ? " -c:a flac"
+            : " -c:a " + Encoder(codec) + " -b:a " + Bitrate(codec)
             + (codec == AudioCodec.Opus ? " -ar 48000 -vbr on -application audio" : string.Empty);
-        internal static string IntermediateExtension(AudioCodec codec) => codec == AudioCodec.Opus ? ".opus" : ".m4a";
+        internal static string IntermediateExtension(AudioCodec codec) =>
+            codec == AudioCodec.Opus ? ".opus" : codec == AudioCodec.Flac ? ".flac" : ".m4a";
     }
 }

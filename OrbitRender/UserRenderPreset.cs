@@ -19,6 +19,7 @@ namespace OrbitRender
         public AudioCodec AudioCodec = AudioCodec.Auto;
         public bool ShowRenderPreview = true;
         public bool UseRustRenderer = false;
+        public OrbitRender.Renderer.FrameBufferPolicy BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
         public bool BgaMode = false;
         public bool ShowPlanetRings = true;
         public bool ShowSongTitle = true;
@@ -48,7 +49,7 @@ namespace OrbitRender
                 AudioGainDb = settings.AudioGainDb,
                 AudioCodec = settings.AudioCodec,
                 ShowRenderPreview = settings.ShowRenderPreview,
-                UseRustRenderer = settings.UseRustRenderer,
+                UseRustRenderer = settings.UseRustRenderer, BufferPolicy = settings.BufferPolicy,
                 BgaMode = settings.BgaMode,
                 ShowPlanetRings = settings.ShowPlanetRings,
                 ShowSongTitle = settings.ShowSongTitle,
@@ -78,7 +79,7 @@ namespace OrbitRender
             settings.AudioGainDb = AudioGainDb;
             settings.AudioCodec = AudioCodec;
             settings.ShowRenderPreview = ShowRenderPreview;
-            settings.UseRustRenderer = UseRustRenderer;
+            settings.UseRustRenderer = UseRustRenderer; settings.BufferPolicy = BufferPolicy;
             settings.BgaMode = BgaMode;
             settings.ShowPlanetRings = ShowPlanetRings;
             settings.ShowSongTitle = ShowSongTitle;

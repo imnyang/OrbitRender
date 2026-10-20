@@ -34,7 +34,7 @@ namespace OrbitRender.Renderer
 
         internal static CombinedResult GetCombined(string executable, VideoBitDepth depth, VideoContainer container)
         {
-            return new CombinedResult(new[] { VideoCodec.H264, VideoCodec.H265, VideoCodec.VP9, VideoCodec.AV1 }
+            return new CombinedResult(new[] { VideoCodec.H264, VideoCodec.H265, VideoCodec.VP9, VideoCodec.AV1, VideoCodec.ProRes, VideoCodec.FFV1 }
                 .Select(codec => Get(executable, codec, depth, container)).ToArray());
         }
 
@@ -64,14 +64,14 @@ namespace OrbitRender.Renderer
                     var available = new List<VideoEncoder>();
                     var definition = VideoCodecCatalog.Get(codec);
                     foreach (var backend in new[] { VideoEncoder.NvidiaNvenc, VideoEncoder.IntelQsv,
-                        VideoEncoder.AmdAmf, VideoEncoder.Vaapi, VideoEncoder.Software })
+                        VideoEncoder.AmdAmf, VideoEncoder.Vaapi, VideoEncoder.Vulkan, VideoEncoder.Software })
                     {
                         var encoder = definition.ResolveEncoder(backend, false, false, false);
                         if (backend != VideoEncoder.Software && !VideoCodecCatalog.IsHardwareEncoder(encoder)) continue;
                         try
                         {
                             if (FFmpegEncoder.TryValidateVideo(executable, 2, "ultrafast", encoder,
-                                depth == VideoBitDepth.Ten ? "yuv420p10le" : "yuv420p", extension, false, out _))
+                                VideoCodecCatalog.PixelFormat(codec, depth), extension, false, out _))
                                 available.Add(backend);
                         }
                         catch { /* A failed probe must never advertise an encoder. */ }
@@ -92,6 +92,7 @@ namespace OrbitRender.Renderer
                 : backend == VideoEncoder.IntelQsv ? "Intel QuickSync"
                 : backend == VideoEncoder.AmdAmf ? "AMD AMF"
                 : backend == VideoEncoder.Vaapi ? "VAAPI"
+                : backend == VideoEncoder.Vulkan ? "Vulkan (GPU)"
                 : "Software (fallback)";
             return name + " (" + definition.DisplayName + ")";
         }

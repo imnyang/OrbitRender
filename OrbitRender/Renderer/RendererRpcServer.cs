@@ -427,10 +427,9 @@ namespace OrbitRender.Renderer
                 return null;
             }
             if (payload.EndDelaySeconds.HasValue && (float.IsNaN(payload.EndDelaySeconds.Value)
-                || float.IsInfinity(payload.EndDelaySeconds.Value) || payload.EndDelaySeconds.Value < 0f
-                || payload.EndDelaySeconds.Value > 30f))
+                || float.IsInfinity(payload.EndDelaySeconds.Value) || payload.EndDelaySeconds.Value < 0f))
             {
-                error = InvalidOption("endDelaySeconds", "0..30");
+                error = InvalidOption("endDelaySeconds", "finite number >= 0");
                 return null;
             }
             if (payload.AudioGainDb.HasValue && (float.IsNaN(payload.AudioGainDb.Value)
@@ -448,7 +447,7 @@ namespace OrbitRender.Renderer
             {
                 if (!VideoCodecCatalog.TryParse(payload.VideoCodec, out var parsedCodec))
                 {
-                    error = "Unknown videoCodec. Use H264, H265, VP9, or AV1.";
+                    error = "Unknown videoCodec. Use H264, H265, VP9, AV1, ProRes, or FFV1.";
                     return null;
                 }
                 primaryCodec = parsedCodec;
@@ -457,7 +456,7 @@ namespace OrbitRender.Renderer
             {
                 if (!VideoCodecCatalog.TryParse(payload.Codec, out var parsedAliasCodec))
                 {
-                    error = "Unknown codec. Use H264, H265, VP9, or AV1.";
+                    error = "Unknown codec. Use H264, H265, VP9, AV1, ProRes, or FFV1.";
                     return null;
                 }
                 aliasCodec = parsedAliasCodec;
@@ -484,7 +483,7 @@ namespace OrbitRender.Renderer
                 if (!Enum.TryParse<AudioCodec>(payload.AudioCodec, true, out var parsedAudio)
                     || !Enum.IsDefined(typeof(AudioCodec), parsedAudio))
                 {
-                    error = "Unknown audioCodec. Use Auto, AAC, or Opus.";
+                    error = "Unknown audioCodec. Use Auto, AAC, Opus, or Flac.";
                     return null;
                 }
                 var extension = OutputFormat.Extension(Main.Settings?.Container ?? VideoContainer.Auto,

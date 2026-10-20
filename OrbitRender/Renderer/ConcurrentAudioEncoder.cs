@@ -24,7 +24,7 @@ namespace OrbitRender.Renderer
             if (double.IsNaN(gainDb) || double.IsInfinity(gainDb) || gainDb < -60.0 || gainDb > 12.0)
                 throw new ArgumentOutOfRangeException(nameof(gainDb));
             OutputPath = output;
-            if (audioCodec != AudioCodec.AAC && audioCodec != AudioCodec.Opus)
+            if (audioCodec != AudioCodec.AAC && audioCodec != AudioCodec.Opus && audioCodec != AudioCodec.Flac)
                 throw new ArgumentOutOfRangeException(nameof(audioCodec));
             var gain = gainDb <= -60.0 ? " -af \"volume=0\""
                 : Math.Abs(gainDb) > 0.000001
@@ -36,7 +36,8 @@ namespace OrbitRender.Renderer
                 Arguments = "-hide_banner -loglevel error -nostdin -n -f f32le -ar " + sampleRate
                     + " -ac " + channels + " -i pipe:0" + gain
                     + AudioCodecCatalog.EncodingArguments(audioCodec)
-                    + (audioCodec == AudioCodec.Opus ? " -f opus" : " -f ipod") + " \"" + output + "\""
+                    + (audioCodec == AudioCodec.Opus ? " -f opus"
+                        : audioCodec == AudioCodec.Flac ? " -f flac" : " -f ipod") + " \"" + output + "\""
             }};
             try
             {

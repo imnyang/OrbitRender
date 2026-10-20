@@ -36,7 +36,9 @@ namespace OrbitRender
             EndDelaySeconds = endDelaySeconds;
             FfmpegCodec = ffmpegCodec;
             VideoCodec = VideoCodecCatalog.Normalize(videoCodec);
-            BitDepth = VideoCodecCatalog.Normalize(bitDepth);
+            BitDepth = VideoCodec == VideoCodec.ProRes ? VideoBitDepth.Ten
+                : VideoCodec == VideoCodec.FFV1 ? VideoBitDepth.Eight
+                : VideoCodecCatalog.Normalize(bitDepth);
             Container = container;
             AudioCodec = AudioCodecCatalog.Resolve(audioCodec, ContainerExtension);
         }
@@ -51,7 +53,7 @@ namespace OrbitRender
         public string FfmpegCodec { get; }
         public VideoCodec VideoCodec { get; }
         public VideoBitDepth BitDepth { get; }
-        public string PixelFormat => BitDepth == VideoBitDepth.Ten ? "yuv420p10le" : "yuv420p";
+        public string PixelFormat => VideoCodecCatalog.PixelFormat(VideoCodec, BitDepth);
         public VideoContainer Container { get; }
         public string ContainerExtension => OutputFormat.Extension(Container, VideoCodec);
         public string ContainerMimeType => OutputFormat.MimeType(ContainerExtension);
@@ -99,7 +101,7 @@ namespace OrbitRender
         [Draw("Video bitrate (Mbps)", DrawType.Field, Min = MinBitrate, Max = MaxBitrate, VisibleOn = "Preset|Custom")]
         public int BitrateMbps = 36;
 
-        [Draw("End delay (seconds)", DrawType.Field, Min = 0, Max = 30, Precision = 2)]
+        [Draw("End delay (seconds)", DrawType.Field, Min = 0, Precision = 2)]
         public float EndDelaySeconds = 2f;
 
         [Draw("Capture audio", DrawType.Toggle)]
@@ -116,6 +118,9 @@ namespace OrbitRender
 
         [Draw("Use Rust experimental version", DrawType.Toggle)]
         public bool UseRustRenderer = false;
+
+        [Draw(DrawType.Ignore)]
+        public OrbitRender.Renderer.FrameBufferPolicy BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
 
         [Draw("BGA mode (hide tiles, planets & hit sounds)", DrawType.Toggle)]
         public bool BgaMode = false;
@@ -173,6 +178,8 @@ namespace OrbitRender
 
         public void OnChange()
         {
+            if (!Enum.IsDefined(typeof(OrbitRender.Renderer.FrameBufferPolicy), BufferPolicy))
+                BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
             // Selecting a built-in preset also copies its resolution and
             // bitrate into the fields, so switching to Custom starts from a
             // useful baseline. InGame FPS is deliberately independent from
@@ -190,7 +197,7 @@ namespace OrbitRender
             VideoFps = Clamp(VideoFps, MinFps, MaxVideoFps);
             BitrateMbps = Clamp(BitrateMbps, MinBitrate, MaxBitrate);
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
-            EndDelaySeconds = Math.Max(0f, Math.Min(30f, EndDelaySeconds));
+            EndDelaySeconds = Math.Max(0f, EndDelaySeconds);
             AudioGainDb = ClampAudioGainDb(AudioGainDb);
         }
 
@@ -208,6 +215,7 @@ namespace OrbitRender
             AudioCodec = AudioCodec.Auto;
             ShowRenderPreview = true;
             UseRustRenderer = false;
+            BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
             BgaMode = false;
             ShowPlanetRings = true;
             ShowSongTitle = true;
@@ -253,7 +261,7 @@ namespace OrbitRender
                     "fast", EndDelaySeconds)
                 : GetPresetProfile(preset);
             var endDelay = endDelayOverride.HasValue
-                ? Clamp(endDelayOverride.Value, 0f, 30f)
+                ? NormalizeEndDelay(endDelayOverride.Value)
                 : baseProfile.EndDelaySeconds;
             var encoding = encodingOverride ?? Encoding;
             var encoder = encoderOverride ?? Encoder;
@@ -365,7 +373,15 @@ namespace OrbitRender
                 {
                     // Prefer the active GPU when proven usable, then any usable
                     // secondary GPU, then software. Never pick a failed probe.
-                    var preferred = nvidia ? VideoEncoder.NvidiaNvenc : intel ? VideoEncoder.IntelQsv
+                    // FFV1 has no vendor-bound accelerator; when the Vulkan FFV1
+                    // encoder probes as usable, Auto prefers it over software
+                    // (lossless encoding is exactly the case where a working
+                    // GPU encoder is worth taking), and falls back to software
+                    // otherwise.
+                    var preferred = codec == VideoCodec.FFV1
+                        ? (Array.IndexOf(available.Encoders, VideoEncoder.Vulkan) >= 0
+                            ? VideoEncoder.Vulkan : VideoEncoder.Software)
+                        : nvidia ? VideoEncoder.NvidiaNvenc : intel ? VideoEncoder.IntelQsv
                         : amd ? VideoEncoder.AmdAmf : VideoEncoder.Software;
                     encoder = Array.IndexOf(available.Encoders, preferred) >= 0
                         ? preferred : available.Encoders[0];
@@ -400,8 +416,13 @@ namespace OrbitRender
             AudioCodec = AudioCodecCatalog.CompatibleSelection(AudioCodec, OutputFormat.Extension(Container, Codec));
             if (string.IsNullOrWhiteSpace(FileNameFormat)) FileNameFormat = OutputFormat.DefaultFileName;
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
-            EndDelaySeconds = Clamp(EndDelaySeconds, 0f, 30f);
+            EndDelaySeconds = NormalizeEndDelay(EndDelaySeconds);
             AudioGainDb = ClampAudioGainDb(AudioGainDb);
+        }
+
+        internal static float NormalizeEndDelay(float value)
+        {
+            return float.IsNaN(value) || float.IsInfinity(value) ? 2f : Math.Max(0f, value);
         }
 
         internal static float ClampAudioGainDb(float value)

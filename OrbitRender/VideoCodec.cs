@@ -7,7 +7,9 @@ namespace OrbitRender
         H264,
         H265,
         VP9,
-        AV1
+        AV1,
+        ProRes,
+        FFV1
     }
 
     public enum VideoBitDepth
@@ -25,14 +27,15 @@ namespace OrbitRender
         Software = 2,
         IntelQsv = 3,
         AmdAmf = 4,
-        Vaapi = 5
+        Vaapi = 5,
+        Vulkan = 6
     }
 
     internal sealed class VideoCodecDefinition
     {
         internal VideoCodecDefinition(VideoCodec codec, string displayName, string softwareEncoder,
             string nvidiaEncoder, string intelEncoder, string amdEncoder, string extension,
-            string mimeType, string audioEncoder, string audioBitrate)
+            string mimeType, string audioEncoder, string audioBitrate, string vulkanEncoder = null)
         {
             Codec = codec;
             DisplayName = displayName;
@@ -44,6 +47,7 @@ namespace OrbitRender
             MimeType = mimeType;
             AudioEncoder = audioEncoder;
             AudioBitrate = audioBitrate;
+            VulkanEncoder = vulkanEncoder;
         }
 
         internal VideoCodec Codec { get; }
@@ -52,6 +56,7 @@ namespace OrbitRender
         internal string NvidiaEncoder { get; }
         internal string IntelEncoder { get; }
         internal string AmdEncoder { get; }
+        internal string VulkanEncoder { get; }
         internal string ContainerExtension { get; }
         internal string MimeType { get; }
         internal string AudioEncoder { get; }
@@ -59,6 +64,11 @@ namespace OrbitRender
 
         internal string ResolveEncoder(VideoEncoder backend, bool nvidiaGpu, bool intelGpu, bool amdGpu)
         {
+            if (Codec == VideoCodec.ProRes) return SoftwareEncoder;
+            if (backend == VideoEncoder.Vulkan)
+            {
+                if (!string.IsNullOrEmpty(VulkanEncoder)) return VulkanEncoder;
+            }
             if (backend == VideoEncoder.Vaapi)
             {
                 switch (Codec)
@@ -100,6 +110,18 @@ namespace OrbitRender
             VideoCodec.AV1, "AV1", "libaom-av1", "av1_nvenc", "av1_qsv", "av1_amf",
             ".mp4", "video/mp4", "aac", "320k");
 
+        private static readonly VideoCodecDefinition ProRes = new VideoCodecDefinition(
+            VideoCodec.ProRes, "ProRes 422 HQ (10-bit)", "prores_ks", null, null, null,
+            ".mov", "video/quicktime", "aac", "320k");
+
+        private static readonly VideoCodecDefinition FFV1 = new VideoCodecDefinition(
+            VideoCodec.FFV1, "FFV1 (Lossless)", "ffv1", null, null, null,
+            ".mkv", "video/x-matroska", "flac", "lossless", "ffv1_vulkan");
+
+        internal static string PixelFormat(VideoCodec codec, VideoBitDepth depth)
+            => codec == VideoCodec.ProRes ? "yuv422p10le"
+                : depth == VideoBitDepth.Ten ? "yuv420p10le" : "yuv420p";
+
         internal static VideoCodecDefinition Get(VideoCodec codec)
         {
             switch (codec)
@@ -107,6 +129,8 @@ namespace OrbitRender
                 case VideoCodec.H265: return H265;
                 case VideoCodec.VP9: return VP9;
                 case VideoCodec.AV1: return AV1;
+                case VideoCodec.ProRes: return ProRes;
+                case VideoCodec.FFV1: return FFV1;
                 case VideoCodec.H264:
                 default: return H264;
             }
@@ -128,7 +152,8 @@ namespace OrbitRender
                 && (codec.EndsWith("_nvenc", StringComparison.OrdinalIgnoreCase)
                     || codec.EndsWith("_qsv", StringComparison.OrdinalIgnoreCase)
                     || codec.EndsWith("_amf", StringComparison.OrdinalIgnoreCase)
-                    || codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase));
+                    || codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
+                    || codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase));
         }
 
         internal static bool TryParse(string value, out VideoCodec codec)
@@ -150,6 +175,16 @@ namespace OrbitRender
                 case "vp9":
                 case "vp09":
                     codec = VideoCodec.VP9;
+                    return true;
+                case "prores":
+                case "prores_ks":
+                case "prores422hq":
+                    codec = VideoCodec.ProRes;
+                    return true;
+                case "ffv1":
+                case "ffv1.3":
+                case "lossless":
+                    codec = VideoCodec.FFV1;
                     return true;
                 case "av1":
                 case "av01":

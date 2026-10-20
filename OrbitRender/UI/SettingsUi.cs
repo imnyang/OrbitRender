@@ -24,12 +24,15 @@ namespace OrbitRender.UI
         internal static AudioCodec[] AudioChoices(VideoContainer container, VideoCodec codec)
         {
             var extension = OutputFormat.Extension(container, codec);
-            return new[] { AudioCodec.Auto, AudioCodec.AAC, AudioCodec.Opus }
+            return AudioCodecCatalog.Choices
                 .Where(value => AudioCodecCatalog.IsSupported(value, extension)).ToArray();
         }
 
         internal static string AudioCodecLabel(AudioCodec codec) => codec == AudioCodec.Auto
-            ? Localization.Get("auto") : codec + " (" + AudioCodecCatalog.Bitrate(codec) + "bps)";
+            ? Localization.Get("auto")
+            : codec == AudioCodec.Flac
+                ? codec + " (" + Localization.Get("lossless") + ")"
+                : codec + " (" + AudioCodecCatalog.Bitrate(codec) + "bps)";
 
         internal static AudioCodec DrawAudioCodec(AudioCodec value, VideoContainer container, VideoCodec codec)
         {

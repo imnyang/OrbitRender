@@ -102,6 +102,10 @@ namespace OrbitRender.Renderer
         private scnEditor editor;
         private bool cancellation;
         private string partialPath;
+        private bool preserveRecovery;
+        private bool recoveryRunning;
+        private string recoveryManifest;
+        private string pendingRecoveryManifest;
         private string audioPath, audioEncodedPath, muxPath;
         private UnityWebRequest songRequest;
         private UnityWebRequest pendingSongRequest;
@@ -125,6 +129,10 @@ namespace OrbitRender.Renderer
         private float audioGainDbForRun;
         private bool showPreviewForRun;
         private bool useRustRendererForRun;
+        private FrameBufferPolicy bufferPolicyForRun;
+        private string outputDirectoryForRun;
+        private string lastFailureReport;
+        internal static RenderQueue Queue { get; } = new RenderQueue();
         private bool audioRealtimePacing;
         private double audioPacingOrigin;
         private long latePlaySoundSchedules;
@@ -194,10 +202,11 @@ namespace OrbitRender.Renderer
                 return;
             }
             State = RenderState.Preparing;
+            lastFailureReport = null;
             CompletionVisible = false;
             cancellation = false;
             CapturedFrames = TotalFrames = 0;
-            OutputPath = ""; partialPath = null;
+            OutputPath = ""; partialPath = null; preserveRecovery = false; recoveryManifest = null;
             audioPath = audioEncodedPath = muxPath = null;
             renderTimer.Reset();
             nextProgressUpdateAt = 0;
@@ -218,8 +227,10 @@ namespace OrbitRender.Renderer
             escapeHeldAt = -1;
             forceCancelTriggered = false;
             var settings = Main.Settings ?? new RendererSettings();
+            outputDirectoryForRun = requestOptions?.OutputDirectory ?? settings.ResolveOutputDirectory();
             showPreviewForRun = requestOptions?.ShowRenderPreview ?? settings.ShowRenderPreview;
             useRustRendererForRun = requestOptions?.UseRustRenderer ?? settings.UseRustRenderer;
+            bufferPolicyForRun = requestOptions?.BufferPolicy ?? settings.BufferPolicy;
             var rpcOptions = activeRpcJob != null ? activeRpcJob.Options : null;
             bgaModeForRun = requestOptions?.BgaMode ?? rpcOptions?.BgaMode ?? settings.BgaMode;
             showPlanetRingsForRun = requestOptions?.ShowPlanetRings ?? rpcOptions?.ShowPlanetRings
@@ -373,6 +384,7 @@ namespace OrbitRender.Renderer
 
         public void Cancel()
         {
+            Queue.Pause();
             if (encoderFallbackPending)
             {
                 RejectEncoderFallback();
@@ -402,11 +414,17 @@ namespace OrbitRender.Renderer
 
         internal void ShowToast(string text, float seconds, bool useGameNotification = true)
         {
+            if (State == RenderState.Failed)
+            {
+                lastFailureReport = lastFailureReport ?? BuildDiagnosticReport(null);
+                Queue.Complete(QueueItemState.Failed, OutputPath, Message);
+            }
+            else if (State == RenderState.Cancelled) Queue.Complete(QueueItemState.Cancelled, OutputPath, Message);
             ToastText = text ?? string.Empty;
             toastUntil = Time.unscaledTime + Mathf.Max(0.5f, seconds);
             if (State == RenderState.Failed || State == RenderState.Cancelled
                 || (State != RenderState.Completed && !Busy && !FfmpegInstaller.IsInstallPromptVisible))
-                OrbitRender.UI.NoticeModal.Open(ToastText, State == RenderState.Failed);
+                OrbitRender.UI.NoticeModal.Open(ToastText, State == RenderState.Failed, (preserveRecovery || recoveryManifest != null) ? (Action)(() => RetryAudioMux(recoveryManifest ?? OutputPath + RenderRecovery.Suffix)) : null);
         }
         private void ShowProgressToast()
         {
@@ -465,7 +483,7 @@ namespace OrbitRender.Renderer
             if (GCS.d_oldConductor || GCS.d_webglConductor)
                 throw new InvalidOperationException("The installed conductor must use its standard DSP timing mode.");
             var settings = Main.Settings ?? new RendererSettings();
-            var directory = settings.ResolveOutputDirectory();
+            var directory = outputDirectoryForRun ?? settings.ResolveOutputDirectory();
             Directory.CreateDirectory(directory);
             var name = OutputFormat.FileName(fileNameFormatForRun,
                 ExportFileName.Variables(profile, bgaModeForRun, DateTime.Now, Guid.NewGuid().ToString("N").Substring(0, 6)));
@@ -483,7 +501,7 @@ namespace OrbitRender.Renderer
                 profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset, !captureAudioForRun,
                 profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat(),
                 deferStart: useRustRendererForRun
-                    && NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled);
+                    && NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled, bufferPolicy: bufferPolicyForRun);
             if (editor != null)
             {
                 Main.Entry.Logger.Log("[Render] Preparing editor render: playMode=" + editor.playMode
@@ -730,6 +748,10 @@ namespace OrbitRender.Renderer
                 encoder.Finish(CapturedFrames);
                 if (audio != null)
                 {
+                    // The video and WAV are complete. Preserve them if any later
+                    // mux/publish operation fails, including after restarting the game.
+                    preserveRecovery = true;
+
                     var preencodedAudio = audio.FinishConcurrentEncoding();
                     if (audio.ConcurrentWriteSeconds > 0)
                         Main.Entry.Logger.Log(string.Format("[Render] Concurrent audio: pipe writes={0:F2}s, finish wait={1:F2}s, ready={2}.",
@@ -759,15 +781,17 @@ namespace OrbitRender.Renderer
                             audioGainDbForRun, profile.AudioCodec);
                     }
                     File.Move(muxPath, OutputPath);
-                    File.Delete(partialPath); File.Delete(audioPath);
-                    if (preencodedAudio) File.Delete(audioEncodedPath);
+                    RenderRecovery.DeleteTemporary(partialPath); RenderRecovery.DeleteTemporary(audioPath);
+                    RenderRecovery.DeleteTemporary(audioEncodedPath);
+                    RenderRecovery.DeleteTemporary(OutputPath + RenderRecovery.Suffix);
+                    preserveRecovery = false;
                 }
                 else File.Move(partialPath, OutputPath);
             }
             finally { finalizationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - finalizationStart; }
             totalRenderTicks = System.Diagnostics.Stopwatch.GetTimestamp() - totalRenderStartTicks;
             State = RenderState.Completed;
-            CompletionVisible = true;
+            CompletionVisible = !Queue.IsRunning || !Queue.HasPending;
             Message = Localization.Format("completed-frames", CapturedFrames)
                 + (audio != null && audio.Peak < 0.000001f
                     ? Localization.Get("audio-mix-was-silent-check-game-sound-settings")
@@ -1118,6 +1142,7 @@ namespace OrbitRender.Renderer
             if (double.IsNaN(end) || double.IsInfinity(end) || end <= 0)
                 throw new InvalidOperationException("Invalid final tile time.");
             TotalFrames = checked((long)Math.Ceiling(end * profile.VideoFps) + 1);
+            CheckRenderStorage(end);
             Main.Entry.Logger.Log(string.Format("[Render] Render end: chart={0:F2}s, music={1:F2}s, delay={2:F2}s, total frames={3}",
                 chartEnd, musicEnd, endDelay, TotalFrames));
         }
@@ -1153,6 +1178,7 @@ namespace OrbitRender.Renderer
             selectionEndFrameForRun = Math.Max(selectionStartFrameForRun,
                 FrameAtOrAfter(endTime, profile.VideoFps));
             TotalFrames = checked(selectionEndFrameForRun - selectionStartFrameForRun + 1);
+            CheckRenderStorage((selectionEndFrameForRun + 1) / (double)profile.VideoFps);
             Main.Entry.Logger.Log(string.Format(
                 "[Render] Selection render: tiles={0}-{1}, capture start={2:F2}s, end={3:F2}s, frames={4}.",
                 selectionStartTileForRun.Value, selectionEndTileForRun.Value,
@@ -1160,6 +1186,51 @@ namespace OrbitRender.Renderer
                 selectionEndFrameForRun / (double)profile.VideoFps, TotalFrames));
         }
 
+        private void CheckRenderStorage(double audioSeconds)
+        {
+            var bytes = RenderResources.VideoBytes(TotalFrames / (double)profile.VideoFps,
+                profile.Width, profile.Height, profile.VideoFps, profile.BitrateMbps, profile.VideoCodec);
+            var required = RenderResources.RequiredBytes(bytes, audioSeconds, captureAudioForRun,
+                audio != null ? audio.SampleRate : 48000, audio != null ? audio.Channels : 8);
+            var free = RenderResources.FreeBytes(Path.GetDirectoryName(OutputPath));
+            Main.Entry.Logger.Log("[Render] Estimated storage: " + RenderResources.Size(required)
+                + "; available: " + (free.HasValue ? RenderResources.Size(free.Value) : "unknown"));
+            if (free.HasValue && free.Value < required)
+                throw new IOException(Localization.Format("storage-insufficient", RenderResources.Size(required), RenderResources.Size(free.Value)));
+            // Reserve the small recovery descriptor before rendering fills the
+            // disk; failed/incomplete renders remove it during cleanup.
+            if (captureAudioForRun)
+                new RenderRecovery {
+                    AudioOffset = selectionStartTileForRun.HasValue ? selectionStartFrameForRun / (double)profile.VideoFps : 0,
+                    GainDb = audioGainDbForRun, Codec = profile.AudioCodec
+                }.Save(OutputPath);
+        }
+
+        internal void RetryAudioMux(string manifest)
+        {
+            if (Busy)
+            {
+                if (State == RenderState.Failed && editorRecoveryRoutine != null) pendingRecoveryManifest = manifest;
+                return;
+            }
+            var executable = ResolveFfmpegExecutable(Main.Settings);
+            recoveryRunning = true;
+            recoveryManifest = manifest;
+            partialPath = audioPath = audioEncodedPath = muxPath = null;
+            OutputPath = string.Empty;
+            CompletionVisible = false;
+            TotalFrames = CapturedFrames = 0;
+            renderTimer.Reset();
+            preserveRecovery = false;
+            State = RenderState.Finishing;
+            Message = Localization.Get("recovery-running");
+            ShowToast(Message, 120f, false);
+            System.Threading.Tasks.Task.Run(() => RenderRecovery.Retry(executable, manifest))
+                .ContinueWith(result => recoveryResults.Enqueue(result));
+        }
+
+        private readonly ConcurrentQueue<System.Threading.Tasks.Task<string>> recoveryResults =
+            new ConcurrentQueue<System.Threading.Tasks.Task<string>>();
         private static long FrameAtOrAfter(double seconds, int fps)
         {
             if (seconds <= 0.0) return 0L;
@@ -1271,12 +1342,28 @@ namespace OrbitRender.Renderer
         }
         private void Update()
         {
+            if (pendingRecoveryManifest != null && !Busy)
+            {
+                var manifest = pendingRecoveryManifest;
+                pendingRecoveryManifest = null;
+                RetryAudioMux(manifest);
+            }
             ProcessRpcCommands();
+            if (recoveryResults.TryDequeue(out var recoveryResult))
+            {
+                recoveryRunning = false;
+                if (recoveryResult.IsFaulted) Fail(recoveryResult.Exception.GetBaseException());
+                else {
+                    recoveryManifest = null; OutputPath = recoveryResult.Result; State = RenderState.Completed; CompletionVisible = true;
+                    Message = Localization.Get("export-complete"); ShowToast(Message, 8f);
+                }
+            }
             ProcessEncoderPreflight();
             UpdateRpcJob();
+            UpdateRenderQueue();
             if (Busy)
             {
-                UpdateForceCancelKey();
+                if (!recoveryRunning) UpdateForceCancelKey();
                 return;
             }
             escapeHeldAt = -1;
@@ -1309,6 +1396,7 @@ namespace OrbitRender.Renderer
 
         private void ForceCancel()
         {
+            Queue.Pause();
             cancellation = true;
             encoderFallbackPending = false;
             encoderFallbackReason = null;
@@ -1442,7 +1530,7 @@ namespace OrbitRender.Renderer
                 var render = command as RpcRenderRequest;
                 if (render != null)
                 {
-                    if (activeRpcJob != null || Busy)
+                    if (activeRpcJob != null || Busy || Queue.IsRunning || Queue.Active != null)
                     {
                         render.Job.Fail("A render is already in progress.");
                         continue;
@@ -1604,12 +1692,83 @@ namespace OrbitRender.Renderer
             else
             {
                 State = RenderState.Failed;
-                Message = ex.Message;
+                Message = ex.Message + ((preserveRecovery || recoveryManifest != null) ? "\n" + Localization.Format("recovery-preserved", recoveryManifest ?? OutputPath + RenderRecovery.Suffix) : "");
                 job.Fail(ex.Message);
                 ShowToast(Localization.Format("render-failed-value", Message), 10f);
                 Main.Entry.Logger.Error("[Render] RPC render preparation: " + ex);
             }
             activeRpcJob = null;
+        }
+
+        internal void StartRenderQueue()
+        {
+            if (Busy || !Queue.HasPending) return;
+            OrbitRender.UI.CompletionScreen.Dispose();
+            DismissCompletion();
+            Queue.Start();
+        }
+
+        private void UpdateRenderQueue()
+        {
+            if (!Main.Enabled || shuttingDown || Busy || routine != null || activeRpcJob != null) return;
+            if (Queue.Active != null)
+            {
+                var finished = Queue.Active;
+                if (State == RenderState.Completed) Queue.Complete(QueueItemState.Completed, OutputPath, null);
+                else if (State == RenderState.Cancelled) Queue.Complete(QueueItemState.Cancelled, OutputPath, Message);
+                else if (State == RenderState.Failed) Queue.Complete(QueueItemState.Failed, OutputPath, Message);
+                else return;
+                if (!Queue.IsRunning && State == RenderState.Completed)
+                {
+                    CompletionVisible = true;
+                    if (finished.Options.OpenOutputFolder == true) OpenOutputFolder();
+                }
+            }
+            if (!Queue.IsRunning || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.ExportVideoDialog.IsOpen) return;
+            var next = Queue.BeginNext(ADOBase.editor != null && ADOBase.editor.customLevel != null ? ADOBase.editor.customLevel.levelData : null);
+            if (next == null)
+            {
+                if (Queue.HasPending) OrbitRender.UI.NoticeModal.Open(Localization.Get("queue-level-changed"));
+                return;
+            }
+            DismissCompletion();
+            OrbitRender.UI.CompletionScreen.Dispose();
+            var options = next.Options;
+            options.OpenOutputFolder = false;
+            try {
+                StartRender(options);
+                if (State == RenderState.Idle || State == RenderState.Completed || State == RenderState.Cancelled)
+                    Fail(new InvalidOperationException(Message));
+            }
+            catch (Exception ex) { Fail(ex); }
+        }
+
+        internal string DiagnosticReport => lastFailureReport ?? BuildDiagnosticReport(null);
+
+        private string BuildDiagnosticReport(Exception error)
+        {
+            var report = new System.Text.StringBuilder();
+            report.AppendLine("OrbitRender " + typeof(RendererController).Assembly.GetName().Version);
+            report.AppendLine("Time: " + DateTime.Now.ToString("O"));
+            report.AppendLine("System: " + SystemInfo.operatingSystem + "; Unity " + Application.unityVersion);
+            report.AppendLine("GPU: " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
+            report.AppendLine("State: " + State + "; frames " + CapturedFrames + "/" + TotalFrames);
+            report.AppendLine("Level: " + (level != null ? level.levelPath : ""));
+            report.AppendLine("Output: " + OutputPath);
+            report.AppendLine("FFmpeg: " + FFmpegPath);
+            if (profile != null)
+                report.AppendLine(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Profile: {0}x{1}; game {2} FPS; video {3} FPS; {4} Mbps; {5}; {6}; {7}; {8}",
+                    profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps,
+                    profile.FfmpegCodec, profile.PixelFormat, profile.ContainerExtension, profile.FfmpegPreset));
+            report.AppendLine("Audio: " + captureAudioForRun + "; gain " + audioGainDbForRun
+                + "; codec " + (profile != null ? profile.AudioCodec.ToString() : ""));
+            report.AppendLine("BGA: " + bgaModeForRun + "; Rust requested: " + useRustRendererForRun + "; buffers: " + bufferPolicyForRun);
+            report.AppendLine("Queue: " + (Queue.Active != null ? Queue.Active.Label : "none"));
+            report.AppendLine("Encoder fallback: " + encoderFallbackReason);
+            report.AppendLine("Recovery: " + (recoveryManifest ?? (preserveRecovery ? OutputPath + RenderRecovery.Suffix : "none")));
+            report.AppendLine("Error: " + (error != null ? error.ToString() : Message));
+            return report.ToString();
         }
 
         private void UpdateRpcJob()
@@ -1665,14 +1824,16 @@ namespace OrbitRender.Renderer
         }
         private void Fail(Exception ex)
         {
+            lastFailureReport = BuildDiagnosticReport(ex);
             State = RenderState.Failed;
-            Message = ex.Message;
+            Message = ex.Message + ((preserveRecovery || recoveryManifest != null) ? "\n" + Localization.Format("recovery-preserved", recoveryManifest ?? OutputPath + RenderRecovery.Suffix) : "");
             ShowToast(Localization.Format("render-failed-value", Message), 10f);
             Main.Entry.Logger.Error("[Render] Failed: " + ex);
         }
         internal void AbortWithError(Exception ex) { Fail(ex); StopAndClean(); }
         public void StopAndClean()
         {
+            Queue.Pause();
             encoderFallbackPending = false;
             encoderFallbackReason = null;
             if (rpcLoadRoutine != null) { StopCoroutine(rpcLoadRoutine); rpcLoadRoutine = null; }
@@ -1682,6 +1843,7 @@ namespace OrbitRender.Renderer
                 State = RenderState.Cancelled;
                 Message = Localization.Get("render-cancelled");
             }
+            if (State == RenderState.Cancelled) Queue.Complete(QueueItemState.Cancelled, OutputPath, Message);
             Cleanup();
         }
         private void Cleanup()
@@ -1733,10 +1895,10 @@ namespace OrbitRender.Renderer
                     TryCleanup(() => StartEditorRecovery(recoveryEditor, recoveryLevel, restore));
             }
             TryCleanup(DisposePendingSongRequest);
-            if (State != RenderState.Completed && !string.IsNullOrEmpty(partialPath))
+            if (!preserveRecovery && State != RenderState.Completed && !string.IsNullOrEmpty(partialPath))
                 TryCleanup(() => { if (File.Exists(partialPath)) File.Delete(partialPath); });
-            foreach (var temporary in new[] { audioPath, audioEncodedPath, muxPath })
-                if (!string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
+            foreach (var temporary in new[] { audioPath, audioEncodedPath, muxPath, string.IsNullOrEmpty(OutputPath) ? null : OutputPath + RenderRecovery.Suffix })
+                if (!preserveRecovery && !string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
         }
 
@@ -2016,6 +2178,7 @@ namespace OrbitRender.Renderer
         private void OnDestroy()
         {
             shuttingDown = true;
+            Queue.Pause(); Queue.Complete(QueueItemState.Cancelled, OutputPath, Message);
             OrbitRender.UI.RendererWindow.Dispose();
             OrbitRender.UI.ExportVideoDialog.CloseDialog();
             StopAndClean();
@@ -2026,6 +2189,7 @@ namespace OrbitRender.Renderer
         private void OnApplicationQuit()
         {
             shuttingDown = true;
+            Queue.Pause(); Queue.Complete(QueueItemState.Cancelled, OutputPath, Message);
             StopAndClean();
             TryCleanup(DisposePendingSongRequest);
             TryCleanup(DisposeSongRequest);

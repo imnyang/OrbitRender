@@ -4,6 +4,8 @@ namespace OrbitRender.Renderer
     // Nullable fields deliberately fall back to the normal UMM settings.
     internal sealed class RenderRequestOptions
     {
+        internal RenderRequestOptions Snapshot() => (RenderRequestOptions)MemberwiseClone();
+        internal string OutputDirectory;
         internal RendererPreset? Preset;
         internal int? Width;
         internal int? Height;
@@ -16,6 +18,7 @@ namespace OrbitRender.Renderer
         internal AudioCodec? AudioCodec;
         internal bool? ShowRenderPreview;
         internal bool? UseRustRenderer;
+        internal FrameBufferPolicy? BufferPolicy;
         internal bool? BgaMode;
         internal bool? ShowPlanetRings;
         internal bool? ShowSongTitle;

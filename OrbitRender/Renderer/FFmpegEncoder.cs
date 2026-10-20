@@ -80,13 +80,13 @@ namespace OrbitRender.Renderer
 
         internal FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec, string pixelFormat, RawVideoPixelFormat rawPixelFormat,
-            bool deferStart = false)
+            bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced)
             : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
-                rawPixelFormat, deferStart) { }
+                rawPixelFormat, deferStart, bufferPolicy) { }
 
         private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool legacyCrf, bool fastStart, string codec, string pixelFormat,
-            RawVideoPixelFormat rawPixelFormat, bool deferStart = false)
+            RawVideoPixelFormat rawPixelFormat, bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced)
         {
             if (string.IsNullOrWhiteSpace(executable)) throw new FileNotFoundException("FFmpeg executable was not configured.");
             if (LooksLikeFilePath(executable) && !File.Exists(executable))
@@ -95,6 +95,13 @@ namespace OrbitRender.Renderer
                 throw new ArgumentOutOfRangeException();
             if (string.IsNullOrEmpty(preset)) preset = "fast";
             if (string.IsNullOrEmpty(codec)) codec = "libx264";
+            if (string.Equals(codec, "prores_ks", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(Path.GetExtension(output), ".mov", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(Path.GetExtension(output), ".mkv", StringComparison.OrdinalIgnoreCase))
+                throw new NotSupportedException("ProRes output requires MOV or MKV.");
+            if (string.Equals(codec, "ffv1", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(Path.GetExtension(output), ".mkv", StringComparison.OrdinalIgnoreCase))
+                throw new NotSupportedException("FFV1 output requires MKV.");
             // FFmpeg can put VP9/AV1 into MPEG-TS as opaque private data and
             // report success, although normal players cannot identify video.
             if (string.Equals(Path.GetExtension(output), ".ts", StringComparison.OrdinalIgnoreCase)
@@ -109,14 +116,14 @@ namespace OrbitRender.Renderer
             this.output = output;
             this.fps = fps;
             bool isHardwareEncoder = VideoCodecCatalog.IsHardwareEncoder(codec);
+            if (string.Equals(codec, "prores_ks", StringComparison.OrdinalIgnoreCase)) pixelFormat = "yuv422p10le";
             bool isVaapi = codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase);
+            bool isVulkan = codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase);
             var frameByteCount = checked(width * height * BytesPerPixel);
             FrameByteCount = frameByteCount;
-            // Readback and encoding share this pool. Keep enough frames in flight
-            // to hide GPU readback and x264 latency instead of making the Unity
-            // thread wait after every few frames. Rendering prioritizes throughput,
-            // so minimizing the temporary working set is less important.
-            var bufferCount = (int)Math.Max(4L, Math.Min(16L, (256L * 1024 * 1024) / frameByteCount));
+            // Readback and encoding share this pool. Respect the selected CPU
+            // memory budget; one frame is the minimum even above the budget.
+            var bufferCount = RenderResources.BufferCount(frameByteCount, bufferPolicy);
             free = new BlockingCollection<Frame>(bufferCount);
             work = new BlockingCollection<Frame>(bufferCount);
             var bufferSizeMbps = Math.Max(1, bitrateMbps * 2);
@@ -140,12 +147,13 @@ namespace OrbitRender.Renderer
                 // remain independent of these preprocessing threads.
                 Arguments = "-hide_banner -loglevel warning -nostdin -n"
                     + (isVaapi ? " -init_hw_device vaapi=orbit_vaapi -filter_hw_device orbit_vaapi" : "")
+                    + (isVulkan ? " -init_hw_device vulkan=orbit_vulkan -filter_hw_device orbit_vulkan" : "")
                     + (isHardwareEncoder ? " -filter_threads " + HardwareFilterThreads : "")
                     + " -f rawvideo -pixel_format "
                     + (rawPixelFormat == RawVideoPixelFormat.Rgb24 ? "rgb24" : "rgba") + " -video_size "
                     + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf "
                     + BuildVideoFilter(codec, pixelFormat) + " "
-                    + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : pixelFormat)
+                    + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : isVulkan ? "vulkan" : pixelFormat)
                     // The raw-video demuxer supplies the same target time base
                     // used by the render clock, so the encoded stream inherits
                     // the requested constant frame rate without resampling.
@@ -252,8 +260,13 @@ namespace OrbitRender.Renderer
 
         internal static string BuildVideoFilter(string codec, string pixelFormat)
         {
-            // VAAPI encoders consume hardware frames. Convert and flip on the
-            // CPU before uploading; the raw transport can remain RGB or RGBA.
+            // VAAPI and Vulkan encoders consume hardware frames. Convert and
+            // flip on the CPU before uploading; the raw transport can remain
+            // RGB or RGBA. Vulkan FFV1 keeps the native RGB surface (no YUV
+            // subsampling), which is also what avoids the FFV1 v3 alignment
+            // limits on chroma-subsampled input.
+            if (codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase))
+                return "vflip,format=rgba,hwupload";
             return codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
                 ? "vflip,format=" + (pixelFormat == "yuv420p10le" ? "p010le" : "nv12") + ",hwupload"
                 : "vflip";
@@ -263,6 +276,16 @@ namespace OrbitRender.Renderer
             bool isHardwareEncoder, string pixelFormat)
         {
             var normalized = (codec ?? string.Empty).Trim().ToLowerInvariant();
+            // ProRes HQ sets its own bitrate from the profile and frame size.
+            if (normalized == "prores_ks") return "-c:v prores_ks -profile:v 3 -threads 0";
+            // FFV1 is a frame-intra lossless codec: bitrate and encoder presets
+            // do not apply. Level 3 with a fixed slice count enables threaded
+            // slice encoding on every supported FFmpeg build.
+            if (normalized == "ffv1") return "-c:v ffv1 -level 3 -slices 8 -threads 8";
+            // The Vulkan FFV1 encoder slices internally (async GPU dispatch) and
+            // rejects bitrate/preset/threads arguments entirely.
+            if (normalized.EndsWith("_vulkan", StringComparison.Ordinal))
+                return "-c:v " + normalized;
             var tenBitHevc = string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
                 && (normalized == "libx265" || normalized == "hevc_nvenc"
                     || normalized == "hevc_qsv" || normalized == "hevc_amf" || normalized == "hevc_vaapi");
@@ -472,15 +495,14 @@ namespace OrbitRender.Renderer
             AudioCodec audioCodec = AudioCodec.Auto)
         {
             audioCodec = AudioCodecCatalog.Resolve(audioCodec, Path.GetExtension(output));
-            // Both inputs already cover the render timeline. Opus pre-skip
-            // gives the first packet a negative timestamp; -shortest can then
-            // drop the final video packet during stream copy.
-            var shortest = audioCodec == AudioCodec.Opus ? string.Empty : " -shortest";
+            // Both inputs already cover the render timeline. Audio packet
+            // priming/rounding can make -shortest drop the last video frame,
+            // including ProRes with AAC. Preserve every rendered frame.
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
                 Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" -i \"" + audio
-                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + shortest + " \""
+                    + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + " \""
                     + output + "\""
             }})
             {

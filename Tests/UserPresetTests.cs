@@ -25,6 +25,7 @@ internal static class UserPresetTests
         try
         {
             var assembly = Assembly.LoadFrom(modPath);
+            ExportWorkflowTests.Run(assembly);
             PatchCompatibilityTests.Run(assembly, managedDirectory);
             var settingsType = assembly.GetType("OrbitRender.RendererSettings", true);
             var presetType = assembly.GetType("OrbitRender.UserRenderPreset", true);
@@ -36,6 +37,15 @@ internal static class UserPresetTests
                 => type.GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
                     .Invoke(target, args);
             var source = Settings();
+            Set(source, "BufferPolicy", Enum.Parse(settingsType.GetField("BufferPolicy").FieldType, "LowMemory"));
+            foreach (var delay in new[] { 0f, 31f, 3600f, float.MaxValue })
+                Assert((float)Call(settingsType, "NormalizeEndDelay", null, delay) == delay,
+                    "Valid end delay was capped.");
+            foreach (var delay in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity })
+                Assert((float)Call(settingsType, "NormalizeEndDelay", null, delay) == 2f,
+                    "Non-finite end delay was accepted.");
+            Assert((float)Call(settingsType, "NormalizeEndDelay", null, -1f) == 0f,
+                "Negative end delay was accepted.");
             // Deliberately leave stale custom dimensions under a built-in preset:
             // capture must save the effective built-in output, without GPU queries.
             Set(source, "Preset", Enum.Parse(settingsType.GetField("Preset").FieldType, "QHD"));
@@ -44,6 +54,7 @@ internal static class UserPresetTests
             Set(source, "Fps", 120);
             Set(source, "VideoFps", 30);
             Set(source, "AudioGainDb", -6f);
+            Set(source, "EndDelaySeconds", 3600f);
             Set(source, "BgaMode", true);
             Set(source, "CaptureAudio", false);
             Set(source, "FileNameFormat", "{level}/BGA_{id}");
@@ -55,6 +66,8 @@ internal static class UserPresetTests
             Assert((int)Get(preset, "Width") == 2560 && (int)Get(preset, "Height") == 1440,
                 "Built-in output dimensions were not captured.");
             Assert((int)Get(preset, "BitrateMbps") == 30, "Built-in bitrate was not captured.");
+            Assert((float)Get(preset, "EndDelaySeconds") == 3600f, "Preset capped end delay.");
+            Assert(Get(preset, "BufferPolicy").ToString() == "LowMemory", "Preset lost buffer policy.");
             Assert((string)Call(storeType, "Save", null, library, "bga", source, null)
                 == "user-preset-duplicate-name", "Case-insensitive duplicate accepted.");
             Assert((string)Call(storeType, "Save", null, library, " ", source, null)
@@ -90,6 +103,7 @@ internal static class UserPresetTests
             Assert(Call(storeType, "Save", null, library, "Renamed", source, preset) == null, "Overwrite failed.");
             Assert(items.Count == 1 && (int)Get(items[0], "Fps") == 240, "Overwrite did not replace snapshot.");
             Call(settingsType, "ResetToDefaults", library);
+            Assert(Get(library, "BufferPolicy").ToString() == "Balanced", "Reset lost default buffer policy.");
             Assert(items.Count == 1, "Reset deleted presets.");
             // A settings file from before custom presets must still load.
             using (var reader = new StringReader("<RendererSettings><Fps>90</Fps></RendererSettings>"))

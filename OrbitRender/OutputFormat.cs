@@ -91,7 +91,8 @@ namespace OrbitRender
             for (var i = 0; ; i++)
             {
                 var path = Path.Combine(directory, name + (i == 0 ? "" : "_" + i) + extension);
-                if (!File.Exists(path) && !File.Exists(Path.ChangeExtension(path, ".partial" + extension))
+                if (!File.Exists(path) && !File.Exists(path + ".recovery.json")
+                    && !File.Exists(Path.ChangeExtension(path, ".partial" + extension))
                     && !File.Exists(Path.ChangeExtension(path, ".mux" + extension))
                     && !File.Exists(Path.ChangeExtension(path, ".partial.wav"))
                     && !File.Exists(Path.ChangeExtension(path, ".partial.m4a"))) return path;

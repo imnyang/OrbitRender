@@ -138,7 +138,7 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `videoFps` | integer | No | `15..240` | Final output video FPS |
 | `bitrateMbps` | integer | No | `1..200` | CBR video bitrate in Mbps |
 | `bitrate` | integer | No | `1..200` | Alias for `bitrateMbps` |
-| `videoCodec` | string | No | `H264`, `H265`, `VP9`, `AV1` | Video codec; VP9 produces WebM and the others produce MP4 |
+| `videoCodec` | string | No | `H264`, `H265`, `VP9`, `AV1`, `ProRes`, `FFV1` | Video codec; VP9 produces WebM, ProRes produces MOV, FFV1 produces lossless MKV, and the others produce MP4 |
 | `codec` | string | No | Same as `videoCodec` | Compatibility alias for `videoCodec` |
 | `bitDepth` | integer | No | `8` or `10` | Output video bit depth; `10` uses `yuv420p10le` |
 | `endDelaySeconds` | number | No | `0..30` | Delay after the music/final-tile end time |
@@ -157,6 +157,8 @@ Omitted options use the Unity Mod Manager settings, including BGA mode and all v
 If both `fps` and `videoFps` are supplied, they must match. `targetFps` and `videoFps` are intentionally independent. The same applies to `bitrateMbps` and `bitrate`. When both audio fields are supplied, `captureAudio` takes precedence. Width/height/bitrate overrides without `preset` use the Custom profile.
 
 H.264, H.265, and AV1 outputs use MP4 with AAC audio. VP9 outputs WebM with Opus audio. The selected codec must be present in the configured FFmpeg build. Software AV1 uses `libaom-av1`; it uses target-bitrate VBR when audio is included and constant-quality mode for video-only renders.
+
+FFV1 (`ffv1`, alias `lossless`) produces a mathematically lossless MKV. It ignores the bitrate and encoder-speed options. Software encoding stores 8-bit 4:2:0 YUV; when the machine's FFmpeg build and GPU provide the Vulkan FFV1 encoder, Auto selects `ffv1_vulkan`, which uploads the native RGB surface and preserves chroma resolution exactly (it appears in the encoder dropdown only after it probes successfully). Lossless files are very large and encode slowly; they are intended as master copies for editing or re-encoding. Aligned lossless audio (`flac`) is available in MKV/MOV containers on request.
 
 The encoder setting selects NVIDIA NVENC, Intel Quick Sync (`*_qsv`), AMD AMF (`*_amf`), or software encoding where the selected codec has a matching backend. VP9 has no matching NVENC/QSV/AMF encoder in this profile and uses `libvpx-vp9`.
 

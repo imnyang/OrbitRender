@@ -8,7 +8,7 @@ namespace OrbitRender.UI
         private static GameObject root;
         internal static bool IsOpen => root != null;
 
-        internal static void Open(string message, bool isError = false)
+        internal static void Open(string message, bool isError = false, System.Action retry = null)
         {
             Close();
             root = UguiFactory.Canvas("OrbitRender.Notice", 32767);
@@ -30,7 +30,7 @@ namespace OrbitRender.UI
                 new Vector2(24, -58), new Vector2(-24, -24));
             var scroll = UguiFactory.New(panel.transform, "Message", typeof(RectTransform), typeof(ScrollRect));
             UguiFactory.Anchor(scroll.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,
-                new Vector2(24, 84), new Vector2(-24, -76));
+                new Vector2(24, isError ? 128 : 84), new Vector2(-24, -76));
             var viewport = UguiFactory.Image(scroll.transform, "Viewport", Color.clear, true);
             UguiFactory.Stretch(viewport.GetComponent<RectTransform>());
             viewport.AddComponent<RectMask2D>();
@@ -45,6 +45,24 @@ namespace OrbitRender.UI
             scroller.content = body.rectTransform;
             scroller.horizontal = false;
             scroller.movementType = ScrollRect.MovementType.Clamped;
+            if (retry != null)
+            {
+                var retryButton = UguiFactory.Button(panel.transform, Localization.Get("recovery-retry"), () => { Close(); retry(); });
+                UguiFactory.Anchor(retryButton.GetComponent<RectTransform>(), Vector2.zero, Vector2.zero,
+                    new Vector2(24, 24), new Vector2(304, 60));
+            }
+            if (isError)
+            {
+                var report = Renderer.RendererController.Instance != null
+                    ? Renderer.RendererController.Instance.DiagnosticReport : message;
+                Button copy = null;
+                copy = UguiFactory.Button(panel.transform, Localization.Get("copy-error-diagnostics"), () => {
+                    GUIUtility.systemCopyBuffer = report;
+                    copy.GetComponentInChildren<Text>().text = Localization.Get("diagnostics-copied");
+                });
+                UguiFactory.Anchor(copy.GetComponent<RectTransform>(), Vector2.zero, Vector2.zero,
+                    new Vector2(24, 72), new Vector2(304, 108));
+            }
             var confirm = UguiFactory.Button(panel.transform, Localization.Get("notice-confirm"), Close, true);
             UguiFactory.Anchor(confirm.GetComponent<RectTransform>(), Vector2.right, Vector2.right,
                 new Vector2(-144, 24), new Vector2(-24, 60));

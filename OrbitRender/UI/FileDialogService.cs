@@ -26,7 +26,7 @@ namespace OrbitRender.UI
             }
         }
 
-        internal static string PickFile(string initialDirectory)
+        internal static string PickFile(string initialDirectory, string titleKey = "select-ffmpeg-executable")
         {
             try
             {
@@ -36,7 +36,7 @@ namespace OrbitRender.UI
                     FindExistingDirectory(initialDirectory),
                     string.Empty,
                     NoFilters,
-                    Localization.Get("select-ffmpeg-executable"));
+                    Localization.Get(titleKey));
             }
             catch (Exception ex)
             {

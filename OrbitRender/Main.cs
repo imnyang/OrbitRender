@@ -337,6 +337,7 @@ namespace OrbitRender
         private static void DrawEncodingSettings()
         {
             SettingsUi.DrawEncoder(ref Settings.Encoder, ref Settings.Codec, Settings.BitDepth, Settings.Container);
+            if (Settings.Codec == VideoCodec.ProRes || Settings.Codec == VideoCodec.FFV1) return;
             Settings.Encoding = SettingsUi.DrawEncoding(Settings.Encoding);
             Settings.BitDepth = SettingsUi.DrawBitDepth(Settings.BitDepth);
         }
