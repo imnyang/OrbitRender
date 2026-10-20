@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
@@ -77,14 +79,43 @@ namespace OrbitRender.Patches
         }
     }
 
+    // Newer game builds changed GetMainPressKeys/GetMainHeldKeys from
+    // `List<AnyKeyCode> Get...()` to `void Get...(List<AnyKeyCode> keys)`.
+    // Patch the two shapes separately so either signature loads.
     [HarmonyPatch]
     internal static class RendererMainKeyListPatch
     {
         static IEnumerable<MethodBase> TargetMethods()
+            => FindKeyListMethods(method => method.ReturnType == typeof(void));
+
+        static bool Prefix(object[] __args)
         {
-            yield return AccessTools.Method(typeof(RDInput), "GetMainPressKeys");
-            yield return AccessTools.Method(typeof(RDInput), "GetMainHeldKeys");
+            if (!RendererController.InputBlocked) return true;
+            foreach (var argument in __args)
+                if (argument is List<AnyKeyCode> keys)
+                    keys.Clear();
+            return false;
         }
+
+        internal static IEnumerable<MethodBase> FindKeyListMethods(Func<MethodInfo, bool> predicate)
+        {
+            foreach (var method in typeof(RDInput).GetMethods(
+                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+            {
+                if (method.Name != "GetMainPressKeys" && method.Name != "GetMainHeldKeys") continue;
+                if (!predicate(method)) continue;
+                if (method.GetParameters().Any(parameter => parameter.ParameterType == typeof(List<AnyKeyCode>)))
+                    yield return method;
+            }
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class RendererMainKeyListResultPatch
+    {
+        static IEnumerable<MethodBase> TargetMethods()
+            => RendererMainKeyListPatch.FindKeyListMethods(
+                method => method.ReturnType == typeof(List<AnyKeyCode>));
 
         static bool Prefix(ref List<AnyKeyCode> __result)
         {
