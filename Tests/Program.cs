@@ -531,7 +531,7 @@ internal static class Program
             "ffv1_vulkan was not treated as a hardware encoder.");
         Assert(FFmpegEncoder.BuildEncoderOptions("ffv1_vulkan", "ultrafast", "-b:v 4M", true, "yuv420p")
             == "-c:v ffv1_vulkan", "Vulkan FFV1 encoder options were wrong.");
-        Assert(FFmpegEncoder.BuildVideoFilter("ffv1_vulkan", "yuv420p") == "vflip,format=rgba,hwupload",
+        Assert(FFmpegEncoder.BuildVideoFilter("ffv1_vulkan", "yuv420p") == "vflip,format=bgra,hwupload",
             "Vulkan FFV1 video filter was wrong.");
         foreach (var extension in new[] { ".mp4", ".ts", ".mov" })
             Assert(!FFmpegEncoder.TryValidateVideo(ffmpeg, 2, "fast", "ffv1", "yuv420p",
@@ -568,6 +568,37 @@ internal static class Program
             + "\" -vf vflip -pix_fmt yuv420p -f framemd5 -");
         Assert(decodedHash == referenceHash, "FFV1 output was not bit-exact lossless.");
         Console.WriteLine("PASS: FFV1 lossless MKV, Auto selection, container guard and bit-exact decode.");
+
+        // When the machine provides a working Vulkan FFV1 encoder, the same
+        // source must decode bit-exactly through the GPU RGB path as well.
+        if (FFmpegEncoder.TryValidateVideo(ffmpeg, 2, "ultrafast", "ffv1_vulkan", "yuv420p",
+                OutputFormat.Extension(VideoContainer.Auto, VideoCodec.FFV1), false, out _))
+        {
+            var vulkanVideo = Path.Combine(directory, "ffv1-vulkan.mkv");
+            using (var encoder = new FFmpegEncoder(ffmpeg, vulkanVideo, 320, 180, 30, 4, "ultrafast", false,
+                "ffv1_vulkan", "yuv420p", RawVideoPixelFormat.Rgb24))
+            {
+                for (var index = 0; index < frames; index++)
+                {
+                    var frame = encoder.Rent();
+                    frame.Index = index;
+                    Buffer.BlockCopy(samples, index * frame.Bytes.Length, frame.Bytes, 0, frame.Bytes.Length);
+                    encoder.Submit(frame);
+                }
+                encoder.Finish(frames);
+            }
+            var vulkanMetadata = Probe(ResolveProbe(ffmpeg),
+                "-v error -count_frames -show_entries stream=codec_name,pix_fmt,nb_read_frames -of default=noprint_wrappers=1 \"" + vulkanVideo + "\"");
+            Assert(vulkanMetadata.Contains("codec_name=ffv1") && vulkanMetadata.Contains("pix_fmt=bgra")
+                && vulkanMetadata.Contains("nb_read_frames=" + frames), "Vulkan FFV1 video metadata mismatch: " + vulkanMetadata);
+            var vulkanHash = FrameMd5(ffmpeg, "-an -i \"" + vulkanVideo + "\" -f framemd5 -");
+            var vulkanReferenceHash = FrameMd5(ffmpeg,
+                "-an -f rawvideo -pixel_format rgb24 -video_size 320x180 -framerate 30 -i \"" + source
+                + "\" -vf vflip,format=bgra -f framemd5 -");
+            Assert(vulkanHash == vulkanReferenceHash, "Vulkan FFV1 output was not bit-exact lossless.");
+            Console.WriteLine("PASS: Vulkan FFV1 lossless MKV and bit-exact RGB decode.");
+        }
+        else Console.WriteLine("Note: ffv1_vulkan unavailable; Vulkan lossless path skipped.");
     }
 
     private static void TestFlacAudio(string ffmpeg, string directory)

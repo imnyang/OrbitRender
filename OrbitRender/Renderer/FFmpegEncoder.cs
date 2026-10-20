@@ -99,7 +99,7 @@ namespace OrbitRender.Renderer
                 && !string.Equals(Path.GetExtension(output), ".mov", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(Path.GetExtension(output), ".mkv", StringComparison.OrdinalIgnoreCase))
                 throw new NotSupportedException("ProRes output requires MOV or MKV.");
-            if (string.Equals(codec, "ffv1", StringComparison.OrdinalIgnoreCase)
+            if (codec.StartsWith("ffv1", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(Path.GetExtension(output), ".mkv", StringComparison.OrdinalIgnoreCase))
                 throw new NotSupportedException("FFV1 output requires MKV.");
             // FFmpeg can put VP9/AV1 into MPEG-TS as opaque private data and
@@ -266,7 +266,10 @@ namespace OrbitRender.Renderer
             // subsampling), which is also what avoids the FFV1 v3 alignment
             // limits on chroma-subsampled input.
             if (codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase))
-                return "vflip,format=rgba,hwupload";
+                // FFV1's RGB coder accepts packed BGRA (AV_PIX_FMT_RGB32); RGBA
+                // is not in its table. BGRA also maps to a universally regular
+                // Vulkan storage format (R8G8B8A8).
+                return "vflip,format=bgra,hwupload";
             return codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
                 ? "vflip,format=" + (pixelFormat == "yuv420p10le" ? "p010le" : "nv12") + ",hwupload"
                 : "vflip";
