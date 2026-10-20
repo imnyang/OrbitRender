@@ -86,7 +86,8 @@ namespace OrbitRender.Patches
     internal static class RendererMainKeyListPatch
     {
         static IEnumerable<MethodBase> TargetMethods()
-            => FindKeyListMethods(method => method.ReturnType == typeof(void));
+            => FindKeyListMethods(method => method.ReturnType == typeof(void)
+                && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(List<AnyKeyCode>)));
 
         static bool Prefix(object[] __args)
         {
@@ -103,8 +104,7 @@ namespace OrbitRender.Patches
                          BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
             {
                 if (method.Name != "GetMainPressKeys" && method.Name != "GetMainHeldKeys") continue;
-                if (!predicate(method)) continue;
-                if (method.GetParameters().Any(parameter => parameter.ParameterType == typeof(List<AnyKeyCode>)))
+                if (predicate(method))
                     yield return method;
             }
         }
