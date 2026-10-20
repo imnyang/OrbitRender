@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -81,15 +80,32 @@ namespace OrbitRender.Patches
 
     // Newer game builds changed GetMainPressKeys/GetMainHeldKeys from
     // `List<AnyKeyCode> Get...()` to `void Get...(List<AnyKeyCode> keys)`.
-    // Patch the two shapes separately so either signature loads.
-    [HarmonyPatch]
-    internal static class RendererMainKeyListPatch
+    // The two shapes need different prefix signatures, so install them by hand:
+    // an attribute-scanned class with no matching target makes PatchAll throw.
+    internal static class RendererMainKeyListPatches
     {
-        static IEnumerable<MethodBase> TargetMethods()
-            => FindKeyListMethods(method => method.ReturnType == typeof(void)
-                && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(List<AnyKeyCode>)));
+        internal static void Apply(Harmony harmony)
+        {
+            foreach (var method in typeof(RDInput).GetMethods(
+                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+            {
+                if (method.Name != "GetMainPressKeys" && method.Name != "GetMainHeldKeys") continue;
 
-        static bool Prefix(object[] __args)
+                if (method.ReturnType == typeof(void)
+                    && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(List<AnyKeyCode>)))
+                {
+                    harmony.Patch(method, prefix: new HarmonyMethod(
+                        AccessTools.Method(typeof(RendererMainKeyListPatches), nameof(ClearArgument))));
+                }
+                else if (method.ReturnType == typeof(List<AnyKeyCode>))
+                {
+                    harmony.Patch(method, prefix: new HarmonyMethod(
+                        AccessTools.Method(typeof(RendererMainKeyListPatches), nameof(ReplaceResult))));
+                }
+            }
+        }
+
+        private static bool ClearArgument(object[] __args)
         {
             if (!RendererController.InputBlocked) return true;
             foreach (var argument in __args)
@@ -98,26 +114,7 @@ namespace OrbitRender.Patches
             return false;
         }
 
-        internal static IEnumerable<MethodBase> FindKeyListMethods(Func<MethodInfo, bool> predicate)
-        {
-            foreach (var method in typeof(RDInput).GetMethods(
-                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-            {
-                if (method.Name != "GetMainPressKeys" && method.Name != "GetMainHeldKeys") continue;
-                if (predicate(method))
-                    yield return method;
-            }
-        }
-    }
-
-    [HarmonyPatch]
-    internal static class RendererMainKeyListResultPatch
-    {
-        static IEnumerable<MethodBase> TargetMethods()
-            => RendererMainKeyListPatch.FindKeyListMethods(
-                method => method.ReturnType == typeof(List<AnyKeyCode>));
-
-        static bool Prefix(ref List<AnyKeyCode> __result)
+        private static bool ReplaceResult(ref List<AnyKeyCode> __result)
         {
             if (!RendererController.InputBlocked) return true;
             __result = new List<AnyKeyCode>();

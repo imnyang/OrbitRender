@@ -60,6 +60,7 @@ namespace OrbitRender
                 Settings.OnChange();
                 harmony = new Harmony(entry.Info.Id);
                 harmony.PatchAll(typeof(Main).Assembly);
+                OrbitRender.Patches.RendererMainKeyListPatches.Apply(harmony);
                 host = new GameObject("OrbitRender");
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<RendererController>();
