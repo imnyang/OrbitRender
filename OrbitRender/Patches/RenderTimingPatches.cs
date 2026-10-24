@@ -43,7 +43,7 @@ namespace OrbitRender.Patches
         internal static void Remove()
         {
             if (harmony == null) return;
-            harmony.UnpatchAll(harmony.Id);
+            OwnedPatchCleanup.Remove(harmony);
             harmony = null;
         }
     }

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 
 internal static class PatchCompatibilityTests
 {
@@ -55,7 +56,86 @@ internal static class PatchCompatibilityTests
         Check("PlanetRendererClockPatch", "PlanetRenderer", "LateUpdate", unity.GetType("UnityEngine.Time", true), "unscaledTime", "UnscaledTime");
         Check("PlanetUpdateClockPatch", "scrPlanet", "Update", unity.GetType("UnityEngine.Time", true), "deltaTime", "DeltaTime");
         Console.WriteLine("PASS: timing patches excluded from startup, original clock calls preserved, foreign IL retained, incompatible rendering blocked and patch recovery.");
+        CheckOwnedPatchCleanup(mod, harmony);
     }
+
+    private static void CheckOwnedPatchCleanup(Assembly mod, Assembly harmonyAssembly)
+    {
+        var harmonyType = harmonyAssembly.GetType("HarmonyLib.Harmony", true);
+        var harmonyMethodType = harmonyAssembly.GetType("HarmonyLib.HarmonyMethod", true);
+        var flags = BindingFlags.Static | BindingFlags.NonPublic;
+        var target = typeof(PatchCompatibilityTests).GetMethod(nameof(CleanupTarget), flags);
+        var patch = harmonyType.GetMethods().Single(method => method.Name == "Patch" && method.GetParameters().Length == 5);
+        var cleanup = mod.GetType("OrbitRender.Patches.OwnedPatchCleanup", true).GetMethod("Remove", flags);
+        var owned = Activator.CreateInstance(harmonyType, "OrbitRender.Tests.Cleanup");
+        var foreign = Activator.CreateInstance(harmonyType, "OrbitRender.Tests.Foreign");
+        object Postfix(string name) => Activator.CreateInstance(harmonyMethodType,
+            new object[] { typeof(PatchCompatibilityTests).GetMethod(name, flags) });
+        try
+        {
+            patch.Invoke(foreign, new[] { target, null, Postfix(nameof(ForeignCleanupPostfix)), null, null });
+            for (int i = 0; i < 3; i++)
+            {
+                patch.Invoke(owned, new[] { target, null, Postfix(nameof(OwnedCleanupPostfix)), null, null });
+                Assert(CleanupTarget() == 111, "Cleanup test patches were not installed.");
+                if (i == 1)
+                    SimulateStalePatchToken(harmonyAssembly, owned, target);
+                cleanup.Invoke(null, new[] { owned });
+                Assert(CleanupTarget() == 101, "Owner cleanup removed another mod's patch or retained its own.");
+                cleanup.Invoke(null, new[] { owned });
+                Assert(CleanupTarget() == 101, "Repeated owner cleanup changed foreign patches.");
+            }
+        }
+        finally
+        {
+            cleanup.Invoke(null, new[] { owned });
+            cleanup.Invoke(null, new[] { foreign });
+        }
+        Assert(CleanupTarget() == 1, "Cleanup left test patches installed.");
+        Console.WriteLine("PASS: three reload cleanup cycles, stale token InvalidCastException recovery, foreign patches preserved and repeated cleanup.");
+    }
+
+    private static void SimulateStalePatchToken(Assembly harmonyAssembly, object owner, MethodInfo target)
+    {
+        var flags = BindingFlags.Static | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+        var shared = harmonyAssembly.GetType("HarmonyLib.HarmonySharedState", true);
+        var info = shared.GetMethod("GetPatchInfo", flags).Invoke(null, new object[] { target });
+        var postfixes = (Array)info.GetType().GetField("postfixes", flags).GetValue(info);
+        var ownerId = (string)owner.GetType().GetProperty("Id").GetValue(owner);
+        var stale = postfixes.Cast<object>().Single(item => (string)item.GetType().GetField("owner").GetValue(item) == ownerId);
+        // A reloaded assembly can reuse a method token for a constructor.
+        // Harmony casts ResolveMethod's result to MethodInfo and throws.
+        stale.GetType().GetField("patchMethod", flags).SetValue(stale, null);
+        stale.GetType().GetField("methodToken", flags).SetValue(stale, typeof(StaleToken).GetConstructor(Type.EmptyTypes).MetadataToken);
+        var serialization = harmonyAssembly.GetType("HarmonyLib.PatchInfoSerialization", true);
+        var bytes = serialization.GetMethod("Serialize", flags).Invoke(null, new[] { info });
+        var state = (IDictionary)shared.GetField("state", flags).GetValue(null);
+        var previous = state[target];
+        state[target] = bytes;
+        bool reproduced = false;
+        try
+        {
+            owner.GetType().GetMethod("UnpatchAll").Invoke(owner, new object[] { ownerId });
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is InvalidCastException)
+        {
+            reproduced = true;
+        }
+        catch
+        {
+            state[target] = previous;
+            throw;
+        }
+        if (!reproduced) state[target] = previous;
+        Assert(reproduced, "Stale token did not reproduce the reported UnpatchAll failure.");
+    }
+
+    private sealed class StaleToken { public StaleToken() { } }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int CleanupTarget() => 1;
+    private static void OwnedCleanupPostfix(ref int __result) { __result += 10; }
+    private static void ForeignCleanupPostfix(ref int __result) { __result += 100; }
 
     private static double ForeignClock() => 42;
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }

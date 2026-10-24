@@ -96,13 +96,24 @@ namespace OrbitRender
                     NoticeModal.Close();
                     AudioPreview.Stop();
                     RendererController.Instance?.StopAndClean();
-                    OrbitRender.Patches.RenderTimingPatches.Remove();
-                    OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.Remove();
+                    try
+                    {
+                        OrbitRender.Patches.RenderTimingPatches.Remove();
+                        OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.Remove();
+                        OrbitRender.Patches.OwnedPatchCleanup.Remove(harmony);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Keep the host and scene subscription intact if an
+                        // owned patch cannot be removed, so UMM can retry.
+                        entry.Logger.Error("[System] Patch cleanup failed; reload canceled: " + ex);
+                        return false;
+                    }
                     AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
                     StopRpcServer();
                     SceneManager.sceneLoaded -= OnSceneLoaded;
                     UnityEngine.Object.Destroy(host);
-                    harmony.UnpatchAll(mod.Info.Id);
+                    harmony = null;
                     Settings = null;
                     return true;
                 };
@@ -113,8 +124,9 @@ namespace OrbitRender
             {
                 AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
                 if (host != null) UnityEngine.Object.Destroy(host);
-                harmony?.UnpatchAll(entry.Info.Id);
                 entry.Logger.Error("[System] Load failed: " + ex);
+                try { OrbitRender.Patches.OwnedPatchCleanup.Remove(harmony); }
+                catch (Exception cleanupError) { entry.Logger.Error("[System] Patch cleanup failed: " + cleanupError); }
                 return false;
             }
         }
