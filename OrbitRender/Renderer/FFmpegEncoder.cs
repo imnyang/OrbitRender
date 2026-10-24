@@ -540,15 +540,12 @@ namespace OrbitRender.Renderer
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
-                Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
+                Arguments = "-hide_banner -loglevel error -nostdin -nostats -progress pipe:2 -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
                     + "\" -map 0:v:0 -map 1:a:0 -c:v copy" + audioFilter + AudioCodecCatalog.EncodingArguments(audioCodec)
                     + " " + containerOptions + " -shortest \"" + output + "\""
             }})
             {
-                mux.Start();
-                var errors = mux.StandardError.ReadToEndAsync();
-                if (!mux.WaitForExit(60000)) { mux.Kill(); mux.WaitForExit(); throw new TimeoutException("Audio/video mux timed out."); }
-                if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors.GetAwaiter().GetResult());
+                RunMux(mux);
             }
         }
         public static void MuxPreencodedAudio(string executable, string video, string audio, string output,
@@ -561,15 +558,58 @@ namespace OrbitRender.Renderer
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,
-                Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" -i \"" + audio
+                Arguments = "-hide_banner -loglevel error -nostdin -nostats -progress pipe:2 -n -i \"" + video + "\" -i \"" + audio
                     + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + " \""
                     + output + "\""
             }})
             {
-                mux.Start();
-                var errors = mux.StandardError.ReadToEndAsync();
-                if (!mux.WaitForExit(60000)) { mux.Kill(); mux.WaitForExit(); throw new TimeoutException("Audio/video mux timed out."); }
-                if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors.GetAwaiter().GetResult());
+                RunMux(mux);
+            }
+        }
+        private static void RunMux(Process mux)
+        {
+            // Muxing and MP4 fast-start can take minutes on large exports.
+            // Bound inactivity instead of imposing a deadline on healthy work.
+            var clock = Stopwatch.StartNew();
+            long lastProgress = 0;
+            var diagnostics = new StringBuilder();
+            mux.ErrorDataReceived += (sender, e) => {
+                if (e.Data == null) return;
+                Interlocked.Exchange(ref lastProgress, clock.ElapsedMilliseconds);
+                lock (diagnostics)
+                {
+                    diagnostics.AppendLine(e.Data);
+                    if (diagnostics.Length > 8192)
+                        diagnostics.Remove(0, diagnostics.Length - 8192);
+                }
+            };
+            mux.Start();
+            mux.BeginErrorReadLine();
+            try
+            {
+                while (!mux.WaitForExit(1000))
+                {
+                    if (clock.ElapsedMilliseconds - Interlocked.Read(ref lastProgress) < 300000)
+                        continue;
+                    mux.Kill();
+                    mux.WaitForExit();
+                    lock (diagnostics)
+                        throw new TimeoutException("Audio/video mux made no progress for 5 minutes. FFmpeg diagnostics: "
+                            + diagnostics);
+                }
+                mux.WaitForExit(); // Drain asynchronous diagnostics before inspecting the result.
+                if (mux.ExitCode != 0)
+                    lock (diagnostics)
+                        throw new IOException("Audio/video mux failed: " + diagnostics);
+            }
+            finally
+            {
+                // Also release input/output handles if waiting fails unexpectedly.
+                if (!mux.HasExited)
+                {
+                    mux.Kill();
+                    mux.WaitForExit();
+                }
             }
         }
         public void Dispose()
