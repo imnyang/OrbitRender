@@ -10,7 +10,7 @@ namespace OrbitRender
 
     internal static class OutputFormat
     {
-        internal const string DefaultFileName = "Render_{level}_{date}_{time}_{id}";
+        internal const string DefaultFileName = "{level}/{date}_{time}_{id}";
 
         internal static string Extension(VideoContainer container, VideoCodec codec)
         {

@@ -262,7 +262,7 @@ internal static class Program
         Assert(OutputFormat.FileName("../CON", "Level", now, "abc123") == "_CON", "Unsafe filename escaped sanitization.");
         Assert(OutputFormat.FileName("NUL", "Level", now, "abc123") == "_NUL", "Reserved filename was not escaped.");
         var name = OutputFormat.FileName("", "Level", now, "abc123");
-        Assert(name == "Render_Level_2026-10-05_12-34-56_abc123", "Default filename migration failed.");
+        Assert(name == Path.Combine("Level", "2026-10-05_12-34-56_abc123"), "Default filename migration failed.");
         var original = OutputFormat.UniquePath(directory, name, ".mp4");
         File.WriteAllText(original, "keep");
         Assert(OutputFormat.UniquePath(directory, name, ".mp4") != original && File.ReadAllText(original) == "keep",

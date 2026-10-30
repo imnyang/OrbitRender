@@ -24,8 +24,9 @@ internal static class FileNameTemplateTests
             catch (FormatException) { return; }
             throw new Exception("Invalid template was accepted: " + format);
         };
-        if (OutputFormat.FileName(null, "Level", now, "abc123") != "Render_Level_2026-10-05_12-34-56_abc123")
-            throw new Exception("Legacy default filename changed.");
+        if (OutputFormat.FileName(null, "Level", now, "abc123")
+            != Path.Combine("Level", "2026-10-05_12-34-56_abc123"))
+            throw new Exception("Default filename changed.");
         if (OutputFormat.FileName("{level}_{date}_{time}_{id}", "Test/Level", now, "abc123")
             != "Test_Level_2026-10-05_12-34-56_abc123") throw new Exception("Legacy variable behavior changed.");
         check("{date:yyyyMMdd}_{time:HHmmss}", "20261005_123456");
