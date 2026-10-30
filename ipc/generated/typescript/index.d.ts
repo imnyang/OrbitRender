@@ -40,6 +40,7 @@ export interface RenderOptions {
     preset?: string;
     showCountdown?: boolean;
     showHitJudgments?: boolean;
+    showModOverlay?: boolean;
     showPlanetRings?: boolean;
     showResultText?: boolean;
     showSongTitle?: boolean;
@@ -60,6 +61,7 @@ export interface RenderSettings {
     preset: string | null;
     showCountdown: boolean | null;
     showHitJudgments: boolean | null;
+    showModOverlay: boolean | null;
     showPlanetRings: boolean | null;
     showResultText: boolean | null;
     showSongTitle: boolean | null;

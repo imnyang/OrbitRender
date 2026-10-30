@@ -124,6 +124,7 @@ namespace OrbitRender.Renderer
         private bool showCountdownForRun;
         private bool showResultTextForRun;
         private bool showHitJudgmentsForRun;
+        private bool showModOverlayForRun;
         private double scheduledMusicStartDsp;
         private double scheduledMusicLengthSeconds;
         private float toastUntil;
@@ -251,6 +252,8 @@ namespace OrbitRender.Renderer
                 ?? settings.ShowResultText;
             showHitJudgmentsForRun = requestOptions?.ShowHitJudgments ?? rpcOptions?.ShowHitJudgments
                 ?? settings.ShowHitJudgments;
+            showModOverlayForRun = requestOptions?.ShowModOverlay ?? rpcOptions?.ShowModOverlay
+                ?? settings.ShowModOverlay;
             fileNameFormatForRun = requestOptions?.FileNameFormat ?? settings.FileNameFormat;
             profile = settings.ResolveProfile(
                 requestOptions?.Preset ?? rpcOptions?.Preset,
@@ -608,7 +611,7 @@ namespace OrbitRender.Renderer
             LogRenderChain("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun);
-            capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvases);
+            capture = new FrameCapture(encoder, profile.Width, profile.Height, defaultText.CaptureCanvases, showModOverlayForRun);
             if (useRustRendererForRun)
                 capture.TryEnableNative(profile);
             encoder.Check();

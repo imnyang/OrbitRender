@@ -33,6 +33,7 @@ namespace OrbitRender.Renderer
         public bool? ShowCountdown;
         public bool? ShowResultText;
         public bool? ShowHitJudgments;
+        public bool? ShowModOverlay;
         public VideoCodec? VideoCodec;
         public VideoBitDepth? BitDepth;
 
@@ -42,7 +43,7 @@ namespace OrbitRender.Renderer
                 || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
                 || ShowPlanetRings.HasValue
                 || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
-                || ShowHitJudgments.HasValue
+                || ShowHitJudgments.HasValue || ShowModOverlay.HasValue
                 || VideoCodec.HasValue || BitDepth.HasValue; }
         }
 
@@ -66,6 +67,7 @@ namespace OrbitRender.Renderer
                 showCountdown = ShowCountdown,
                 showResultText = ShowResultText,
                 showHitJudgments = ShowHitJudgments,
+                showModOverlay = ShowModOverlay,
                 videoCodec = VideoCodec.HasValue ? VideoCodec.Value.ToString() : null,
                 bitDepth = BitDepth.HasValue ? (int)(BitDepth.Value == VideoBitDepth.Ten ? 10 : 8) : (int?)null
             };
@@ -516,6 +518,7 @@ namespace OrbitRender.Renderer
                 ShowCountdown = payload.ShowCountdown,
                 ShowResultText = payload.ShowResultText,
                 ShowHitJudgments = payload.ShowHitJudgments,
+                ShowModOverlay = payload.ShowModOverlay,
                 VideoCodec = videoCodec,
                 BitDepth = bitDepth
             };
@@ -600,6 +603,7 @@ namespace OrbitRender.Renderer
             [JsonProperty("showCountdown")] public bool? ShowCountdown { get; set; }
             [JsonProperty("showResultText")] public bool? ShowResultText { get; set; }
             [JsonProperty("showHitJudgments")] public bool? ShowHitJudgments { get; set; }
+            [JsonProperty("showModOverlay")] public bool? ShowModOverlay { get; set; }
             [JsonProperty("videoCodec")] public string VideoCodec { get; set; }
             [JsonProperty("codec")] public string Codec { get; set; }
             [JsonProperty("bitDepth")] public int? BitDepth { get; set; }

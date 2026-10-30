@@ -25,6 +25,7 @@ namespace OrbitRender.Renderer
         internal bool? ShowCountdown;
         internal bool? ShowResultText;
         internal bool? ShowHitJudgments;
+        internal bool? ShowModOverlay;
         internal EncoderSpeed? Encoding;
         internal VideoEncoder? Encoder;
         internal VideoContainer? Container;

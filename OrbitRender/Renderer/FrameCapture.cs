@@ -200,7 +200,7 @@ namespace OrbitRender.Renderer
         }
 
         public FrameCapture(FFmpegEncoder encoder, int width, int height,
-            IEnumerable<Canvas> captureCanvases = null)
+            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false)
         {
             this.encoder = encoder;
             this.width = width;
@@ -238,9 +238,12 @@ namespace OrbitRender.Renderer
                 if (captureCanvases != null)
                     foreach (var canvas in captureCanvases)
                         if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
+                if (showModOverlay)
+                    foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                        if (IsModOverlay(canvas)) captureCanvasSet.Add(canvas);
                 if (captureCanvasSet.Count > 0)
                     CreateHudOverlay(captureCanvasSet);
-                foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+                foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 {
                     // Keep world-space level decorations; exclude editor/game HUD
                     // and third-party screen-space overlays from the three cameras.
@@ -271,6 +274,21 @@ namespace OrbitRender.Renderer
             }
             catch { Dispose(); throw; }
         }
+        private static bool IsModOverlay(Canvas canvas)
+        {
+            if (canvas == null || !canvas.isRootCanvas || canvas.renderMode == RenderMode.WorldSpace) return false;
+            var root = canvas.gameObject;
+            if (root.scene.name != "DontDestroyOnLoad") return false;
+            foreach (var component in root.GetComponentsInChildren<MonoBehaviour>(true))
+                if (component != null && component.GetType().Assembly.GetName().Name == "RainingKeys") return false;
+            var name = root.name;
+            return name.IndexOf("keyviewer", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("key viewer", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("rainingkeys", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("raining keys", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("OrbitRender", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
         private void Add(Camera camera)
         {
             if (cameras.Exists(s => s.Camera == camera)) return;
@@ -477,7 +495,11 @@ namespace OrbitRender.Renderer
                 foreach (var state in canvases)
                 {
                     if (state.Canvas == null) continue;
-                    if (state.Capture) ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
+                    if (state.Capture)
+                    {
+                        AssignLayerRecursively(state.Canvas.gameObject);
+                        ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
+                    }
                     if (state.Canvas.enabled)
                     {
                         state.Canvas.enabled = false;
@@ -532,6 +554,45 @@ namespace OrbitRender.Renderer
             if (measuringBind) bindPropertyWrites++;
         }
 
+        private static bool IsExcludedJrpElement(Transform element)
+        {
+            if (element == null || element.parent == null) return false;
+            var parent = element.parent;
+            if (parent.name == "JipperResourcePack Overlay")
+                return element.name == "Combo" || element.name == "Judgement"
+                    || element.name == "Attempt" || element.name == "TimingScale";
+            if (parent.name != "Main" || parent.parent == null
+                || parent.parent.name != "JipperResourcePack Overlay") return false;
+            switch (element.name)
+            {
+                case "Best": case "Checkpoint": case "Timing": case "AvgTiming":
+                case "XScore": case "PotentialXScore": case "Death": case "State":
+                case "XAccuracy": case "PotentialXAccuracy": case "Accuracy": case "PotentialAccuracy":
+                    return true;
+                default: return false;
+            }
+        }
+
+        private static List<UnityEngine.UI.Graphic> HideExcludedJrpGraphics(IEnumerable<CanvasState> states)
+        {
+            var hidden = new List<UnityEngine.UI.Graphic>();
+            foreach (var state in states)
+            {
+                if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
+                foreach (var transform in state.Canvas.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!IsExcludedJrpElement(transform)) continue;
+                    foreach (var graphic in transform.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+                    {
+                        if (!graphic.enabled) continue;
+                        graphic.enabled = false;
+                        hidden.Add(graphic);
+                    }
+                }
+            }
+            return hidden;
+        }
+
         private void RenderOutputFrame()
         {
             // Hall of Mirrors intentionally feeds prior gameplay frames back
@@ -543,13 +604,16 @@ namespace OrbitRender.Renderer
             SyncHudOverlayCamera();
             foreach (var state in canvases)
             {
-                if (!state.Capture || state.Canvas == null) continue;
+                if (!state.Capture || state.Canvas == null || !state.Enabled) continue;
                 ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera);
                 state.Canvas.enabled = true;
             }
+            var hiddenJrpGraphics = HideExcludedJrpGraphics(canvases);
             try { hudOverlayCamera.Render(); }
             finally
             {
+                foreach (var graphic in hiddenJrpGraphics)
+                    if (graphic != null) graphic.enabled = true;
                 foreach (var state in canvases)
                     if (state.Capture && state.Canvas != null) state.Canvas.enabled = false;
             }

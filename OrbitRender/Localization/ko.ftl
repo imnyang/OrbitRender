@@ -48,6 +48,7 @@ show-song-title = 곡 제목 표시
 show-countdown = 카운트다운 표시
 show-result-text-hit-judgments-stay-hidden = 결과 텍스트 표시 (판정은 숨김)
 show-hit-judgments = 판정 표시
+show-mod-overlay = 모드 오버레이 표시
 output-folder = 출력 폴더
 ffmpeg-executable = FFmpeg 실행 파일
 ffmpeg-setup = FFmpeg 설정

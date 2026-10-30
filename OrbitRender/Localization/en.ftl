@@ -60,6 +60,7 @@ show-song-title = Show song title
 show-countdown = Show countdown
 show-result-text-hit-judgments-stay-hidden = Show result text (hit judgments stay hidden)
 show-hit-judgments = Show hit judgments
+show-mod-overlay = Show mod overlay
 output-folder = Output folder
 ffmpeg-executable = FFmpeg executable
 ffmpeg-setup = FFmpeg setup
