@@ -32,12 +32,10 @@ if [[ -n "$MSBUILD_PATH" ]]; then
   esac
 elif command -v msbuild >/dev/null 2>&1; then
   MSBUILD_COMMAND=(msbuild)
-elif command -v xbuild >/dev/null 2>&1; then
-  MSBUILD_COMMAND=(xbuild)
 elif command -v dotnet >/dev/null 2>&1; then
   MSBUILD_COMMAND=(dotnet msbuild)
 else
-  echo "No MSBuild toolchain was found. Install msbuild, xbuild, or the .NET SDK, or set MSBUILD_PATH." >&2
+  echo "No MSBuild toolchain was found. Install msbuild or the .NET SDK, or set MSBUILD_PATH." >&2
   exit 2
 fi
 
@@ -89,6 +87,8 @@ if [[ "$RUN_TESTS" == "1" ]]; then
 
   mono "$ROOT_DIR/Tests/bin/Release/RendererTests.exe" --user-presets \
     "$RELEASE_ROOT/OrbitRender.dll" "$GAME_DIR/A Dance of Fire and Ice_Data/Managed"
+
+  mono "$ROOT_DIR/Tests/bin/Release/RendererTests.exe" --encoder-probe "$FFMPEG_PATH"
 
   # macOS normally exposes a per-user TMPDIR under /var/folders, but it can
   # become stale or unavailable when the shell inherits an old environment.

@@ -25,7 +25,6 @@ namespace OrbitRender.Renderer
         private sealed class RingComponentSnapshot
         {
             internal object Component;
-            internal PropertyInfo ColorProperty;
             internal Color Color;
             internal bool HasColor;
         }
@@ -45,13 +44,7 @@ namespace OrbitRender.Renderer
                 ? null
                 : RingComponentField.FieldType.GetField("line", InstanceMembers);
 
-        // Apply() re-reads these members every rendered frame (LateUpdate) so
-        // a game-side Revive() cannot flash a ring back into view for even a
-        // single frame. FieldInfo/PropertyInfo GetValue/SetValue are
-        // comparatively slow (boxing + type checks on every call); compiling
-        // them once into delegates keeps the exact same behavior while
-        // removing that reflection overhead from the per-frame path, which
-        // matters most on levels with many planets and long renders.
+        // Cache delegates to avoid reflection on every frame while suppressing revived rings.
         private static readonly Func<object, object> GetRing = CreateFieldGetter(RingField);
         private static readonly Func<object, object> GetRingComponent = CreateFieldGetter(RingComponentField);
         private static readonly Func<object, object> GetRingLine = CreateFieldGetter(RingLineField);
@@ -166,10 +159,7 @@ namespace OrbitRender.Renderer
         {
             if (component == null || !seenRingComponents.Add(component)) return;
 
-            var snapshot = new RingComponentSnapshot {
-                Component = component,
-                ColorProperty = RingColorProperty
-            };
+            var snapshot = new RingComponentSnapshot { Component = component };
             if (GetRingColor != null)
             {
                 try

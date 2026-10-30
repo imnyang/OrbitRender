@@ -11,8 +11,10 @@ namespace OrbitRender.Renderer
     {
         internal sealed class Result
         {
+            internal readonly VideoCodec Codec;
             internal volatile bool Complete;
             internal VideoEncoder[] Encoders = new VideoEncoder[0];
+            internal Result(VideoCodec codec) { Codec = codec; }
         }
 
         internal sealed class Choice
@@ -27,9 +29,9 @@ namespace OrbitRender.Renderer
             private readonly Result[] results;
             internal CombinedResult(Result[] results) { this.results = results; }
             internal bool Complete => results.All(r => r.Complete);
-            internal Choice[] Choices => results.SelectMany((r, i) => !r.Complete || r.Encoders.Length == 0
-                ? new Choice[0] : new[] { new Choice((VideoCodec)i, VideoEncoder.Auto) }
-                    .Concat(r.Encoders.Select(e => new Choice((VideoCodec)i, e)))).ToArray();
+            internal Choice[] Choices => results.SelectMany(r => !r.Complete || r.Encoders.Length == 0
+                ? new Choice[0] : new[] { new Choice(r.Codec, VideoEncoder.Auto) }
+                    .Concat(r.Encoders.Select(e => new Choice(r.Codec, e)))).ToArray();
         }
 
         internal static CombinedResult GetCombined(string executable, VideoBitDepth depth, VideoContainer container)
@@ -55,7 +57,7 @@ namespace OrbitRender.Renderer
             lock (Cache)
             {
                 if (Cache.TryGetValue(key, out var cached)) return cached;
-                var result = new Result();
+                var result = new Result(codec);
                 Cache.Add(key, result);
                 ThreadPool.QueueUserWorkItem(state => {
                     ProbeSlot.Wait();

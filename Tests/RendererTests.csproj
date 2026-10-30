@@ -9,11 +9,13 @@
  <ItemGroup>
   <Reference Include="mscorlib"><Private>false</Private></Reference>
   <Reference Include="System.Xml"><Private>false</Private></Reference>
+  <Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/>
   <Reference Include="System"><Private>false</Private></Reference><Reference Include="System.Core"><Private>false</Private></Reference>
   <Compile Include="Program.cs"/><Compile Include="RenderResourceTests.cs"/><Compile Include="..\OrbitRender\Renderer\RenderResources.cs" Link="RenderResources.cs"/>
   <Compile Include="UiLayoutTests.cs"/>
   <Compile Include="RenderRecoveryTests.cs"/>
   <Compile Include="UserPresetTests.cs"/>
+  <Compile Include="InstallerProcessTests.cs"/>
   <Compile Include="ExportWorkflowTests.cs"/>
   <Compile Include="PatchCompatibilityTests.cs"/>
   <Compile Include="FileNameTemplateTests.cs"/>

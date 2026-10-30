@@ -44,6 +44,32 @@ internal static class ExportWorkflowTests
         Assert(Compatible("AV1", "Ts") != null && Compatible("VP9", "Ts") != null
             && Compatible("H265", "Ts") == null, "MPEG-TS compatibility validation failed.");
 
+        var pathsEqual = assembly.GetType("OrbitRender.Renderer.RendererController", true)
+            .GetMethod("PathsEqual", Internal);
+        var samePath = (bool)pathsEqual.Invoke(null, new object[] { "Level.adofai", "level.adofai" });
+        Assert(samePath == (System.IO.Path.DirectorySeparatorChar == '\\'),
+            "RPC path comparison does not match platform case sensitivity.");
+        var wavLimit = assembly.GetType("OrbitRender.Renderer.GameAudioCapture", true)
+            .GetMethod("ValidateWavDataSize", Internal);
+        wavLimit.Invoke(null, new object[] { (long)uint.MaxValue - 36 });
+        try
+        {
+            wavLimit.Invoke(null, new object[] { (long)uint.MaxValue - 35 });
+            throw new Exception("Oversized WAV data was accepted.");
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is System.IO.IOException) { }
+        var jobType = assembly.GetType("OrbitRender.Renderer.RpcRenderJob", true);
+        var jobState = assembly.GetType("OrbitRender.Renderer.RpcJobState", true);
+        var job = Activator.CreateInstance(jobType, new object[] { "job", "level", true, null });
+        Call(job, "SetProgress", 1L, 1L, "finished.mp4");
+        var completedOutput = jobType.GetProperty("CompletedOutputPath", Internal);
+        Assert(completedOutput.GetValue(job) == null, "Unfinished job exposed its output for download.");
+        Call(job, "SetState", Enum.Parse(jobState, "AwaitingConfirmation"), "hardware failed");
+        var snapshotWithError = Call(job, "Snapshot");
+        Assert((string)Get(snapshotWithError, "error") == "hardware failed", "Fallback reason was not reported.");
+        Call(job, "SetState", Enum.Parse(jobState, "Completed"), null);
+        Assert((string)completedOutput.GetValue(job) == "finished.mp4", "Completed job output was unavailable for download.");
+        Assert(Get(Call(job, "Snapshot"), "error") == null, "Successful job retained an obsolete error.");
         var queue = Activator.CreateInstance(assembly.GetType("OrbitRender.Renderer.RenderQueue", true), true);
         var optionsType = assembly.GetType("OrbitRender.Renderer.RenderRequestOptions", true);
         var stateType = assembly.GetType("OrbitRender.Renderer.QueueItemState", true);

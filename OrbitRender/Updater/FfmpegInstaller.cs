@@ -359,7 +359,7 @@ namespace OrbitRender
                 {
                     var entryPath = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
                     var fullPath = Path.GetFullPath(Path.Combine(destination, entryPath));
-                    if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    if (!fullPath.StartsWith(root, Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
                         throw new InvalidDataException("The FFmpeg archive contains an unsafe path.");
                 }
             }
@@ -444,16 +444,16 @@ namespace OrbitRender
             }))
             {
                 if (process == null) throw new InvalidOperationException("Could not start " + fileName + ".");
-                var output = process.StandardOutput.ReadToEnd();
-                var errorOutput = process.StandardError.ReadToEnd();
+                var output = process.StandardOutput.ReadToEndAsync();
+                var errorOutput = process.StandardError.ReadToEndAsync();
                 if (!process.WaitForExit(timeoutMilliseconds))
                 {
                     try { process.Kill(); } catch { }
                     throw new TimeoutException(fileName + " timed out.");
                 }
                 if (process.ExitCode != 0)
-                    throw new InvalidOperationException(fileName + " failed: " + errorOutput.Trim());
-                return output;
+                    throw new InvalidOperationException(fileName + " failed: " + errorOutput.GetAwaiter().GetResult().Trim());
+                return output.GetAwaiter().GetResult();
             }
         }
 

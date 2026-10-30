@@ -5,11 +5,7 @@ using UnityEngine;
 
 namespace OrbitRender.Patches
 {
-    // CameraFilterPack_Blur_Movie divides its shader radius and source size by
-    // FastFilter without validating the serialized value first. Some level
-    // filter instances arrive with FastFilter == 0, which makes every
-    // OnRenderImage call throw during capture and leaves Unity with a broken
-    // post-process result. One is the filter's normal full-resolution divisor.
+    // A zero FastFilter causes division by zero during the filter's OnRenderImage.
     [HarmonyPatch(typeof(CameraFilterPack_Blur_Movie), "OnRenderImage")]
     internal static class CameraFilterPatch
     {
@@ -46,10 +42,7 @@ namespace OrbitRender.Patches
             // Negative values are intentional for some levels and produce a
             // distinct filter effect. Only zero needs the fallback divisor.
             if (__instance == null || __instance.FastFilter != 0) return;
-            // The filter's own default is 2. A zero value can be produced by
-            // a level event that omits the integer property; use the same
-            // valid default instead of changing the filter's resolution to a
-            // different full-resolution mode on the first render.
+            // Level events can omit this value; use the filter's default divisor.
             __instance.FastFilter = 2;
             if (logged) return;
             logged = true;

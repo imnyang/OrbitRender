@@ -7,6 +7,9 @@ internal static class FileNameTemplateTests
 {
     internal static void Run()
     {
+        if (OutputFormat.MimeType(".TS") != "video/mp2t" || OutputFormat.MimeType(".MKV") != "video/x-matroska"
+            || OutputFormat.MimeType(".MOV") != "video/quicktime" || OutputFormat.MimeType(".WEBM") != "video/webm"
+            || OutputFormat.MimeType(".mp4") != "video/mp4") throw new Exception("Container MIME mapping failed.");
         var now = new DateTime(2026, 10, 5, 12, 34, 56);
         var variables = OutputFormat.Variables(" My/Level ", now, "abc123");
         variables["width"] = 1920;
@@ -89,9 +92,28 @@ internal static class FileNameTemplateTests
             if (next != Path.Combine(directory, "wowcoollevel", "Render_abc123_1.mp4")
                 || File.ReadAllText(first) != "keep") throw new Exception("Nested filename collision handling failed.");
             File.Delete(first);
-            File.WriteAllText(Path.ChangeExtension(first, ".partial.mp4"), "pending");
+            Directory.CreateDirectory(first);
             if (OutputFormat.UniquePath(directory, nestedName, ".mp4") != next)
-                throw new Exception("Nested partial render collision handling failed.");
+                throw new Exception("Output directory collision handling failed.");
+            Directory.Delete(first);
+            File.WriteAllText(first + ".recovery.json", "pending");
+            if (OutputFormat.UniquePath(directory, nestedName, ".mp4") != next)
+                throw new Exception("Recovery manifest collision handling failed.");
+            File.Delete(first + ".recovery.json");
+            foreach (var suffix in new[] { ".partial.mp4", ".partial.wav", ".partial.m4a", ".partial.opus", ".partial.flac", ".mux.mp4", ".partial.mp4.nvenc.h264" })
+            {
+                var temporary = suffix.EndsWith(".nvenc.h264")
+                    ? Path.ChangeExtension(first, ".partial.mp4") + ".nvenc.h264"
+                    : Path.ChangeExtension(first, suffix);
+                File.WriteAllText(temporary, "pending");
+                if (OutputFormat.UniquePath(directory, nestedName, ".mp4") != next)
+                    throw new Exception("Temporary file collision handling failed: " + suffix);
+                File.Delete(temporary);
+                Directory.CreateDirectory(temporary);
+                if (OutputFormat.UniquePath(directory, nestedName, ".mp4") != next)
+                    throw new Exception("Temporary directory collision handling failed: " + suffix);
+                Directory.Delete(temporary);
+            }
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }

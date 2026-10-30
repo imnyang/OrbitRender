@@ -89,13 +89,13 @@ namespace OrbitRender.Patches
             var tmpTextType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro");
             if (tmpTextType != null)
             {
-                foreach (var component in buttonObject.GetComponentsInChildren(tmpTextType, true))
+                var textProperty = tmpTextType.GetProperty("text");
+                var components = buttonObject.GetComponentsInChildren(tmpTextType, true);
+                if (textProperty != null && textProperty.CanWrite && components.Length > 0)
                 {
-                    var textProperty = tmpTextType.GetProperty("text");
-                    if (textProperty != null && textProperty.CanWrite)
-                        textProperty.SetValue(component, value, null);
+                    foreach (var component in components) textProperty.SetValue(component, value, null);
+                    return;
                 }
-                return;
             }
 
             var legacyText = buttonObject.GetComponentInChildren<Text>(true);

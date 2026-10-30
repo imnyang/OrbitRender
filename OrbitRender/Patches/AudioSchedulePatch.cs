@@ -7,12 +7,8 @@ using OrbitRender.Renderer;
 
 namespace OrbitRender.Patches
 {
-    // ffxPlaySound calls AudioSource.PlayScheduled through AudioManager.Play.
-    // During an accelerated render, the simulation can reach the event after
-    // AudioRenderer has already consumed that point on the offline DSP
-    // timeline. Unity cannot insert a scheduled source into a past block, so
-    // the event becomes silent. Keep future schedules sample-accurate and move
-    // only late gameplay-effect schedules to the next available sample.
+    // AudioRenderer cannot insert late effects into an already consumed DSP block.
+    // Move only late gameplay effects to the next available sample.
     [HarmonyPatch(typeof(AudioManager), "Play")]
     internal static class AudioSchedulePatch
     {

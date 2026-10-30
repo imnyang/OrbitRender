@@ -85,7 +85,12 @@ namespace OrbitRender.Renderer
         public int QueueDepth { get { Refresh(); return checked((int)stats.Pending); } }
         public int PeakQueueDepth { get { Refresh(); return checked((int)stats.PeakPending); } }
 
-        internal static string LibraryPath => Path.Combine(Path.GetDirectoryName(typeof(NativeNvencEncoder).Assembly.Location), "Native", "windows-x64", "orbitrender_rs.dll");
+        internal static string LibraryPath => ResolveLibraryPath(Path.GetDirectoryName(typeof(NativeNvencEncoder).Assembly.Location));
+        internal static string ResolveLibraryPath(string directory)
+        {
+            var root = Path.Combine(directory, "orbitrender_rs.dll");
+            return File.Exists(root) ? root : Path.Combine(directory, "Native", "windows-x64", "orbitrender_rs.dll");
+        }
         internal static bool IsDisabled => string.Equals(Environment.GetEnvironmentVariable("ORBITRENDER_DISABLE_NATIVE"), "1", StringComparison.Ordinal);
         internal static bool IsInstalled => Environment.OSVersion.Platform == PlatformID.Win32NT && IntPtr.Size == 8 && File.Exists(LibraryPath);
 

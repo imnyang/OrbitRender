@@ -1,6 +1,7 @@
 bin/
 obj/
 /packages/
+/ipc/node_modules/
 /OrbitRender/Native/
 /Build/
 riderModule.iml

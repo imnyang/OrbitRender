@@ -4,11 +4,7 @@ using UnityEngine;
 
 namespace OrbitRender.Renderer
 {
-    // AudioRenderer is not reliable on every Unity desktop audio backend.
-    // This component sits beside the active AudioListener and copies the
-    // listener mix from OnAudioFilterRead into a single-producer,
-    // single-consumer ring buffer. The callback never allocates or calls back
-    // into Unity, which is required because it runs on the audio thread.
+    // The audio-thread callback copies the listener mix to an allocation-free SPSC ring buffer.
     internal sealed class AudioFilterCapture : MonoBehaviour
     {
         private const int RingBufferSeconds = 8;

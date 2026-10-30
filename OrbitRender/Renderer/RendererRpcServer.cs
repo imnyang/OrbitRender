@@ -118,7 +118,7 @@ namespace OrbitRender.Renderer
             lock (sync)
             {
                 state = value;
-                if (!string.IsNullOrEmpty(message)) error = message;
+                error = message;
                 updatedUtc = DateTime.UtcNow;
             }
         }
@@ -157,6 +157,11 @@ namespace OrbitRender.Renderer
         public string OutputPath
         {
             get { lock (sync) return outputPath; }
+        }
+
+        internal string CompletedOutputPath
+        {
+            get { lock (sync) return state == RpcJobState.Completed ? outputPath : null; }
         }
 
         public object Snapshot()
@@ -535,15 +540,9 @@ namespace OrbitRender.Renderer
             }
         }
 
-        private static string ContentTypeForPath(string path)
-        {
-            return string.Equals(Path.GetExtension(path), ".webm", StringComparison.OrdinalIgnoreCase)
-                ? "video/webm" : "video/mp4";
-        }
-
         private static void Download(HttpListenerContext context, RpcRenderJob job)
         {
-            var path = job.OutputPath;
+            var path = job.CompletedOutputPath;
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 WriteJson(context, job.IsTerminal ? 409 : 404,
@@ -552,7 +551,7 @@ namespace OrbitRender.Renderer
             }
             var info = new FileInfo(path);
             context.Response.StatusCode = 200;
-            context.Response.ContentType = ContentTypeForPath(path);
+            context.Response.ContentType = OutputFormat.MimeType(Path.GetExtension(path));
             context.Response.ContentLength64 = info.Length;
             context.Response.AddHeader("Content-Disposition", "attachment; filename=\"" + Uri.EscapeDataString(info.Name) + "\"");
             using (var file = File.OpenRead(path)) file.CopyTo(context.Response.OutputStream);

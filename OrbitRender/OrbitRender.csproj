@@ -28,6 +28,8 @@
   <Reference Include="$(ManagedDir)/RDTools.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/DOTween.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/Newtonsoft.Json.dll"><Private>false</Private></Reference>
+  <Reference Include="AdofaiIpc.Contracts"><HintPath>../ipc/vendor/AdofaiIpc.Contracts.dll</HintPath><Private>true</Private></Reference>
+  <Reference Include="AdofaiIpc.Loader"><HintPath>../ipc/vendor/AdofaiIpc.Loader.dll</HintPath><Private>true</Private></Reference>
   <Reference Include="UnityModManager">
    <HintPath Condition="Exists('$(ModManagerDir)/UnityModManager.dll')">$(ModManagerDir)/UnityModManager.dll</HintPath>
    <HintPath Condition="!Exists('$(ModManagerDir)/UnityModManager.dll')">../packages/UnityModManager/lib/net35/UnityModManager.dll</HintPath><Private>false</Private>
@@ -75,6 +77,14 @@
   <RemoveDir Directories="$(DistributionStagingDirectory)" />
   <MakeDir Directories="$(DistributionDirectory);$(DistributionStagingDirectory)" />
   <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DistributionStagingDirectory)" />
+  <MakeDir Directories="$(DistributionStagingDirectory)/ipc;$(TargetDir)/ipc" />
+  <Copy SourceFiles="../ipc/vendor/AdofaiIpc.Contracts.dll;../ipc/vendor/AdofaiIpc.Loader.dll" DestinationFolder="$(DistributionStagingDirectory)" />
+  <Copy SourceFiles="../ipc/vendor/ipc/AdofaiIpc.Runtime.dll;../ipc/vendor/ipc/manifest.json" DestinationFolder="$(DistributionStagingDirectory)/ipc" />
+  <Copy SourceFiles="../ipc/vendor/ipc/AdofaiIpc.Runtime.dll;../ipc/vendor/ipc/manifest.json" DestinationFolder="$(TargetDir)/ipc" />
+  <Copy SourceFiles="../ipc/vendor/LICENSE" DestinationFiles="$(DistributionStagingDirectory)/LICENSE_ADOFAI_IPC" />
+  <Copy SourceFiles="../ipc/vendor/LICENSE" DestinationFiles="$(TargetDir)/LICENSE_ADOFAI_IPC" />
+  <Copy SourceFiles="../ipc/vendor/LICENSE_MANAGED_WEBSOCKET.txt" DestinationFolder="$(DistributionStagingDirectory)" />
+  <Copy SourceFiles="../ipc/vendor/LICENSE_MANAGED_WEBSOCKET.txt" DestinationFolder="$(TargetDir)" />
   <Copy SourceFiles="@(DistributionContent)" DestinationFiles="@(DistributionContent->'$(DistributionStagingDirectory)/%(Filename)%(Extension)')" />
   <Copy SourceFiles="@(NativeDistributionContent)" DestinationFiles="@(NativeDistributionContent->'$(DistributionStagingDirectory)/%(TargetName)')" />
   <ZipDirectory SourceDirectory="$(DistributionStagingDirectory)" DestinationFile="$(DistributionZip)" />

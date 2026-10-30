@@ -25,6 +25,7 @@ internal static class UserPresetTests
         try
         {
             var assembly = Assembly.LoadFrom(modPath);
+            InstallerProcessTests.Run(assembly);
             ExportWorkflowTests.Run(assembly);
             PatchCompatibilityTests.Run(assembly, managedDirectory);
             var settingsType = assembly.GetType("OrbitRender.RendererSettings", true);
@@ -58,6 +59,24 @@ internal static class UserPresetTests
             Set(source, "BgaMode", true);
             Set(source, "CaptureAudio", false);
             Set(source, "FileNameFormat", "{level}/BGA_{id}");
+            Set(source, "Encoder", Enum.Parse(settingsType.GetField("Encoder").FieldType, "Software"));
+            var resolveProfile = settingsType.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+                .Single(method => method.Name == "ResolveProfile" && method.GetParameters().Length == 0);
+            var resolvedProfile = resolveProfile.Invoke(source, null);
+            Assert((float)resolvedProfile.GetType().GetProperty("EndDelaySeconds").GetValue(resolvedProfile) == 3600f,
+                "Built-in preset ignored the saved end delay.");
+            var resolveOverrides = settingsType.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+                .Single(method => method.Name == "ResolveProfile" && method.GetParameters().Length == 13);
+            var overrides = new object[13];
+            overrides[0] = Enum.Parse(settingsType.GetField("Preset").FieldType, "Preview");
+            overrides[6] = 7f;
+            resolvedProfile = resolveOverrides.Invoke(source, overrides);
+            Assert((float)resolvedProfile.GetType().GetProperty("EndDelaySeconds").GetValue(resolvedProfile) == 7f,
+                "Explicit end delay did not override the saved setting.");
+            overrides[6] = null;
+            resolvedProfile = resolveOverrides.Invoke(source, overrides);
+            Assert((float)resolvedProfile.GetType().GetProperty("EndDelaySeconds").GetValue(resolvedProfile) == 3600f,
+                "Explicit video preset replaced the saved end delay.");
             var library = Settings();
             Assert(Call(storeType, "Save", null, library, "  BGA  ", source, null) == null, "Save failed.");
             var items = (System.Collections.IList)Get(library, "UserPresets");

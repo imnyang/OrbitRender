@@ -42,38 +42,34 @@ The server binds only to the loopback address. Do not expose it through an unaut
 
 Unknown paths return `404` with a JSON error object.
 
-### Optional AdofaiIpc integration
+### ADOFAI IPC SDK integration
 
-`--renderer-rpc` (or `--renderer-rpc-port=...`) remains the primary entry point.
-When an installed AdofaiIpc mod is loaded and listening, OrbitRender registers
-the `orbitrender` namespace, even without `--renderer-rpc`. The launch option
-only enables the primary HTTP listener. No
-AdofaiIpc installation, bootstrap, or DLL reference is required. Missing,
-disabled, or incompatible AdofaiIpc does not prevent the primary RPC server or
-in-game rendering from working. The bridge checks for a running gateway once
-when OrbitRender loads or is re-enabled. AdofaiIpc must already be loaded and
-listening at that point. If the gateway starts or restarts later, re-enable
-OrbitRender to register the namespace again.
+OrbitRender bundles ADOFAI IPC SDK 2.1.0 and registers the `orbitrender` contract when the mod is enabled. A separate AdofaiIpc mod is not required. The shared runtime remains active when OrbitRender is disabled; OrbitRender disposes its own registration. Browser connections are limited to the exact origin `https://orbitrender.imnya.ng`.
 
-Call `POST /ipc` on the AdofaiIpc gateway with `namespace: "orbitrender"` and one
-of these methods. Both transports share the same jobs and renderer queue.
+The TypeSpec source is `ipc/main.tsp`. Generated C# and TypeScript packages share the same contract hash; web clients must use the matching generated package in `ipc/generated/typescript` and `adofai-ipc` 2.1.0. Run `pnpm install` and `pnpm check` in `ipc/` to verify generated files.
 
-| Method | Params | Result |
-| --- | --- | --- |
-| `health` | `{}` | Same renderer health as `/health` |
-| `jobs.list` | `{}` | Same job list as `/jobs` |
-| `render.create` | Same JSON fields as `POST /render` | Queued job; use its `id` for subsequent IPC calls |
-| `render.status` | `{ "id": "job-id" }` | Job snapshot |
-| `render.cancel` | `{ "id": "job-id" }` | Cancellation acknowledgement |
-| `render.download` | `{ "id": "job-id" }` | AdofaiIpc download ticket (`Url`, `ByteLength`) for a completed job |
+```ts
+import { ipc } from "adofai-ipc";
+import { OrbitRenderIpcContract } from "@orbitrender/ipc";
 
-The `statusUrl` and `downloadUrl` returned by `render.create` remain relative to
-the primary renderer RPC server, not the gateway. IPC downloads require
-AdofaiIpc's streaming API (0.4.0+); request a ticket when ready to download, since
-it expires after 60 seconds and can only be used once. Errors use AdofaiIpc's
-protocol error envelope, not the primary server's HTTP status codes. The optional
-namespace accepts all origins, matching the existing renderer RPC policy.
-Disabling/unloading OrbitRender removes the namespace and its unused tickets.
+const app = ipc.registerApp({ displayName: "OrbitRender web" });
+const renderer = app.use(OrbitRenderIpcContract, {});
+await renderer.ready();
+const job = await renderer.createRender({ options: { levelPath: "C:/Levels/MyLevel.adofai" } });
+let status;
+do {
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  status = await renderer.renderStatus({ id: job.id });
+} while (!["completed", "failed", "cancelled"].includes(status.state));
+if (status.state !== "completed") throw new Error(status.error ?? status.state);
+const file = await renderer.downloadRender({ id: job.id });
+await file.download();
+// Dispose app when the page is closed.
+```
+
+The other methods are `health()`, `listJobs()`, and `cancelRender({ id })`. Render options and job states match the primary RPC API below; SDK `createRender` wraps options in an `options` object. The returned `statusUrl` and `downloadUrl` refer to the optional primary HTTP listener, not the SDK. Use `renderStatus` and `downloadRender` through the SDK. `downloadRender` returns an SDK file rather than an HTTP ticket.
+
+For the SDK integration test, build `Tests/IpcSdkIntegration/IpcSdkIntegration.csproj` with .NET 10 and set its `GameDir` MSBuild property to the game directory. Then run `pnpm test:integration` in `ipc/`, setting `DOTNET` if the .NET executable is not on PATH. The test uses the real SDK runtime, TypeScript client, and renderer RPC service with a stub game controller; it does not launch the game.
 
 ## 3. Health
 

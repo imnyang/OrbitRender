@@ -21,7 +21,6 @@ namespace OrbitRender.Renderer
         private float[] listenerRight;
         private AudioFilterCapture filter;
         private bool started;
-        private bool rendererUnavailable;
         private bool useFilterFallback;
         private bool useListenerOutputFallback;
         private bool listenerOutputAvailable;
@@ -34,15 +33,8 @@ namespace OrbitRender.Renderer
         public int Channels { get; private set; }
         public long SampleFrames { get; private set; }
         public float Peak { get; private set; }
-        public int ZeroSampleReads => zeroSampleReads;
-        public bool UsedSilenceFallback => rendererUnavailable || zeroSampleReads > 0;
-        public bool UsedFilterFallback => useFilterFallback;
         public bool NeedsRealtimePacing => useListenerOutputFallback;
-        // AudioRenderer advances an offline DSP timeline as frames are
-        // rendered. Dynamic Play Sound Effect events can be raised after the
-        // corresponding block has already been consumed when Target FPS is
-        // higher than Video FPS. Expose that boundary so the schedule patch
-        // can move only those late events into the next block.
+        // Late sound effects must be scheduled after the captured DSP boundary.
         public double RenderedUntilDsp(double dspOrigin)
         {
             if (SampleRate <= 0) return dspOrigin;
@@ -117,15 +109,15 @@ namespace OrbitRender.Renderer
                 started = AudioRenderer.Start();
                 if (!started)
                 {
-                    rendererUnavailable = true;
-                    Main.Entry.Logger.Log("[Audio] Unity AudioRenderer could not start; audio will be padded with silence.");
+                    Main.Entry.Logger.Log("[Audio] Unity AudioRenderer could not start; trying the listener output fallback.");
                 }
                 filter?.StartCapture(SampleRate, Channels);
                 InitializeListenerOutputCapture();
                 useFilterFallback = false;
+                // Live listener polling is only safe when AudioRenderer never started.
                 useListenerOutputFallback = !started && listenerOutputAvailable;
                 Main.Entry.Logger.Log(filter == null
-                    ? "[Audio] AudioListener filter unavailable on the mixed listener; using master-output polling fallback."
+                    ? "[Audio] AudioListener filter unavailable on the mixed listener."
                     : "[Audio] AudioListener filter fallback attached and waiting for mixer samples.");
             }
             catch { Dispose(); throw; }
@@ -156,24 +148,15 @@ namespace OrbitRender.Renderer
 
                 if (!started) return;
                 int count = AudioRenderer.GetSampleCountForCaptureFrame();
-                // Unity reports the samples available since the previous Render
-                // call. A zero here is valid at the first capture boundary (and
-                // on some audio backends while the mixer is warming up). Do not
-                // call Render with an empty buffer and do not pad yet: the next
-                // positive query may include the samples from both boundaries.
+                // A zero read may be temporary; a later block can include those samples.
                 if (count == 0)
                 {
                     zeroSampleReads++;
                     if (TryUseFilterFallback()) CaptureFilterSamples(expectedSamples - SampleFrames);
-                    else if (!started && TryUseListenerOutputFallback())
-                        CaptureListenerOutput(expectedSamples - SampleFrames);
                     return;
                 }
                 if (count < 0) throw new InvalidOperationException("Unity AudioRenderer returned an invalid sample count: " + count + ".");
-                // If the filter has already received the same mix, prefer it
-                // after the first unavailable AudioRenderer read. Discard the
-                // frames already written through AudioRenderer before switching
-                // so the two capture paths cannot duplicate the prefix.
+                // Discard the captured prefix when switching to the listener filter.
                 if (zeroSampleReads > 0 && TryUseFilterFallback())
                 {
                     CaptureFilterSamples(expectedSamples - SampleFrames);
@@ -188,16 +171,12 @@ namespace OrbitRender.Renderer
                 }
                 if (!AudioRenderer.Render(samples))
                 {
-                    rendererUnavailable = true;
                     zeroSampleReads++;
                     if (TryUseFilterFallback()) CaptureFilterSamples(expectedSamples - SampleFrames);
-                    else if (!started && TryUseListenerOutputFallback())
-                        CaptureListenerOutput(expectedSamples - SampleFrames);
                     return;
                 }
                 NativeArray<float>.Copy(samples, managed, length);
                 WriteManagedSamples(count * Channels);
-                if (stream.Length > uint.MaxValue - 36L) throw new IOException("WAV exceeded its 4 GB size limit.");
             }
             finally
             {
@@ -211,6 +190,8 @@ namespace OrbitRender.Renderer
         public void Complete(long videoFrames, int fps)
         {
             long targetSamples = checked(videoFrames * (long)SampleRate / fps);
+            long dataLength = checked(targetSamples * Channels * sizeof(float));
+            ValidateWavDataSize(dataLength);
             if (useListenerOutputFallback)
             {
                 CaptureListenerOutput(targetSamples - SampleFrames);
@@ -246,7 +227,6 @@ namespace OrbitRender.Renderer
                 concurrentEncoder.Dispose();
                 concurrentEncoder = null;
             }
-            long dataLength = checked(targetSamples * Channels * sizeof(float));
             stream.SetLength(44 + dataLength);
             stream.Position = 0; WriteHeader(dataLength); stream.Flush();
             stream.Dispose(); stream = null;
@@ -260,6 +240,10 @@ namespace OrbitRender.Renderer
                     concurrentEncoder = null;
                 }
             }
+        }
+        internal static void ValidateWavDataSize(long size)
+        {
+            if (size < 0 || size > uint.MaxValue - 36L) throw new IOException("WAV exceeded its 4 GB size limit.");
         }
         private void WriteHeader(long size)
         {
@@ -306,17 +290,6 @@ namespace OrbitRender.Renderer
             }
         }
 
-        private bool TryUseListenerOutputFallback()
-        {
-            // Never stop a working AudioRenderer just to expose the live
-            // listener mix: that would leak map effects into the render and
-            // make the fallback realtime-dependent. This fallback is only for
-            // platforms where AudioRenderer could not start at all.
-            if (started || !listenerOutputAvailable) return false;
-            useListenerOutputFallback = true;
-            return true;
-        }
-
         private void CaptureListenerOutput(long sampleFrames)
         {
             if (!listenerOutputAvailable || sampleFrames <= 0) return;
@@ -335,13 +308,14 @@ namespace OrbitRender.Renderer
                     for (int channel = 1; channel < Channels; channel++)
                         managed[destination + channel] = listenerRight != null ? listenerRight[source] : listenerLeft[source];
                 }
-                WriteManagedSamples(checked(frames * Channels));
             }
             catch (Exception ex)
             {
                 listenerOutputAvailable = false;
                 Main.Entry.Logger.Log("[Audio] AudioListener.GetOutputData failed during capture: " + ex.Message);
+                return;
             }
+            WriteManagedSamples(checked(frames * Channels));
         }
 
         private bool TryUseFilterFallback()
@@ -390,6 +364,7 @@ namespace OrbitRender.Renderer
 
         private void WriteManagedSamples(int sampleValues)
         {
+            ValidateWavDataSize(checked(stream.Length - 44 + (long)sampleValues * sizeof(float)));
             var peak = Peak;
             for (int i = 0; i < sampleValues; i++) peak = Math.Max(peak, Math.Abs(managed[i]));
             Peak = peak;
@@ -411,7 +386,6 @@ namespace OrbitRender.Renderer
             {
                 filter = null;
                 started = false;
-                rendererUnavailable = false;
                 useFilterFallback = false;
                 useListenerOutputFallback = false;
                 listenerOutputAvailable = false;

@@ -7,10 +7,7 @@ using OrbitRender.Renderer;
 
 namespace OrbitRender.Patches
 {
-    // PlanetRenderer's expo pulse uses wall-clock unscaledTime. During a
-    // render the game can run faster than the output timeline, which
-    // makes that pulse and the planet's visual state advance at the wrong
-    // speed. Keep it on the same deterministic clock as the song.
+    // The expo pulse uses wall-clock time, which diverges from accelerated renders.
     internal static class PlanetRendererClockPatch
     {
         private static float UnscaledTime(float actual)
@@ -89,11 +86,8 @@ namespace OrbitRender.Patches
         }
     }
 
-    // Otto checks the planet's current angle from the controller Update. If
-    // that runs before scrPlanet.Update, it sees the previous simulation
-    // frame and can trigger one frame after the tile crossing. Predict only
-    // in that ordering case so autoplay remains aligned with the rendered
-    // planet position without changing normal gameplay.
+    // Otto can read the previous planet frame when controller Update runs first.
+    // Predict that frame's angle to keep autoplay aligned with tile crossings.
     internal static class AutoplayTimingPatch
     {
         private static float AdjustMargin(scrPlanet planet, float margin)

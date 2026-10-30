@@ -427,6 +427,7 @@ namespace OrbitRender.UI
 
         private static void UpdateContentLayout(float position)
         {
+            if (content == null || scrollRect == null || scrollRect.viewport == null) return;
             Canvas.ForceUpdateCanvases();
             LayoutRebuilder.ForceRebuildLayoutImmediate(content);
             var preferredHeight = Mathf.Max(LayoutUtility.GetPreferredHeight(content),

@@ -27,12 +27,8 @@ namespace OrbitRender.Renderer
                 case VideoCodec.ProRes:
                     bitsPerSecond = 440e6 * width / 1920d * height / 1080d * fps / 30d;
                     break;
-                // FFV1 lossless output tracks the raw 8-bit 4:2:0 pixel rate.
-                // Flat game art usually compresses further; keep the estimate
-                // conservative so disk checks stay on the safe side. Round the
-                // per-frame cost up once and then scale by the frame count so
-                // the estimate stays frame-proportional (half fps = half bytes)
-                // instead of drifting by rounding bits-per-second estimates.
+                // Estimate FFV1 from the raw 8-bit 4:2:0 rate, rounding per frame.
+                // Flat game art often compresses further; this is a conservative estimate.
                 case VideoCodec.FFV1:
                     return Saturate(Math.Ceiling(seconds * fps)
                         * Math.Ceiling(width * (double)height * 12d * 0.55 * 1.05 / 8d));

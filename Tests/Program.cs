@@ -14,7 +14,28 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 1 && args[0] == "--process-stress")
+            {
+                Console.Error.Write(new string('e', 256 * 1024));
+                Console.Write("done");
+                return 0;
+            }
+            if (args.Length == 1 && args[0] == "--process-delay")
+            {
+                Thread.Sleep(5000);
+                return 0;
+            }
             RenderResourceTests.Run();
+            if (args.Length == 2 && args[0] == "--encoder-probe")
+            {
+                var available = EncoderAvailability.Get(args[1], VideoCodec.FFV1, VideoBitDepth.Eight, VideoContainer.Auto);
+                var timeout = Stopwatch.StartNew();
+                while (!available.Complete && timeout.Elapsed.TotalSeconds < 120) Thread.Sleep(50);
+                Assert(available.Complete && available.Encoders.Contains(VideoEncoder.Software), "FFV1 software encoder was not found.");
+                Assert(!available.Encoders.Contains(VideoEncoder.Vaapi), "FFV1 incorrectly advertised VAAPI.");
+                Console.WriteLine("FFV1 encoder discovery passed.");
+                return 0;
+            }
             if (args.Length == 5 && args[0] == "--recovery")
             {
                 RenderRecoveryTests.Run(args[1], args[2], args[3], args[4]);
@@ -264,6 +285,7 @@ internal static class Program
         var name = OutputFormat.FileName("", "Level", now, "abc123");
         Assert(name == Path.Combine("Level", "2026-10-05_12-34-56_abc123"), "Default filename migration failed.");
         var original = OutputFormat.UniquePath(directory, name, ".mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(original));
         File.WriteAllText(original, "keep");
         Assert(OutputFormat.UniquePath(directory, name, ".mp4") != original && File.ReadAllText(original) == "keep",
             "Duplicate filename overwrote an existing render.");
@@ -674,7 +696,7 @@ internal static class Program
     private static double MeanVolume(string ffmpeg, string input)
     {
         var output = ProbeStderr(ffmpeg, "-v info -i \"" + input
-            + "\" -map 0:a:0 -af volumedetect -f null NUL");
+            + "\" -map 0:a:0 -af volumedetect -f null -");
         foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var marker = "mean_volume:";

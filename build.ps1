@@ -143,6 +143,12 @@ if ($Test) {
         throw 'User preset tests failed.'
     }
 
+    & ./Tests/bin/Release/RendererTests.exe --encoder-probe $FfmpegPath
+
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Encoder discovery test failed.'
+    }
+
     $testOutput = Join-Path `
         $env:TEMP `
         ('orbit-render-tests-' + [guid]::NewGuid().ToString('N'))

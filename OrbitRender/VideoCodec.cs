@@ -35,7 +35,7 @@ namespace OrbitRender
     {
         internal VideoCodecDefinition(VideoCodec codec, string displayName, string softwareEncoder,
             string nvidiaEncoder, string intelEncoder, string amdEncoder, string extension,
-            string mimeType, string audioEncoder, string audioBitrate, string vulkanEncoder = null)
+            string vulkanEncoder = null)
         {
             Codec = codec;
             DisplayName = displayName;
@@ -44,9 +44,6 @@ namespace OrbitRender
             IntelEncoder = intelEncoder;
             AmdEncoder = amdEncoder;
             ContainerExtension = extension;
-            MimeType = mimeType;
-            AudioEncoder = audioEncoder;
-            AudioBitrate = audioBitrate;
             VulkanEncoder = vulkanEncoder;
         }
 
@@ -58,13 +55,10 @@ namespace OrbitRender
         internal string AmdEncoder { get; }
         internal string VulkanEncoder { get; }
         internal string ContainerExtension { get; }
-        internal string MimeType { get; }
-        internal string AudioEncoder { get; }
-        internal string AudioBitrate { get; }
 
         internal string ResolveEncoder(VideoEncoder backend, bool nvidiaGpu, bool intelGpu, bool amdGpu)
         {
-            if (Codec == VideoCodec.ProRes) return SoftwareEncoder;
+            if (Codec == VideoCodec.ProRes || (Codec == VideoCodec.FFV1 && backend == VideoEncoder.Vaapi)) return SoftwareEncoder;
             if (backend == VideoEncoder.Vulkan)
             {
                 if (!string.IsNullOrEmpty(VulkanEncoder)) return VulkanEncoder;
@@ -99,24 +93,24 @@ namespace OrbitRender
     {
         private static readonly VideoCodecDefinition H264 = new VideoCodecDefinition(
             VideoCodec.H264, "H.264 / AVC", "libx264", "h264_nvenc", "h264_qsv", "h264_amf",
-            ".mp4", "video/mp4", "aac", "320k");
+            ".mp4");
         private static readonly VideoCodecDefinition H265 = new VideoCodecDefinition(
             VideoCodec.H265, "H.265 / HEVC", "libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf",
-            ".mp4", "video/mp4", "aac", "320k");
+            ".mp4");
         private static readonly VideoCodecDefinition VP9 = new VideoCodecDefinition(
             VideoCodec.VP9, "VP9", "libvpx-vp9", null, null, null,
-            ".webm", "video/webm", "libopus", "160k");
+            ".webm");
         private static readonly VideoCodecDefinition AV1 = new VideoCodecDefinition(
             VideoCodec.AV1, "AV1", "libaom-av1", "av1_nvenc", "av1_qsv", "av1_amf",
-            ".mp4", "video/mp4", "aac", "320k");
+            ".mp4");
 
         private static readonly VideoCodecDefinition ProRes = new VideoCodecDefinition(
             VideoCodec.ProRes, "ProRes 422 HQ (10-bit)", "prores_ks", null, null, null,
-            ".mov", "video/quicktime", "aac", "320k");
+            ".mov");
 
         private static readonly VideoCodecDefinition FFV1 = new VideoCodecDefinition(
             VideoCodec.FFV1, "FFV1 (Lossless)", "ffv1", null, null, null,
-            ".mkv", "video/x-matroska", "flac", "lossless", "ffv1_vulkan");
+            ".mkv", "ffv1_vulkan");
 
         internal static string PixelFormat(VideoCodec codec, VideoBitDepth depth)
             => codec == VideoCodec.ProRes ? "yuv422p10le"

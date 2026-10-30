@@ -85,7 +85,7 @@ namespace OrbitRender.Renderer
         public long CapturedFrames { get; private set; }
         public bool Busy => State == RenderState.Preparing || State == RenderState.Rendering || State == RenderState.Finishing
             || State == RenderState.AwaitingConfirmation
-            || rpcLoadRoutine != null || editorRecoveryRoutine != null;
+            || rpcLoadRoutine != null || editorRecoveryRoutine != null || Interlocked.CompareExchange(ref encoderPreflightRunning, 0, 0) != 0;
         internal bool EncoderFallbackPending => encoderFallbackPending;
         internal string EncoderFallbackReason => encoderFallbackReason ?? string.Empty;
         internal double MusicActivationDsp(scrConductor conductor)
@@ -188,6 +188,12 @@ namespace OrbitRender.Renderer
         internal void StartRender(RenderRequestOptions requestOptions)
         {
             if (Busy || !Main.Enabled) return;
+            try { PrepareRenderRequest(requestOptions); }
+            catch (Exception ex) { Fail(ex); }
+        }
+
+        private void PrepareRenderRequest(RenderRequestOptions requestOptions)
+        {
             if (!Main.IsBatchMode) OrbitRender.UI.AudioPreview.Stop();
             if (!Main.IsBatchMode && FfmpegInstaller.IsDownloading)
             {
@@ -293,20 +299,28 @@ namespace OrbitRender.Renderer
             if (Interlocked.CompareExchange(ref encoderPreflightRunning, 1, 0) != 0) return;
             var executable = FFmpegPath;
             var checkProfile = profile;
-            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            try
             {
-                try
+                if (!ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    var success = FFmpegEncoder.TryValidateVideo(executable, checkProfile.BitrateMbps,
-                        checkProfile.FfmpegPreset, checkProfile.FfmpegCodec, checkProfile.PixelFormat,
-                        checkProfile.ContainerExtension, !captureAudioForRun, out var error);
-                    encoderPreflightResults.Enqueue(new EncoderPreflightResult(success, error));
-                }
-                catch (Exception ex)
-                {
-                    encoderPreflightResults.Enqueue(new EncoderPreflightResult(false, ex.Message));
-                }
-            });
+                    try
+                    {
+                        var success = FFmpegEncoder.TryValidateVideo(executable, checkProfile.BitrateMbps,
+                            checkProfile.FfmpegPreset, checkProfile.FfmpegCodec, checkProfile.PixelFormat,
+                            checkProfile.ContainerExtension, !captureAudioForRun, out var error);
+                        encoderPreflightResults.Enqueue(new EncoderPreflightResult(success, error));
+                    }
+                    catch (Exception ex)
+                    {
+                        encoderPreflightResults.Enqueue(new EncoderPreflightResult(false, ex.Message));
+                    }
+                })) throw new InvalidOperationException("Could not start the encoder preflight.");
+            }
+            catch
+            {
+                Interlocked.Exchange(ref encoderPreflightRunning, 0);
+                throw;
+            }
         }
 
         private void ProcessEncoderPreflight()
@@ -319,7 +333,8 @@ namespace OrbitRender.Renderer
             {
                 Main.Entry.Logger.Log("[Render] Encoder preflight passed: " + profile.FfmpegCodec
                     + " (" + profile.PixelFormat + ").");
-                StartRenderCore();
+                try { StartRenderCore(); }
+                catch (Exception ex) { Fail(ex); }
                 return;
             }
 
@@ -360,7 +375,7 @@ namespace OrbitRender.Renderer
             var definition = VideoCodecCatalog.Get(profile.VideoCodec);
             profile = new RenderProfile(profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps,
                 profile.FfmpegPreset, profile.EndDelaySeconds, definition.SoftwareEncoder,
-                profile.VideoCodec, profile.BitDepth, profile.Container);
+                profile.VideoCodec, profile.BitDepth, profile.Container, profile.AudioCodec);
             encoderFallbackPending = false;
             encoderFallbackReason = null;
             State = RenderState.Preparing;
@@ -368,7 +383,8 @@ namespace OrbitRender.Renderer
             activeRpcJob?.SetState(RpcJobState.Preparing);
             Main.Entry.Logger.Log("[Render] User approved one-render software fallback: " + profile.FfmpegCodec + ".");
             ShowToast(Message, 4f, false);
-            BeginEncoderPreflight();
+            try { BeginEncoderPreflight(); }
+            catch (Exception ex) { Fail(ex); }
         }
 
         internal void RejectEncoderFallback()
@@ -390,6 +406,11 @@ namespace OrbitRender.Renderer
             if (encoderFallbackPending)
             {
                 RejectEncoderFallback();
+                return;
+            }
+            if (State == RenderState.Preparing && routine == null && Interlocked.CompareExchange(ref encoderPreflightRunning, 0, 0) != 0)
+            {
+                ForceCancel();
                 return;
             }
             if (Busy) cancellation = true;
@@ -516,25 +537,14 @@ namespace OrbitRender.Renderer
             // Unity advances the game's simulation at InGame FPS. Video FPS
             // is a separate sampling rate used by the output encoder below.
             Time.captureFramerate = profile.TargetFps;
-            // A level's background VideoPlayer defaults to the audio DSP
-            // clock (or unscaled real time), so it normally decodes frames
-            // against the wall clock. Time.captureFramerate only forces
-            // synchronous, frame-accurate playback when the player's time
-            // update mode is GameTime; without this, an accelerated or
-            // throttled render leaves the background video running at real
-            // speed while the deterministic clock races or lags behind it,
-            // producing sped-up/desynced or stuttering video in the export.
+            // GameTime keeps background video synchronized with captureFramerate.
             if (level.videoBG != null) level.videoBG.timeUpdateMode = VideoTimeUpdateMode.GameTime;
             Time.timeScale = 1;
             DG.Tweening.DOTween.useSmoothDeltaTime = false;
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = RenderTargetFrameRate;
             Application.runInBackground = true;
-            // Keep the game's audio signal alive even for video-only renders.
-            // ADOFAI uses the live song volume for TrackColorType.Volume, so
-            // muting the listener here also removes a visual input from the
-            // level. Video-only output simply omits the captured audio stream;
-            // it must not mute the simulation that drives the visuals.
+            // Volume-driven tile colors need live song audio even in video-only renders.
             AudioListener.pause = false;
             Persistence.skipIntroBehavior = SkipIntroBehavior.Off;
             GCS.checkpointNum = 0;
@@ -549,11 +559,7 @@ namespace OrbitRender.Renderer
             // waiting for audio after editor.Play lets camera tweens run before
             // output frame zero and changes their motion in the export.
             yield return PrepareSongClip();
-            // Play Sound Effect events use lazy asynchronous loading. At a
-            // high Target FPS the deterministic game clock can reach an event
-            // before its external clip has finished loading; ffxPlaySound's
-            // ready check then drops the event permanently. Complete the
-            // level's custom-sound preload before starting gameplay timing.
+            // Preload sound effects before accelerated gameplay can reach and drop them.
             yield return PrepareCustomSoundEffects();
             if (editor != null)
             {
@@ -656,13 +662,7 @@ namespace OrbitRender.Renderer
                     if (sampledCurrentGameFrame) break;
                 }
 
-                // When Video FPS exceeds InGame FPS, the current render target
-                // is intentionally sampled more than once for a constant-rate
-                // output stream. FrameCapture keeps the sample order intact.
-                // Audio follows the output timeline as well: the game may run
-                // several Target FPS simulation frames between two video
-                // samples, but only one audio capture block belongs to that
-                // output frame.
+                // Repeated video samples share a game frame; audio follows the output timeline.
                 if (captureAudioForRun)
                 {
                     if (audio == null) throw new InvalidOperationException("The game did not initialize game audio before frame zero.");
@@ -709,11 +709,7 @@ namespace OrbitRender.Renderer
                     if (HasReachedFinalTile(ADOBase.controller, player, floors))
                         break;
 
-                    // A streamed song can report a short AudioClip.length while
-                    // the conductor is still advancing the chart. Do not turn
-                    // that timing discrepancy into a failed render: keep the
-                    // deterministic clock moving in one-second tail steps until
-                    // the final tile is actually entered, with a hard safety cap.
+                    // Streaming clip lengths may be short; extend the tail until the last tile or safety cap.
                     var extensionStep = Math.Max(1L, profile.VideoFps);
                     var extensionLimit = Math.Max(extensionStep, profile.VideoFps * 30L);
                     if (tailExtensionFrames >= extensionLimit)
@@ -1056,17 +1052,12 @@ namespace OrbitRender.Renderer
                 throw new InvalidOperationException("ADOFAI did not provide a song source before StartMusic.");
 
             double pitch = conductor.song.pitch;
-            double countdown = conductor.separateCountdownTime
-                ? conductor.crotchetAtStart * conductor.adjustedCountdownTicks / pitch : 0.0;
-            double songStart = conductor.dspTimeSong + countdown;
-            scheduledMusicStartDsp = songStart;
-            scheduledMusicLengthSeconds = LongestClipLength(conductor, pitch);
             Clock.AnchorDsp(AudioSettings.dspTime);
             conductor.dspTime = Clock.DspTime;
             conductor.dspTimeSong = conductor.dspTime + 1.0;
-            countdown = conductor.separateCountdownTime
+            double countdown = conductor.separateCountdownTime
                 ? conductor.crotchetAtStart * conductor.adjustedCountdownTicks / pitch : 0.0;
-            songStart = conductor.dspTimeSong + countdown;
+            double songStart = conductor.dspTimeSong + countdown;
             scheduledMusicStartDsp = songStart;
             scheduledMusicLengthSeconds = LongestClipLength(conductor, pitch);
             Main.Entry.Logger.Log(string.Format(
@@ -1446,14 +1437,8 @@ namespace OrbitRender.Renderer
                     profile != null ? profile.VideoFps : 60);
                 if (requestedBuffer <= 0 || configuration.dspBufferSize <= requestedBuffer) return;
 
-                // AudioRenderer.GetSampleCountForCaptureFrame() is driven by
-                // Time.captureFramerate. The audio capture temporarily uses
-                // Video FPS, so a normal 256/512 sample DSP block can be
-                // larger than one capture frame, so
-                // Unity reports no samples and the live listener fallback
-                // would introduce map effects and realtime timing. Use the
-                // largest small power-of-two buffer that fits one target
-                // frame. SavedState restores the user's setting afterward.
+                // A DSP block larger than a video frame can make AudioRenderer return no samples.
+                // SavedState restores the original buffer size after capture.
                 configuration.dspBufferSize = requestedBuffer;
                 var reset = AudioSettings.Reset(configuration);
                 var actual = AudioSettings.GetConfiguration();
@@ -1682,8 +1667,9 @@ namespace OrbitRender.Renderer
         private static bool PathsEqual(string left, string right)
         {
             if (string.IsNullOrEmpty(left) || string.IsNullOrEmpty(right)) return false;
-            try { return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase); }
-            catch { return string.Equals(left, right, StringComparison.OrdinalIgnoreCase); }
+            var comparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            try { return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), comparison); }
+            catch { return string.Equals(left, right, comparison); }
         }
 
         private void HandleRpcPreparationFailure(RpcRenderJob job, Exception ex)
@@ -2203,12 +2189,6 @@ namespace OrbitRender.Renderer
             StopAndClean();
             TryCleanup(DisposePendingSongRequest);
             TryCleanup(DisposeSongRequest);
-        }
-        internal static string SanitizeName(string value)
-        {
-            var invalid = Path.GetInvalidFileNameChars();
-            var name = new string((value ?? "Level").Select(c => invalid.Contains(c) || char.IsControl(c) ? '_' : c).ToArray()).Trim(' ', '.');
-            return "Render_" + (string.IsNullOrEmpty(name) ? "Level" : name.Substring(0, Math.Min(80, name.Length)));
         }
         private sealed class SavedState
         {

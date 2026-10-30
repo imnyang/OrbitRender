@@ -43,14 +43,8 @@ namespace OrbitRender.Patches
     [HarmonyPatch(typeof(AsyncInputUtils), "GetSongPosition")]
     internal static class AsyncSongPositionPatch
     {
-        // The synchronous autoplay path normally falls back to
-        // AudioSource.time when AsyncInput is inactive. AudioSource.time is
-        // driven by the real audio device, so it lags behind the deterministic
-        // render clock whenever accelerated generation is faster than realtime.
-        // Keep angle/autoplay calculations on the same timeline as the
-        // conductor and the camera events. The target tick is intentionally
-        // ignored here: the renderer disables AsyncInput and owns the frame
-        // clock for the whole run.
+        // AudioSource.time follows the device clock; autoplay needs the render clock instead.
+        // AsyncInput is disabled during rendering, so its target tick is ignored.
         static bool Prefix(scrConductor __instance, ref double __result)
         {
             if (!RendererController.ControlsTime) return true;
@@ -72,13 +66,8 @@ namespace OrbitRender.Patches
     [HarmonyPatch(typeof(AudioManager), "FindOrLoadAudioClipExternal")]
     internal static class ExternalSongStreamingPatch
     {
-        // DownloadHandlerAudioClip reports only the currently buffered portion
-        // when streamAudio is enabled. That is fine for normal gameplay, but
-        // Unity's AudioRenderer cannot advance that stream reliably in this
-        // mode:
-        // volume-driven tiles see silence and the exported WAV contains only a
-        // short prefix. Decode external OGG/WAV audio into a complete clip for
-        // deterministic renders; leave normal gameplay untouched.
+        // Streaming clips can produce a truncated WAV and silence for volume-driven tiles.
+        // Decode external audio fully for deterministic capture.
         static void Prefix(ref bool stream)
         {
             if (RendererController.ControlsTime) stream = false;

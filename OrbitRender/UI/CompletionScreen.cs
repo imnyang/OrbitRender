@@ -35,8 +35,7 @@ namespace OrbitRender.UI
         private static float layoutWidth, layoutHeight;
         private static readonly Color Background = new Color(.055f, .05f, .068f);
         private static readonly Color Surface = new Color(.10f, .09f, .12f);
-        private static readonly Color Muted = new Color(.57f, .55f, .62f);
-        private static readonly Color Success = new Color(.55f, .87f, .70f);
+        private static readonly Color Muted = UguiFactory.Muted;
 
         // Keep the closing key blocked for its entire frame, including game updates
         // that run after the player has dismissed this screen.
@@ -60,19 +59,14 @@ namespace OrbitRender.UI
             UguiFactory.Anchor(side.GetComponent<RectTransform>(), Vector2.zero, new Vector2(0, 1),
                 Vector2.zero, new Vector2(sidebar, 0));
             Label(side.transform, "OrbitRender", 28, 28, sidebar - 56, 24, 18).fontStyle = FontStyle.Bold;
-            Label(side.transform, "EXPORT", 28, 92, sidebar - 56, 20, 11, Muted).fontStyle = FontStyle.Bold;
-            var badge = UguiFactory.Image(side.transform, "Success badge", new Color(.15f, .24f, .20f));
-            UguiFactory.Round(badge.GetComponent<Image>());
-            Place(badge.GetComponent<RectTransform>(), 28, 128, 34, 34);
-            Label(badge.transform, "✓", 0, 0, 34, 34, 19, Success).alignment = TextAnchor.MiddleCenter;
-            Label(side.transform, Localization.Get("export-complete"), 28, 178, sidebar - 56, 86, 28)
+            Label(side.transform, Localization.Get("export-complete"), 28, 92, sidebar - 56, 86, 28)
                 .fontStyle = FontStyle.Bold;
-            Rule(side.transform, 28, 294, sidebar - 56);
-            Label(side.transform, Localization.Get("time-spent"), 28, 320, sidebar - 56, 20, 11, Muted);
-            Label(side.transform, Duration(renderer.ElapsedSeconds), 28, 346, sidebar - 56, 40, 30)
+            Rule(side.transform, 28, 202, sidebar - 56);
+            Label(side.transform, Localization.Get("time-spent"), 28, 228, sidebar - 56, 20, 11, Muted);
+            Label(side.transform, Duration(renderer.ElapsedSeconds), 28, 254, sidebar - 56, 40, 30)
                 .fontStyle = FontStyle.Bold;
-            Label(side.transform, Localization.Get("frames"), 28, 416, sidebar - 56, 20, 11, Muted);
-            Label(side.transform, renderer.CapturedFrames.ToString("N0"), 28, 442, sidebar - 56, 28, 20);
+            Label(side.transform, Localization.Get("frames"), 28, 324, sidebar - 56, 20, 11, Muted);
+            Label(side.transform, renderer.CapturedFrames.ToString("N0"), 28, 350, sidebar - 56, 28, 20);
             var shortcuts = Label(side.transform, Localization.Get("completion-shortcuts").Replace("\\n", "\n"),
                 28, height - 270, sidebar - 56, 168, 12, Muted);
             shortcuts.lineSpacing = 1.35f;

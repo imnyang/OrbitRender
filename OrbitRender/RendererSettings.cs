@@ -59,7 +59,6 @@ namespace OrbitRender
         public string ContainerMimeType => OutputFormat.MimeType(ContainerExtension);
         public AudioCodec AudioCodec { get; }
         public string AudioEncoder => AudioCodecCatalog.Encoder(AudioCodec);
-        public string AudioBitrate => AudioCodecCatalog.Bitrate(AudioCodec);
     }
 
     public sealed class RendererSettings : UnityModManager.ModSettings, IDrawable
@@ -260,9 +259,7 @@ namespace OrbitRender
                     Clamp(BitrateMbps, MinBitrate, MaxBitrate),
                     "fast", EndDelaySeconds)
                 : GetPresetProfile(preset);
-            var endDelay = endDelayOverride.HasValue
-                ? NormalizeEndDelay(endDelayOverride.Value)
-                : baseProfile.EndDelaySeconds;
+            var endDelay = NormalizeEndDelay(endDelayOverride ?? EndDelaySeconds);
             var encoding = encodingOverride ?? Encoding;
             var encoder = encoderOverride ?? Encoder;
             // RPC requests naming a preset retain that preset's default rates
@@ -358,26 +355,21 @@ namespace OrbitRender
 
         private string GetEncoderCodec(VideoCodec codec, VideoEncoder encoder, VideoBitDepth depth, VideoContainer container)
         {
+            var definition = VideoCodecCatalog.Get(VideoCodecCatalog.Normalize(codec));
+            if (encoder == VideoEncoder.Software) return definition.SoftwareEncoder;
             var gpu = (UnityEngine.SystemInfo.graphicsDeviceName ?? string.Empty) + " "
                 + (UnityEngine.SystemInfo.graphicsDeviceVendor ?? string.Empty);
             var nvidia = ContainsGpuName(gpu, "NVIDIA");
             var intel = ContainsGpuName(gpu, "Intel");
             var amd = ContainsGpuName(gpu, "AMD") || ContainsGpuName(gpu, "ATI")
                 || ContainsGpuName(gpu, "Radeon");
-            var definition = VideoCodecCatalog.Get(VideoCodecCatalog.Normalize(codec));
             if (encoder == VideoEncoder.Auto && Main.Entry != null)
             {
                 var available = Renderer.EncoderAvailability.Get(Renderer.RendererController.ResolveFfmpegExecutable(this),
                     codec, depth, container);
                 if (available.Complete && available.Encoders.Length > 0)
                 {
-                    // Prefer the active GPU when proven usable, then any usable
-                    // secondary GPU, then software. Never pick a failed probe.
-                    // FFV1 has no vendor-bound accelerator; when the Vulkan FFV1
-                    // encoder probes as usable, Auto prefers it over software
-                    // (lossless encoding is exactly the case where a working
-                    // GPU encoder is worth taking), and falls back to software
-                    // otherwise.
+                    // Prefer the active GPU, or Vulkan for FFV1, among successful probes.
                     var preferred = codec == VideoCodec.FFV1
                         ? (Array.IndexOf(available.Encoders, VideoEncoder.Vulkan) >= 0
                             ? VideoEncoder.Vulkan : VideoEncoder.Software)

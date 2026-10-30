@@ -348,7 +348,7 @@ namespace OrbitRender
                 {
                     var entryPath = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
                     var destination = Path.GetFullPath(Path.Combine(extractionPath, entryPath));
-                    if (!destination.StartsWith(extractionRoot, StringComparison.OrdinalIgnoreCase))
+                    if (!destination.StartsWith(extractionRoot, Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
                         throw new InvalidDataException("The update archive contains an unsafe path.");
                 }
             }
