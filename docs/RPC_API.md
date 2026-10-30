@@ -71,6 +71,8 @@ The other methods are `health()`, `listJobs()`, and `cancelRender({ id })`. Rend
 
 For the SDK integration test, build `Tests/IpcSdkIntegration/IpcSdkIntegration.csproj` with .NET 10 and set its `GameDir` MSBuild property to the game directory. Then run `pnpm test:integration` in `ipc/`, setting `DOTNET` if the .NET executable is not on PATH. The test uses the real SDK runtime, TypeScript client, and renderer RPC service with a stub game controller; it does not launch the game.
 
+`Tests/IpcLoaderSmoke` separately tests runtime discovery and startup from a packaged `Mods/OrbitRender/ipc` directory. Build it with the same `GameDir` property, extract the distribution ZIP into an isolated `Mods/OrbitRender` folder, then run the resulting `IpcLoaderSmoke.dll` with the isolated `Mods` path as its argument. It uses a Unity API stub and does not replace an in-game test.
+
 ## 3. Health
 
 ### Request

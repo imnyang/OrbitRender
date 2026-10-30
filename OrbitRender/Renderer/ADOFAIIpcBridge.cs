@@ -1,115 +1,84 @@
 using System;
 using System.IO;
-using System.Linq;
-using System.Reflection;
+using System.Threading.Tasks;
+using AdofaiIpc;
+using AdofaiIpc.Loader;
+using AdofaiIpc.Contracts;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using OrbitRender.Ipc.Generated;
 
 namespace OrbitRender.Renderer
 {
-    // Only inspect assemblies loaded by UMM. Never load or install the dependency ourselves.
     internal sealed class ADOFAIIpcBridge : IDisposable
     {
-        private const string Namespace = "orbitrender";
         private readonly RendererRpcServer renderer;
-        private object attemptedServer;
-        private Type facade;
-        private object registration;
-        private bool disposed;
-
+        private ModRegistration<OrbitRenderIpcApp> registration;
         internal ADOFAIIpcBridge(RendererRpcServer renderer) { this.renderer = renderer; }
 
         internal void Initialize()
         {
-            if (disposed) return;
             try
             {
-                var assembly = AppDomain.CurrentDomain.GetAssemblies().LastOrDefault(
-                    candidate => candidate.GetName().Name == "AdofaiIpc");
-                if (assembly == null) return;
-                var main = assembly.GetType("AdofaiIpc.Main", true);
-                var server = main.GetProperty("Server").GetValue(null, null);
-                if (server == null || (int)server.GetType().GetProperty("Port").GetValue(server, null) <= 0)
-                {
-                    Unregister();
-                    attemptedServer = null;
-                    return;
-                }
-                if (ReferenceEquals(server, attemptedServer)) return;
-                Unregister();
-                attemptedServer = server;
-                facade = assembly.GetType("AdofaiIpc.AdofaiIpc", true);
-                var metadataType = assembly.GetType("AdofaiIpc.IpcNamespaceInfo", true);
-                var metadata = Activator.CreateInstance(metadataType);
-                SetMetadata(metadataType, metadata, "DisplayName", "OrbitRender");
-                SetMetadata(metadataType, metadata, "Version", Main.Entry.Info.Version);
-                // Match the existing renderer RPC's unrestricted browser-origin policy.
-                SetMetadata(metadataType, metadata, "AllowedOrigins", new string[0]);
-                registration = facade.GetMethod("RegisterNamespace").Invoke(null, new[] { (object)Namespace, metadata });
-                Register("health", _ => renderer.Health());
-                Register("jobs.list", _ => renderer.ListJobs());
-                Register("render.create", request =>
-                {
-                    var result = renderer.CreateJob(Parameters(request).ToString(), out var status);
-                    if (status != 202) throw new ArgumentException(JObject.FromObject(result).Value<string>("error"));
-                    return result;
-                });
-                Register("render.status", request => renderer.FindJob(JobId(request)).Snapshot());
-                Register("render.cancel", request => renderer.CancelJob(JobId(request)));
-                Register("render.download", request =>
-                {
-                    var job = renderer.FindJob(JobId(request));
-                    if (job.State != RpcJobState.Completed || string.IsNullOrEmpty(job.OutputPath))
-                        throw new InvalidOperationException("Render is not complete.");
-                    var path = job.OutputPath;
-                    var file = File.OpenRead(path);
-                    try
-                    {
-                        var contentType = string.Equals(Path.GetExtension(path), ".webm", StringComparison.OrdinalIgnoreCase)
-                            ? "video/webm" : "video/mp4";
-                        return Activator.CreateInstance(assembly.GetType("AdofaiIpc.IpcDownloadResponse", true),
-                            new object[] { file, file.Length, Path.GetFileName(path), contentType });
-                    }
-                    catch { file.Dispose(); throw; }
-                }, download: true);
-                registration.GetType().GetMethod("MarkReady").Invoke(registration, null);
-                Main.Entry.Logger.Log("[System] Optional AdofaiIpc namespace registered: " + Namespace);
+                var modsDirectory = GetModsDirectory(Main.Entry.Path);
+                var runtime = IpcLoader.GetRuntime(modsDirectory,
+                    new RuntimeRequirements("2.1.0", 1, 3, "commands", "downloads", "typed-files"));
+                Register(runtime);
             }
             catch (Exception error)
             {
-                Unregister();
-                Main.Entry.Logger.Error("[System] Optional AdofaiIpc integration unavailable: " + error.GetBaseException().Message);
+                Dispose();
+                Main.Entry.Logger.Error("[System] ADOFAI IPC SDK unavailable: " + error);
             }
         }
 
-        private static void SetMetadata(Type type, object target, string name, object value)
+        internal static string GetModsDirectory(string modDirectory)
         {
-            var property = type.GetProperty(name);
-            if (property != null) property.SetValue(target, value, null);
-            else type.GetField(name).SetValue(target, value);
+            var path = Path.GetFullPath(modDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return Directory.GetParent(path).FullName;
         }
 
-        private void Register(string name, Func<object, object> handler, bool download = false)
+        internal void Register(IIpcRuntime runtime)
         {
-            var method = registration.GetType().GetMethod(download ? "RegisterDownload" : "Register");
-            var requestType = method.GetParameters()[1].ParameterType.GetGenericArguments()[0];
-            var callback = typeof(ADOFAIIpcBridge).GetMethod(nameof(CreateHandler), BindingFlags.NonPublic | BindingFlags.Static)
-                .MakeGenericMethod(requestType).Invoke(null, new object[] { handler });
-            method.Invoke(registration, new[] { (object)name, callback });
+            try
+            {
+                var mod = runtime.RegisterMod(OrbitRenderIpcContract.Instance, "OrbitRender",
+                    new[] { "https://orbitrender.imnya.ng" });
+                registration = mod;
+                mod.Handle(OrbitRenderIpcMethods.Health, (request, context) =>
+                    Task.FromResult(Convert<Health>(renderer.Health())));
+                mod.Handle(OrbitRenderIpcMethods.ListJobs, (request, context) =>
+                    Task.FromResult(Convert<Job[]>(renderer.ListJobs())));
+                mod.Handle(OrbitRenderIpcMethods.CreateRender, (request, context) =>
+                {
+                    var body = JObject.Parse(OrbitRenderIpcMethods.CreateRender.Input.Write(request))["options"].ToString();
+                    var result = renderer.CreateJob(body, out var status);
+                    if (status != 202) throw new ArgumentException(JObject.FromObject(result).Value<string>("error"));
+                    return Task.FromResult(Convert<RenderAccepted>(result));
+                });
+                mod.Handle(OrbitRenderIpcMethods.RenderStatus, (request, context) =>
+                    Task.FromResult(Convert<Job>(renderer.FindJob(request.Id).Snapshot())));
+                mod.Handle(OrbitRenderIpcMethods.CancelRender, (request, context) =>
+                    Task.FromResult(Convert<Cancelled>(renderer.CancelJob(request.Id))));
+                mod.Handle(OrbitRenderIpcMethods.DownloadRender, (request, context) =>
+                {
+                    var job = renderer.FindJob(request.Id);
+                    var path = job.CompletedOutputPath;
+                    if (string.IsNullOrEmpty(path))
+                        throw new InvalidOperationException("Render is not complete.");
+                    return Task.FromResult(IpcFile.FromPath(path, OutputFormat.MimeType(Path.GetExtension(path))));
+                });
+                mod.MarkReady();
+                Main.Entry.Logger.Log("[System] ADOFAI IPC SDK registered: orbitrender");
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
         }
 
-        private static Func<T, object> CreateHandler<T>(Func<object, object> handler) => request => handler(request);
-        private static JToken Parameters(object request) =>
-            (JToken)request.GetType().GetField("Params").GetValue(request) ?? new JObject();
-        private static string JobId(object request) => Parameters(request).Value<string>("id");
-
-        private void Unregister()
-        {
-            if (registration == null) return;
-            registration = null;
-            try { facade.GetMethod("UnregisterNamespace").Invoke(null, new object[] { Namespace }); }
-            catch (Exception error) { Main.Entry.Logger.Error("[System] Optional AdofaiIpc unregister: " + error.GetBaseException().Message); }
-        }
-
-        public void Dispose() { disposed = true; Unregister(); }
+        private static T Convert<T>(object value) => JsonConvert.DeserializeObject<T>(JsonConvert.SerializeObject(value));
+        public void Dispose() { registration?.Dispose(); registration = null; }
     }
 }

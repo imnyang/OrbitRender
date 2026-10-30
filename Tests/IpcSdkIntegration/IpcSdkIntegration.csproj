@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>AdofaiIpc.Protocol.Tests</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="../../OrbitRender/Renderer/ADOFAIIpcBridge.cs" />
+    <Compile Include="../../OrbitRender/Renderer/RendererRpcServer.cs" />
+    <Compile Include="../../OrbitRender/VideoCodec.cs" />
+    <Compile Include="../../OrbitRender/AudioCodec.cs" />
+    <Compile Include="../../OrbitRender/OutputFormat.cs" />
+    <Compile Include="../../OrbitRender/FileNameTemplate.cs" />
+    <Compile Include="../../OrbitRender/Ipc/Generated/*.cs" />
+    <Reference Include="AdofaiIpc.Contracts"><HintPath>../../ipc/vendor/AdofaiIpc.Contracts.dll</HintPath></Reference>
+    <Reference Include="AdofaiIpc.Loader"><HintPath>../../ipc/vendor/AdofaiIpc.Loader.dll</HintPath></Reference>
+    <Reference Include="AdofaiIpc.Runtime"><HintPath>../../ipc/vendor/ipc/AdofaiIpc.Runtime.dll</HintPath></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(GameDir)/A Dance of Fire and Ice_Data/Managed/Newtonsoft.Json.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "devDependencies": {
+    "@adofai-ipc/typespec": "2.1.0",
+    "adofai-ipc": "2.1.0",
+    "ws": "8.18.3"
+  },
+  "scripts": {
+    "generate": "adofai-ipc generate --config adofai-ipc.config.json",
+    "check": "adofai-ipc generate --check --config adofai-ipc.config.json",
+    "test:integration": "node test-integration.mjs"
+  }
+}

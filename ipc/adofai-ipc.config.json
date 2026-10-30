@@ -1,0 +1,13 @@
+{
+  "contract": "main.tsp",
+  "typescript": {
+    "output": "generated/typescript",
+    "packageName": "@orbitrender/ipc",
+    "version": "1.0.0",
+    "runtimeDependency": "2.1.0"
+  },
+  "csharp": {
+    "output": "../OrbitRender/Ipc/Generated",
+    "namespace": "OrbitRender.Ipc.Generated"
+  }
+}
