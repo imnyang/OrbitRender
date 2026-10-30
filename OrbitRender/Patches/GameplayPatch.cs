@@ -27,6 +27,14 @@ namespace OrbitRender.Patches
         static bool Prefix() => !RendererController.ControlsTime || RendererController.ShowHitJudgments;
     }
 
+    [HarmonyPatch(typeof(scnEditor), "get_shouldHideGameplayUIForAutoplay")]
+    internal static class ReplayGameplayHudPatch
+    {
+        static void Postfix(ref bool __result)
+        {
+            if (RendererController.ReplayActive) __result = false;
+        }
+    }
     [HarmonyPatch(typeof(scnLevelSelect), "CheckAudioBreak")]
     internal static class AudioDevicePatch
     {

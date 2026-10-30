@@ -14,13 +14,14 @@
   <FrameworkPathOverride Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/.NETFramework/v4.8</FrameworkPathOverride>
  </PropertyGroup>
  <ItemGroup>
-  <Reference Include="System"/><Reference Include="System.Core"/>
+  <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Data"/>
   <Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/>
   <Reference Include="$(ManagedDir)/netstandard.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/UnityEngine*.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/Unity.Collections.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/Assembly-CSharp.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/Assembly-CSharp-firstpass.dll"><Private>false</Private></Reference>
+  <Reference Include="$(ManagedDir)/SkyHook.Unity.dll"><Private>false</Private></Reference>
   <Reference Include="UnityFileDialog">
    <HintPath Condition="Exists('$(ManagedDir)/UnityFileDialog.dll')">$(ManagedDir)/UnityFileDialog.dll</HintPath>
    <Private>false</Private>
@@ -40,6 +41,7 @@
   </Reference>
  <Compile Include="**/*.cs" Exclude="obj/**;bin/**"/>
  <Content Include="Info.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+ <Content Include="TufReplay/NOTICE.txt"><Link>NOTICE_TUFREPLAY.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="LICENSE.md"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="Native/**/*.dll">
   <Link>%(Filename)%(Extension)</Link>

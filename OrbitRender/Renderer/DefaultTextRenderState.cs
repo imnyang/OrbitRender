@@ -27,14 +27,26 @@ namespace OrbitRender.Renderer
         private DefaultTextRenderState() { }
 
         internal static DefaultTextRenderState Capture(bool showSongTitle, bool showCountdown,
-            bool showResultText, bool showHitJudgments)
+            bool showResultText, bool showHitJudgments, bool showGameplayHud = false)
         {
             var state = new DefaultTextRenderState();
             var controller = ADOBase.controller;
             var ui = scrUIController.instance;
 
-            if (ui != null && (showSongTitle || showCountdown || showResultText || showHitJudgments))
+            if (ui != null && (showGameplayHud || showSongTitle || showCountdown || showResultText || showHitJudgments))
                 state.AddCaptureCanvas(ui.canvas);
+
+            if (showGameplayHud)
+            {
+                foreach (var item in UnityEngine.Object.FindObjectsByType<scrHUDText>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                    state.AddCaptureCanvas(item);
+                foreach (var item in UnityEngine.Object.FindObjectsByType<scrShowIfDebug>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                    state.AddCaptureCanvas(item);
+                var hitManager = ADOBase.playerManager != null ? ADOBase.playerManager.hitTextManager : null;
+                if (hitManager != null && hitManager.hitTextContainer != null)
+                    state.AddCaptureCanvas(hitManager.hitTextContainer.GetComponentInParent<Canvas>());
+                return state;
+            }
 
             if (showSongTitle)
             {

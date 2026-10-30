@@ -130,7 +130,7 @@ namespace OrbitRender.UI
             var live = renderer.State == RenderState.Rendering;
             var completed = renderer.State == RenderState.Completed;
             var queued = RendererController.Queue.Active != null;
-            var card = Card(live ? 480f : 680f, (completed ? 236f : builtShowProgress ? 274f : 176f) + (queued ? 42f : 0f));
+            var card = Card(live ? 480f : 680f, live ? (queued ? 126f : 90f) : (completed ? 236f : builtShowProgress ? 274f : 176f) + (queued ? 42f : 0f));
             var rect = card.GetComponent<RectTransform>();
             if (live)
             {
@@ -138,6 +138,11 @@ namespace OrbitRender.UI
                 rect.anchoredPosition = new Vector2(-24f, 24f);
             }
             var width = rect.rect.width - 48f;
+            if (live)
+            {
+                BuildCompactRenderCard(card, renderer, width, queued);
+                return;
+            }
             At(card.transform, "OrbitRender", 15, 24, 18, width * .55f, 18, UguiFactory.Accent).fontStyle = FontStyle.Bold;
             state = At(card.transform, string.Empty, 10, 24 + width * .55f, 18, width * .45f, 18,
                 UguiFactory.Accent, TextAnchor.MiddleRight);
@@ -172,6 +177,35 @@ namespace OrbitRender.UI
                     RendererController.Queue.Pause, false, 24, builtShowProgress ? 256 : 152, width, 28);
         }
 
+        private static void BuildCompactRenderCard(GameObject card, RendererController renderer, float width, bool queued)
+        {
+            state = At(card.transform, string.Empty, 10, 16, 12, 1, 1, UguiFactory.Accent);
+            state.gameObject.SetActive(false);
+            title = At(card.transform, string.Empty, 13, 16, 12, width - 96, 20, UguiFactory.Foreground);
+            title.fontStyle = FontStyle.Bold;
+            detail = At(card.transform, string.Empty, 10, 16, 32, width - 96, 18, UguiFactory.Muted);
+            percent = At(card.transform, string.Empty, 13, 16, 52, 55, 20, UguiFactory.Foreground);
+            percent.fontStyle = FontStyle.Bold;
+            metrics = UguiFactory.New(card.transform, "Metrics", typeof(RectTransform));
+            UguiFactory.Stretch(metrics.GetComponent<RectTransform>());
+            var metricWidth = Mathf.Max(0f, (width - 56f) / 3f);
+            frames = At(metrics.transform, string.Empty, 10, 72, 52, metricWidth, 20, UguiFactory.Muted);
+            speed = At(metrics.transform, string.Empty, 10, 72 + metricWidth, 52, metricWidth, 20, UguiFactory.Muted);
+            eta = At(metrics.transform, string.Empty, 10, 72 + metricWidth * 2, 52, metricWidth, 20, UguiFactory.Muted);
+            hint = At(card.transform, string.Empty, 10, 16, 72, width, 16, UguiFactory.Muted);
+            path = At(card.transform, string.Empty, 10, 16, 12, 1, 1, UguiFactory.Muted);
+            elapsedLabel = At(card.transform, string.Empty, 9, 16, 12, 1, 1, UguiFactory.Muted);
+            AtButton(card.transform, Localization.Get("cancel"), renderer.Cancel, false, width - 72, 12, 88, 32);
+            AtButton(card.transform, Localization.Get("copy-path"), () => GUIUtility.systemCopyBuffer = renderer.OutputPath,
+                false, 16, 12, 1, 1);
+            var track = UguiFactory.Image(card.transform, "Progress track", UguiFactory.Backdrop);
+            UguiFactory.Anchor(track.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f),
+                new Vector2(16f, 10f), new Vector2(-16f, 16f));
+            progress = UguiFactory.ProgressFill(track.transform);
+            if (queued)
+                pauseQueue = AtButton(card.transform, Localization.Get("queue-pause-after-current"),
+                    RendererController.Queue.Pause, false, 16, 78, width + 16, 28);
+        }
         private static Text Metric(int index, string label, float width)
         {
             At(metrics.transform, label, 9, 24 + width * index, 159, width - 8, 16,
@@ -211,10 +245,10 @@ namespace OrbitRender.UI
             progress.transform.parent.gameObject.SetActive(showProgress);
             metrics.SetActive(showProgress);
             elapsedLabel.gameObject.SetActive(completed);
-            hint.gameObject.SetActive(showProgress || (!completed && !showProgress));
+            hint.gameObject.SetActive(renderer.State != RenderState.Rendering && (showProgress || !completed));
             path.gameObject.SetActive(completed && !string.IsNullOrEmpty(renderer.OutputPath));
             var buttons = panelObject.GetComponentsInChildren<Button>(true);
-            if (buttons.Length > 0) buttons[0].gameObject.SetActive(showProgress && renderer.State == RenderState.Rendering);
+            if (buttons.Length > 0) buttons[0].gameObject.SetActive(renderer.State == RenderState.Rendering);
             if (buttons.Length > 1) buttons[1].gameObject.SetActive(path.gameObject.activeSelf);
             if (showProgress)
             {

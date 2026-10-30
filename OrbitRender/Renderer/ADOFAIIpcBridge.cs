@@ -43,7 +43,7 @@ namespace OrbitRender.Renderer
             try
             {
                 var mod = runtime.RegisterMod(OrbitRenderIpcContract.Instance, "OrbitRender",
-                    new[] { "https://orbitrender.imnya.ng" });
+                    new[] { "https://orbitrender.imnya.ng", "https://tufreplay.impl1113.dev", "https://tufreplay-dev.impl1113.dev", "https://tufreplay-auto.impl1113.dev" });
                 registration = mod;
                 mod.Handle(OrbitRenderIpcMethods.Health, (request, context) =>
                     Task.FromResult(Convert<Health>(renderer.Health())));

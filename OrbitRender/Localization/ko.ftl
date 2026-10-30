@@ -48,6 +48,7 @@ show-song-title = 곡 제목 표시
 show-countdown = 카운트다운 표시
 show-result-text-hit-judgments-stay-hidden = 결과 텍스트 표시 (판정은 숨김)
 show-hit-judgments = 판정 표시
+show-mod-overlay = 모드 오버레이 표시
 output-folder = 출력 폴더
 ffmpeg-executable = FFmpeg 실행 파일
 ffmpeg-setup = FFmpeg 설정
@@ -260,3 +261,13 @@ field-prores-container = ProRes는 자동(MOV), MOV 또는 MKV가 필요합니�
 field-ffv1-container = FFV1은 MKV가 필요합니다. 출력 형식을 바꿔주세요.
 lossless = 무손실
 field-ts-container = MPEG-TS는 H.264 또는 H.265가 필요합니다. 코덱이나 출력 형식을 바꿔주세요.
+
+replay-select = TUF 리플레이 번들 선택 (manifest.json)
+replay-clear = 리플레이 선택 해제
+replay-no-queue = 리플레이 렌더는 작업 목록에 추가할 수 없습니다.
+replay-no-selection = 리플레이 렌더는 선택 구간 내보내기를 지원하지 않습니다.
+
+replay-list = 현재 레벨의 TUF 리플레이 불러오기
+replay-preparing = 리플레이 렌더 번들을 준비하고 있습니다...
+replay-empty = 현재 레벨에 재생 가능한 TUF 기록이 없습니다.
+replay-export-failed = 리플레이 번들을 준비하지 못했습니다.

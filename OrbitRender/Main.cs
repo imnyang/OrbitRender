@@ -116,6 +116,7 @@ namespace OrbitRender
                     AudioPreview.Stop();
                     RendererController.Instance?.StopAndClean();
                     OrbitRender.Patches.RenderTimingPatches.Remove();
+                    OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.Remove();
                     StopRpcServer();
                     SceneManager.sceneLoaded -= OnSceneLoaded;
                     UnityEngine.Object.Destroy(host);
@@ -341,6 +342,8 @@ namespace OrbitRender
                 Localization.Get("show-result-text-hit-judgments-stay-hidden"), Settings.ShowResultText);
             Settings.ShowHitJudgments = DrawLocalizedToggle(
                 Localization.Get("show-hit-judgments"), Settings.ShowHitJudgments);
+            Settings.ShowModOverlay = DrawLocalizedToggle(
+                Localization.Get("show-mod-overlay"), Settings.ShowModOverlay);
         }
 
         private static void DrawEncodingSettings()

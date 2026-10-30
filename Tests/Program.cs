@@ -25,6 +25,10 @@ internal static class Program
                 Thread.Sleep(5000);
                 return 0;
             }
+            if (args.Length == 1 && args[0] == "--tuf-replay-parser") { TUFReplayRenderer.Tests.ParserTests.Run(); Console.WriteLine("TUF replay parser tests passed."); return 0; }
+            if (args.Length == 1 && args[0] == "--tuf-media-plan") { ReplayMediaPlanTests.Run(); return 0; }
+            if (args.Length == 1 && args[0] == "--tuf-korean-key") { KoreanReplayKeyTests.Run(); return 0; }
+            if (args.Length == 1 && args[0] == "--jrp-guard") { JrpGuardTests.Run(); return 0; }
             RenderResourceTests.Run();
             if (args.Length == 2 && args[0] == "--encoder-probe")
             {

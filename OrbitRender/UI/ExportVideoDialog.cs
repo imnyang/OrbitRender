@@ -37,6 +37,10 @@ namespace OrbitRender.UI
         private static UserRenderPreset selectedUserPreset;
         private static readonly System.Collections.Generic.Dictionary<string, FieldView> fieldViews = new System.Collections.Generic.Dictionary<string, FieldView>();
         private static int queueRevision;
+        private static string replayManifestPath;
+        private static System.Collections.Generic.List<OrbitRender.TufReplay.RecordedRun> replayRuns;
+        private static string replayJobId;
+        private static float nextReplayPoll;
 
         internal static bool IsOpen => open;
         internal static void CloseDialog() => Close();
@@ -47,6 +51,8 @@ namespace OrbitRender.UI
             Close();
             editor = owner;
             draft = Draft.From(Main.Settings);
+            replayManifestPath = null;
+            replayRuns = null;
             selectedUserPreset = null;
             selectedTab = 0;
             showHelp = false;
@@ -64,6 +70,32 @@ namespace OrbitRender.UI
         internal static void Refresh(RendererController renderer)
         {
             if (!open || canvasObject == null) return;
+            if (replayJobId != null && Time.unscaledTime >= nextReplayPoll)
+            {
+                nextReplayPoll = Time.unscaledTime + 0.5f;
+                try
+                {
+                    var status = OrbitRender.TufReplay.TufReplayBridge.Status(replayJobId);
+                    var state = OrbitRender.TufReplay.TufReplayBridge.Read(status, "State");
+                    if (state == "completed")
+                    {
+                        var path = OrbitRender.TufReplay.TufReplayBridge.Read(status, "ManifestPath");
+                        var bundle = TUFReplayRenderer.Contracts.RecordingBundle.Load(path);
+                        bundle.ValidateLevelHash();
+                        replayManifestPath = path;
+                        replayJobId = null;
+                        error = string.Empty;
+                        RebuildContent();
+                    }
+                    else if (state == "failed" || state == "cancelled")
+                    {
+                        error = OrbitRender.TufReplay.TufReplayBridge.Read(status, "ErrorMessage") ?? Localization.Get("replay-export-failed");
+                        replayJobId = null;
+                        RebuildContent();
+                    }
+                }
+                catch (Exception ex) { replayJobId = null; error = ex.Message; RebuildContent(); }
+            }
             RefreshLayout();
             if (Time.unscaledTime >= nextStorageRefresh) { nextStorageRefresh = Time.unscaledTime + 1f; RefreshStorage(); }
             if (selectedTab == 3 && queueRevision != RendererController.Queue.Revision) { RebuildContent(); return; }
@@ -371,6 +403,61 @@ namespace OrbitRender.UI
             }
             else if (selectedTab == 2)
             {
+                var list = UguiFactory.Button(content, Localization.Get("replay-list"), () => {
+                    try { replayRuns = OrbitRender.TufReplay.TufReplayBridge.ListRuns(editor?.customLevel?.levelPath); error = string.Empty; }
+                    catch (Exception ex) { replayRuns = null; error = ex.Message; }
+                    RebuildContent();
+                });
+                UguiFactory.Preferred(list, 0f, 34f);
+                if (replayJobId != null)
+                {
+                    var preparing = UguiFactory.Text(content, Localization.Get("replay-preparing"), UiLayout.LabelFontSize, TextAnchor.UpperLeft, UguiFactory.Muted);
+                    UguiFactory.Preferred(preparing, 0f, 30f);
+                }
+                else if (replayRuns != null)
+                {
+                    if (replayRuns.Count == 0)
+                    {
+                        var empty = UguiFactory.Text(content, Localization.Get("replay-empty"), UiLayout.LabelFontSize, TextAnchor.UpperLeft, UguiFactory.Muted);
+                        UguiFactory.Preferred(empty, 0f, 30f);
+                    }
+                    foreach (var run in replayRuns)
+                    {
+                        var chosen = run;
+                        DateTime timestamp;
+                        var time = DateTime.TryParse(chosen.StartedUtc, out timestamp) ? timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : chosen.StartedUtc;
+                        var button = UguiFactory.Button(content, time + " · " + chosen.Result + " · #" + chosen.StartTile, () => {
+                            try {
+                                var status = OrbitRender.TufReplay.TufReplayBridge.Start(chosen.Id, editor.customLevel.levelPath);
+                                replayJobId = OrbitRender.TufReplay.TufReplayBridge.Read(status, "JobId");
+                                if (string.IsNullOrEmpty(replayJobId)) throw new InvalidOperationException(Localization.Get("replay-export-failed"));
+                                replayManifestPath = null; nextReplayPoll = 0; error = string.Empty;
+                            } catch (Exception ex) { error = ex.Message; }
+                            RebuildContent();
+                        });
+                        UguiFactory.Preferred(button, 0f, 34f);
+                    }
+                }
+                var replay = UguiFactory.Button(content, Localization.Get("replay-select"), () => {
+                    if (replayJobId != null) { error = Localization.Get("replay-preparing"); return; }
+                    var file = FileDialogService.PickFile(Main.Settings.ResolveOutputDirectory(), "replay-select");
+                    if (string.IsNullOrEmpty(file)) return;
+                    try {
+                        var bundle = TUFReplayRenderer.Contracts.RecordingBundle.Load(file);
+                        bundle.ValidateLevelHash();
+                        replayManifestPath = file;
+                        error = string.Empty;
+                    } catch (Exception ex) { error = ex.Message; }
+                    RebuildContent();
+                });
+                UguiFactory.Preferred(replay, 0f, 34f);
+                if (!string.IsNullOrEmpty(replayManifestPath))
+                {
+                    var name = UguiFactory.Text(content, replayManifestPath, UiLayout.LabelFontSize, TextAnchor.UpperLeft, UguiFactory.Muted);
+                    UguiFactory.Preferred(name, 0f, 40f);
+                    var clear = UguiFactory.Button(content, Localization.Get("replay-clear"), () => { replayManifestPath = null; RebuildContent(); });
+                    UguiFactory.Preferred(clear, 0f, 34f);
+                }
                 var recovery = UguiFactory.Button(content, Localization.Get("recovery-retry"), () => {
                     var file = FileDialogService.PickFile(Main.Settings.ResolveOutputDirectory(), "recovery-select");
                     if (string.IsNullOrEmpty(file)) return;
@@ -419,6 +506,7 @@ namespace OrbitRender.UI
                 AddToggle(Localization.Get("show-countdown"), draft.ShowCountdown, v => draft.ShowCountdown = v);
                 AddToggle(Localization.Get("show-result-text-hit-judgments-stay-hidden"), draft.ShowResultText, v => draft.ShowResultText = v);
                 AddToggle(Localization.Get("show-hit-judgments"), draft.ShowHitJudgments, v => draft.ShowHitJudgments = v);
+                AddToggle(Localization.Get("show-mod-overlay"), draft.ShowModOverlay, v => draft.ShowModOverlay = v);
             }
             RefreshFieldErrors();
             UpdateContentLayout(position);
@@ -633,6 +721,8 @@ namespace OrbitRender.UI
 
         private static void AddQueueItem(bool selectionOnly)
         {
+            if (replayJobId != null) { error = Localization.Get("replay-preparing"); Refresh(RendererController.Instance); return; }
+            if (!string.IsNullOrEmpty(replayManifestPath)) { error = Localization.Get("replay-no-queue"); Refresh(RendererController.Instance); return; }
             if (editor == null || editor.isLoading || editor.customLevel == null || editor.customLevel.levelData == null)
             { error = Localization.Get("open-a-custom-level-then-render"); Refresh(RendererController.Instance); return; }
             if (!TryValidatedOptions(out var options, out var message)) { error = message; Refresh(RendererController.Instance); return; }
@@ -762,8 +852,11 @@ namespace OrbitRender.UI
         }
         private static void Confirm(RendererController renderer, bool selectionOnly)
         {
+            if (replayJobId != null) { error = Localization.Get("replay-preparing"); Refresh(renderer); return; }
+            if (selectionOnly && !string.IsNullOrEmpty(replayManifestPath)) { error = Localization.Get("replay-no-selection"); Refresh(renderer); return; }
             if (renderer == null || renderer.Busy || RendererController.Queue.IsRunning) { error = Localization.Get("a-render-is-already-in-progress"); Refresh(renderer); return; }
             if (!TryValidatedOptions(out var options, out var message)) { error = message; Refresh(renderer); return; }
+            options.ReplayManifestPath = replayManifestPath;
             RefreshFilenamePreview();
             if (!string.IsNullOrEmpty(filenameError)) { error = filenameError; Refresh(renderer); return; }
             if (selectionOnly) { var selected = GetSelectedTileRange(); if (selected.Length < 2) {
@@ -776,7 +869,8 @@ namespace OrbitRender.UI
         private static int[] GetSelectedTileRange() => editor != null && editor.selectedFloors != null
             ? editor.selectedFloors.Where(f => f != null).Select(f => f.seqID).Distinct().OrderBy(id => id).ToArray() : new int[0];
         private static void Close()
-        { PresetSaveModal.Close(); AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
+        { if (replayJobId != null) { try { OrbitRender.TufReplay.TufReplayBridge.Cancel(replayJobId); } catch (Exception ex) { Main.Entry.Logger.Error("[Replay] " + ex); } replayJobId = null; }
+            PresetSaveModal.Close(); AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
             canvasObject = null; panelRect = null; content = null; scrollRect = null; errorText = null; audioPreviewText = null;
             storageText = null;
             nextStorageRefresh = 0;
@@ -800,7 +894,7 @@ namespace OrbitRender.UI
             internal string WidthText, HeightText, FpsText, VideoFpsText, BitrateText, EndDelayText, AudioGainDbText;
             internal float AudioGainDb;
             internal bool UseRustRenderer, CaptureAudio, ShowRenderPreview, BgaMode, ShowPlanetRings, ShowSongTitle, ShowCountdown,
-                ShowResultText, ShowHitJudgments, OpenOutputFolder, SaveAsDefault;
+                ShowResultText, ShowHitJudgments, ShowModOverlay, OpenOutputFolder, SaveAsDefault;
             internal EncoderSpeed Encoding; internal VideoEncoder Encoder; internal VideoCodec Codec; internal VideoBitDepth BitDepth;
             internal static Draft From(RendererSettings s) => new Draft { Preset = s.Preset, BufferPolicy = s.BufferPolicy,
                 WidthText = s.Width.ToString(CultureInfo.InvariantCulture), HeightText = s.Height.ToString(CultureInfo.InvariantCulture),
@@ -809,7 +903,7 @@ namespace OrbitRender.UI
                 AudioGainDb = RendererSettings.ClampAudioGainDb(s.AudioGainDb), CaptureAudio = s.CaptureAudio, AudioCodec = s.AudioCodec,
                 UseRustRenderer = s.UseRustRenderer, ShowRenderPreview = s.ShowRenderPreview, BgaMode = s.BgaMode, ShowPlanetRings = s.ShowPlanetRings,
                 ShowSongTitle = s.ShowSongTitle, ShowCountdown = s.ShowCountdown, ShowResultText = s.ShowResultText,
-                ShowHitJudgments = s.ShowHitJudgments, OpenOutputFolder = s.OpenOutputFolder, Encoding = s.Encoding,
+                ShowHitJudgments = s.ShowHitJudgments, ShowModOverlay = s.ShowModOverlay, OpenOutputFolder = s.OpenOutputFolder, Encoding = s.Encoding,
                 Encoder = s.Encoder, Codec = s.Codec, BitDepth = s.BitDepth, Container = s.Container, FileNameFormat = s.FileNameFormat };
             internal void ApplyPreset() { switch (Preset) { case RendererPreset.Preview: SetVideoValues(1280,720,30,30,8); break;
                 case RendererPreset.QHD: SetVideoValues(2560,1440,60,60,30); break; case RendererPreset.UHD4K: SetVideoValues(3840,2160,60,60,50); break;
@@ -842,13 +936,13 @@ namespace OrbitRender.UI
                 options=new RenderRequestOptions { Preset=Preset,BufferPolicy=BufferPolicy,EndDelaySeconds=endDelay,CaptureAudio=CaptureAudio,AudioGainDb=RendererSettings.ClampAudioGainDb(AudioGainDb),
                     AudioCodec=AudioCodecCatalog.CompatibleSelection(AudioCodec,OutputFormat.Extension(Container,Codec)),
                     UseRustRenderer=UseRustRenderer,ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
-                    ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
+                    ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,ShowModOverlay=ShowModOverlay,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
                     Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
                 if(Preset==RendererPreset.Custom){options.Width=width;options.Height=height;options.BitrateMbps=bitrate;} return true; }
             internal void ApplyTo(RendererSettings s, RenderRequestOptions o)
             { s.BufferPolicy=BufferPolicy;s.UseRustRenderer=UseRustRenderer;s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;s.BitrateMbps=o.BitrateMbps.Value;}
                 s.EndDelaySeconds=o.EndDelaySeconds.Value;s.CaptureAudio=CaptureAudio;s.AudioGainDb=o.AudioGainDb.Value;s.AudioCodec=o.AudioCodec.Value;s.ShowRenderPreview=ShowRenderPreview;s.BgaMode=BgaMode;
-                s.ShowPlanetRings=ShowPlanetRings;s.ShowSongTitle=ShowSongTitle;s.ShowCountdown=ShowCountdown;s.ShowResultText=ShowResultText;s.ShowHitJudgments=ShowHitJudgments;
+                s.ShowPlanetRings=ShowPlanetRings;s.ShowSongTitle=ShowSongTitle;s.ShowCountdown=ShowCountdown;s.ShowResultText=ShowResultText;s.ShowHitJudgments=ShowHitJudgments;s.ShowModOverlay=ShowModOverlay;
                 s.Container=Container;s.FileNameFormat=FileNameFormat;s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }
             private void SetVideoValues(int w,int h,int f,int vf,int b){WidthText=w.ToString(CultureInfo.InvariantCulture);HeightText=h.ToString(CultureInfo.InvariantCulture);
                 FpsText=f.ToString(CultureInfo.InvariantCulture);VideoFpsText=vf.ToString(CultureInfo.InvariantCulture);BitrateText=b.ToString(CultureInfo.InvariantCulture);}

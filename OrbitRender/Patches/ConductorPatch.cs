@@ -113,6 +113,17 @@ namespace OrbitRender.Patches
         }
     }
 
+    [HarmonyPatch(typeof(scrConductor), "ScrubMusicToTime")]
+    internal static class ReplayCheckpointMusicPatch
+    {
+        static bool Prefix(scrConductor __instance, double newTime)
+        {
+            if (!RendererController.ReplayActive) return true;
+            RendererController.Instance.ScrubReplayAudio(__instance, newTime);
+            return false;
+        }
+    }
+
     [HarmonyPatch(typeof(scrConductor), "PlayHitTimes")]
     internal static class BgaHitSoundPatch
     {
@@ -152,7 +163,7 @@ namespace OrbitRender.Patches
             // live input and must not shift an export, but addoffset is the
             // level-authored song offset and must remain in the chart clock.
             value = RendererController.Instance.Clock.SongPosition(__instance.dspTimeSong,
-                __instance.song.pitch, __instance.addoffset, 0.0);
+                __instance.song.pitch, __instance.addoffset, RendererController.InputCalibrationSeconds);
         }
     }
 }
