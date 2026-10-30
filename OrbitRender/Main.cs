@@ -19,6 +19,7 @@ namespace OrbitRender
         internal static RendererRpcServer RpcServer { get; private set; }
         private static ADOFAIIpcBridge ipcBridge;
         internal static RendererSettings Settings;
+        internal static bool IsBatchMode { get; private set; }
         private static Harmony harmony;
         private static GameObject host;
         private static string diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
@@ -52,6 +53,7 @@ namespace OrbitRender
         public static bool Load(UnityModManager.ModEntry entry)
         {
             Entry = entry;
+            IsBatchMode = Application.isBatchMode;
             Localization.Initialize(entry.Path);
             try
             {
@@ -66,7 +68,10 @@ namespace OrbitRender
                 host.AddComponent<RendererController>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Enabled = true;
+                if (IsBatchMode) RpcEnabled = true;
                 StartRpcServer();
+                // Batchmode still performs the normal FFmpeg availability check;
+                // installation remains gated by explicit user consent.
                 FfmpegInstaller.Start(entry, Settings);
                 UpdateManager.Start(entry);
                 entry.OnToggle = (mod, enabled) =>
@@ -83,24 +88,27 @@ namespace OrbitRender
                     else StartRpcServer();
                     return true;
                 };
-                entry.OnGUI = mod =>
+                if (!IsBatchMode)
                 {
-                    if (Settings == null) return;
-                    if (!diagnosticsHaveRun)
+                    entry.OnGUI = mod =>
                     {
-                        diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
-                        diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
-                    }
-                    var previousGuiEnabled = GUI.enabled;
-                    GUI.enabled = previousGuiEnabled && !PresetSaveModal.IsOpen && !NoticeModal.IsOpen;
-                    try { DrawSettings(); }
-                    finally { GUI.enabled = previousGuiEnabled; }
-                };
+                        if (Settings == null) return;
+                        if (!diagnosticsHaveRun)
+                        {
+                            diagnosticsSummary = Localization.Get("diagnostics-have-not-been-run");
+                            diagnosticsReport = Localization.Get("click-run-diagnostics-to-check-ffmpeg-the-output-folder");
+                        }
+                        var previousGuiEnabled = GUI.enabled;
+                        GUI.enabled = previousGuiEnabled && !PresetSaveModal.IsOpen && !NoticeModal.IsOpen;
+                        try { DrawSettings(); }
+                        finally { GUI.enabled = previousGuiEnabled; }
+                    };
+                    entry.OnSaveGUI = mod => Settings?.Save(mod);
+                }
                 entry.OnUpdate = (mod, deltaTime) =>
                 {
                     UpdateManager.PumpMainThread();
                 };
-                entry.OnSaveGUI = mod => Settings?.Save(mod);
                 entry.OnUnload = mod =>
                 {
                     ExportVideoDialog.CloseDialog();
@@ -129,7 +137,7 @@ namespace OrbitRender
 
         private static void ReadCommandLineOptions()
         {
-            RpcEnabled = false;
+            RpcEnabled = IsBatchMode;
             RpcPort = 1108;
             foreach (var argument in Environment.GetCommandLineArgs())
             {

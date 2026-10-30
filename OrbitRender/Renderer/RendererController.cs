@@ -35,7 +35,9 @@ namespace OrbitRender.Renderer
         // preflight and finalization. ControlsTime is intentionally narrower
         // because it only describes simulation ownership.
         internal static bool InputBlocked => (Instance != null && Instance.Busy)
-            || OrbitRender.UI.ExportVideoDialog.IsOpen || OrbitRender.UI.CompletionScreen.BlocksInput || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen;
+            || (!Main.IsBatchMode && (OrbitRender.UI.ExportVideoDialog.IsOpen
+                || OrbitRender.UI.CompletionScreen.BlocksInput
+                || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen));
         internal static bool ShowHitJudgments => Instance != null && Instance.showHitJudgmentsForRun;
         internal static bool BgaModeActive => Instance != null && Instance.bgaModeForRun
             && (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering
@@ -177,7 +179,7 @@ namespace OrbitRender.Renderer
             }
         }
 
-        private void Awake() { Instance = this; }
+        private void Awake() { Instance = this; useGUILayout = false; }
         public void StartRender()
         {
             StartRender(null);
@@ -186,14 +188,14 @@ namespace OrbitRender.Renderer
         internal void StartRender(RenderRequestOptions requestOptions)
         {
             if (Busy || !Main.Enabled) return;
-            OrbitRender.UI.AudioPreview.Stop();
-            if (FfmpegInstaller.IsDownloading)
+            if (!Main.IsBatchMode) OrbitRender.UI.AudioPreview.Stop();
+            if (!Main.IsBatchMode && FfmpegInstaller.IsDownloading)
             {
                 Message = FfmpegInstaller.StatusMessage;
                 ShowToast(Message, 5f, false);
                 return;
             }
-            if (FfmpegInstaller.IsAwaitingConsent)
+            if (!Main.IsBatchMode && FfmpegInstaller.IsAwaitingConsent)
             {
                 Message = Localization.Get("ffmpeg-installation-requires-your-confirmation-before-r");
                 activeRpcJob?.Fail(Message);
@@ -422,8 +424,8 @@ namespace OrbitRender.Renderer
             else if (State == RenderState.Cancelled) Queue.Complete(QueueItemState.Cancelled, OutputPath, Message);
             ToastText = text ?? string.Empty;
             toastUntil = Time.unscaledTime + Mathf.Max(0.5f, seconds);
-            if (State == RenderState.Failed || State == RenderState.Cancelled
-                || (State != RenderState.Completed && !Busy && !FfmpegInstaller.IsInstallPromptVisible))
+            if (!Main.IsBatchMode && (State == RenderState.Failed || State == RenderState.Cancelled
+                || (State != RenderState.Completed && !Busy && !FfmpegInstaller.IsInstallPromptVisible)))
                 OrbitRender.UI.NoticeModal.Open(ToastText, State == RenderState.Failed, (preserveRecovery || recoveryManifest != null) ? (Action)(() => RetryAudioMux(recoveryManifest ?? OutputPath + RenderRecovery.Suffix)) : null);
         }
         private void ShowProgressToast()
@@ -1331,8 +1333,11 @@ namespace OrbitRender.Renderer
             }
 
             var uiStart = System.Diagnostics.Stopwatch.GetTimestamp();
-            OrbitRender.UI.ExportVideoDialog.Refresh(this);
-            OrbitRender.UI.RendererWindow.Sync(this);
+            if (!Main.IsBatchMode)
+            {
+                OrbitRender.UI.ExportVideoDialog.Refresh(this);
+                OrbitRender.UI.RendererWindow.Sync(this);
+            }
             var uiElapsed = System.Diagnostics.Stopwatch.GetTimestamp() - uiStart;
             if (State == RenderState.Rendering)
             {
@@ -1368,8 +1373,9 @@ namespace OrbitRender.Renderer
             }
             escapeHeldAt = -1;
             forceCancelTriggered = false;
-            if (OrbitRender.UI.CompletionScreen.BlocksInput || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen) return;
-            if (Input.GetKeyDown(KeyCode.F6) && Main.Enabled && ADOBase.editor != null
+            if (!Main.IsBatchMode
+                && (OrbitRender.UI.CompletionScreen.BlocksInput || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen)) return;
+            if (!Main.IsBatchMode && Input.GetKeyDown(KeyCode.F6) && Main.Enabled && ADOBase.editor != null
                 && !OrbitRender.UI.ExportVideoDialog.IsOpen
                 && !FfmpegInstaller.IsInstallPromptVisible)
                 OrbitRender.UI.ExportVideoDialog.Open(ADOBase.editor);
@@ -1703,7 +1709,7 @@ namespace OrbitRender.Renderer
         internal void StartRenderQueue()
         {
             if (Busy || !Queue.HasPending) return;
-            OrbitRender.UI.CompletionScreen.Dispose();
+            if (!Main.IsBatchMode) OrbitRender.UI.CompletionScreen.Dispose();
             DismissCompletion();
             Queue.Start();
         }
@@ -1724,15 +1730,16 @@ namespace OrbitRender.Renderer
                     if (finished.Options.OpenOutputFolder == true) OpenOutputFolder();
                 }
             }
-            if (!Queue.IsRunning || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.ExportVideoDialog.IsOpen) return;
+            if (!Queue.IsRunning || (!Main.IsBatchMode
+                && (OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.ExportVideoDialog.IsOpen))) return;
             var next = Queue.BeginNext(ADOBase.editor != null && ADOBase.editor.customLevel != null ? ADOBase.editor.customLevel.levelData : null);
             if (next == null)
             {
-                if (Queue.HasPending) OrbitRender.UI.NoticeModal.Open(Localization.Get("queue-level-changed"));
+                if (Queue.HasPending && !Main.IsBatchMode) OrbitRender.UI.NoticeModal.Open(Localization.Get("queue-level-changed"));
                 return;
             }
             DismissCompletion();
-            OrbitRender.UI.CompletionScreen.Dispose();
+            if (!Main.IsBatchMode) OrbitRender.UI.CompletionScreen.Dispose();
             var options = next.Options;
             options.OpenOutputFolder = false;
             try {
@@ -2179,8 +2186,11 @@ namespace OrbitRender.Renderer
         {
             shuttingDown = true;
             Queue.Pause(); Queue.Complete(QueueItemState.Cancelled, OutputPath, Message);
-            OrbitRender.UI.RendererWindow.Dispose();
-            OrbitRender.UI.ExportVideoDialog.CloseDialog();
+            if (!Main.IsBatchMode)
+            {
+                OrbitRender.UI.RendererWindow.Dispose();
+                OrbitRender.UI.ExportVideoDialog.CloseDialog();
+            }
             StopAndClean();
             TryCleanup(DisposePendingSongRequest);
             TryCleanup(DisposeSongRequest);

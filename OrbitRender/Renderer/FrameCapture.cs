@@ -180,11 +180,14 @@ namespace OrbitRender.Renderer
         public long BindCalls => bindCalls;
         public long BindPropertyWrites => bindPropertyWrites;
         internal string RawFrameFormat => readbackFormat == TextureFormat.RGB24 ? "rgb24" : "rgba";
-        private readonly bool manualGameplay = Environment.GetEnvironmentVariable("ORBITRENDER_MANUAL_CAMERAS") == "1";
+        private readonly bool manualGameplay = Main.IsBatchMode
+            ? Environment.GetEnvironmentVariable("ORBITRENDER_MANUAL_CAMERAS") != "0"
+            : Environment.GetEnvironmentVariable("ORBITRENDER_MANUAL_CAMERAS") == "1";
 
         internal void RenderGameplayFrame()
         {
             if (!manualGameplay) return;
+            Bind();
             foreach (var state in cameras)
                 if (state.Camera != null && state.Camera != hudOverlayCamera && state.Camera.gameObject.activeInHierarchy)
                     state.Camera.Render();
