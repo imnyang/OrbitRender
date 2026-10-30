@@ -593,6 +593,45 @@ namespace OrbitRender.Renderer
             return hidden;
         }
 
+        private sealed class JrpPosition
+        {
+            internal RectTransform Transform;
+            internal Vector2 Position;
+        }
+
+        private static List<JrpPosition> CompactJrpStatus(IEnumerable<CanvasState> states)
+        {
+            var moved = new List<JrpPosition>();
+            foreach (var state in states)
+            {
+                if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
+                var main = state.Canvas.transform.Find("Main");
+                if (main == null) continue;
+                var rows = new List<RectTransform>();
+                foreach (Transform child in main)
+                {
+                    var rect = child as RectTransform;
+                    var graphic = child.GetComponent<UnityEngine.UI.Graphic>();
+                    if (rect != null && child.gameObject.activeInHierarchy && graphic != null && graphic.enabled)
+                        rows.Add(rect);
+                }
+                rows.Sort((a, b) => b.anchoredPosition.y.CompareTo(a.anchoredPosition.y));
+                var slots = new List<float>();
+                foreach (var row in rows) slots.Add(row.anchoredPosition.y);
+                var next = 0;
+                foreach (var row in rows)
+                {
+                    if (IsExcludedJrpElement(row)) continue;
+                    var position = row.anchoredPosition;
+                    var y = slots[next++];
+                    if (Mathf.Approximately(position.y, y)) continue;
+                    moved.Add(new JrpPosition { Transform = row, Position = position });
+                    row.anchoredPosition = new Vector2(position.x, y);
+                }
+            }
+            return moved;
+        }
+
         private void RenderOutputFrame()
         {
             // Hall of Mirrors intentionally feeds prior gameplay frames back
@@ -608,10 +647,13 @@ namespace OrbitRender.Renderer
                 ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera);
                 state.Canvas.enabled = true;
             }
+            var jrpPositions = CompactJrpStatus(canvases);
             var hiddenJrpGraphics = HideExcludedJrpGraphics(canvases);
             try { hudOverlayCamera.Render(); }
             finally
             {
+                foreach (var position in jrpPositions)
+                    if (position.Transform != null) position.Transform.anchoredPosition = position.Position;
                 foreach (var graphic in hiddenJrpGraphics)
                     if (graphic != null) graphic.enabled = true;
                 foreach (var state in canvases)
