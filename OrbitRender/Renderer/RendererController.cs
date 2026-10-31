@@ -378,7 +378,7 @@ namespace OrbitRender.Renderer
             {
                 State = RenderState.Failed;
                 Message = Localization.Format("encoder-preflight-failed-value", reason);
-                activeRpcJob?.Fail(Message);
+                activeRpcJob?.Fail(Message, "render_encoder_unavailable");
                 activeRpcJob = null;
                 ShowToast(Message, 10f, false);
                 Main.Entry.Logger.Error("[Render] " + Message);
@@ -1898,7 +1898,7 @@ namespace OrbitRender.Renderer
             {
                 State = RenderState.Failed;
                 Message = ex.Message + ((preserveRecovery || recoveryManifest != null) ? "\n" + Localization.Format("recovery-preserved", recoveryManifest ?? OutputPath + RenderRecovery.Suffix) : "");
-                job.Fail(ex.Message);
+                job.Fail(DescribeFailure(ex));
                 ShowToast(Localization.Format("render-failed-value", Message), 10f);
                 Main.Entry.Logger.Error("[Render] RPC render preparation: " + ex);
             }
@@ -2033,8 +2033,27 @@ namespace OrbitRender.Renderer
             lastFailureReport = BuildDiagnosticReport(ex);
             State = RenderState.Failed;
             Message = ex.Message + ((preserveRecovery || recoveryManifest != null) ? "\n" + Localization.Format("recovery-preserved", recoveryManifest ?? OutputPath + RenderRecovery.Suffix) : "");
+            activeRpcJob?.Fail(DescribeFailure(ex));
             ShowToast(Localization.Format("render-failed-value", Message), 10f);
             Main.Entry.Logger.Error("[Render] Failed: " + ex);
+        }
+
+        // Keeps the structured fields (code/field/line/file) that the recording
+        // bundle parser produces so callers can show a precise message instead
+        // of a generic "render failed".
+        private static RenderErrorDetails DescribeFailure(Exception exception)
+        {
+            var format = exception as TUFReplayRenderer.Contracts.RecordingFormatException
+                ?? exception?.InnerException as TUFReplayRenderer.Contracts.RecordingFormatException;
+            if (format != null) return RenderErrorDetails.From(format);
+            var timeout = exception as TimeoutException;
+            if (timeout != null) return RenderErrorDetails.Create("render_preparation_timeout", timeout.Message);
+            var missing = exception as FileNotFoundException;
+            if (missing != null) return RenderErrorDetails.Create(RenderErrorCodes.LevelFileMissing, missing.Message, file: missing.FileName);
+            if (exception is OperationCanceledException)
+                return RenderErrorDetails.Create(RenderErrorCodes.Cancelled, "The render was cancelled.");
+            return RenderErrorDetails.Create(RenderErrorCodes.Failed,
+                string.IsNullOrEmpty(exception?.Message) ? "The render failed." : exception.Message);
         }
         internal void AbortWithError(Exception ex) { Fail(ex); StopAndClean(); }
         public void StopAndClean()

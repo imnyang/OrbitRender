@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Threading;
 using HarmonyLib;
 using UnityModManagerNet;
 using UnityEngine;
@@ -17,6 +18,10 @@ namespace OrbitRender
         internal static bool RpcEnabled { get; private set; }
         internal static int RpcPort { get; private set; } = 1108;
         internal static RendererRpcServer RpcServer { get; private set; }
+        // Shared by the HTTP listener, ADOFAI IPC, and RenderApi. Always present
+        // while the mod is loaded so other mods can drive renders even when the
+        // loopback HTTP listener was not requested.
+        internal static RenderJobService RenderJobs { get; private set; }
         private static ADOFAIIpcBridge ipcBridge;
         internal static RendererSettings Settings;
         internal static bool IsBatchMode { get; private set; }
@@ -51,9 +56,13 @@ namespace OrbitRender
         private static bool filesExpanded;
         private static bool replayKeyCompatibilityReady;
 
+        internal static int MainThreadId { get; private set; } = -1;
+        internal static bool IsMainThread => MainThreadId == Thread.CurrentThread.ManagedThreadId;
+
         public static bool Load(UnityModManager.ModEntry entry)
         {
             Entry = entry;
+            MainThreadId = Thread.CurrentThread.ManagedThreadId;
             IsBatchMode = Application.isBatchMode;
             Localization.Initialize(entry.Path);
             try
@@ -170,18 +179,24 @@ namespace OrbitRender
 
         private static void StartRpcServer()
         {
-            if (RpcServer != null || RendererController.Instance == null) return;
+            if (RenderJobs != null || RendererController.Instance == null) return;
             try
             {
-                RpcServer = new RendererRpcServer(RendererController.Instance, RpcPort);
-                // The shared job service is always available to optional AdofaiIpc.
-                // Only the primary HTTP listener requires the launch option.
-                if (RpcEnabled) RpcServer.Start();
-                ipcBridge = new ADOFAIIpcBridge(RpcServer);
+                // The shared job service is always available to optional AdofaiIpc
+                // and to other mods through RenderApi. Only the primary HTTP
+                // listener requires the launch option.
+                RenderJobs = new RenderJobService(RendererController.Instance);
+                if (RpcEnabled)
+                {
+                    RpcServer = new RendererRpcServer(RenderJobs, RpcPort);
+                    RpcServer.Start();
+                }
+                ipcBridge = new ADOFAIIpcBridge(RenderJobs);
                 ipcBridge.Initialize();
             }
             catch (Exception ex)
             {
+                RenderJobs = null;
                 RpcServer = null;
                 Entry.Logger.Error("[System] Renderer RPC could not start on port " + RpcPort + ": " + ex);
             }
@@ -193,6 +208,7 @@ namespace OrbitRender
             ipcBridge = null;
             var server = RpcServer;
             RpcServer = null;
+            RenderJobs = null;
             try { server?.Dispose(); } catch (Exception ex) { Entry.Logger.Error("[System] Renderer RPC shutdown: " + ex); }
         }
 
@@ -207,7 +223,7 @@ namespace OrbitRender
                 host = new GameObject("OrbitRender");
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<RendererController>();
-                RpcServer?.Rebind(RendererController.Instance);
+                RenderJobs?.Rebind(RendererController.Instance);
                 Entry.Logger.Log("[System] Renderer host recreated after scene load: " + scene.name);
             }
         }

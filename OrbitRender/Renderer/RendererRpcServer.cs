@@ -1,207 +1,28 @@
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
 using Newtonsoft.Json;
-using OrbitRender;
 
 namespace OrbitRender.Renderer
 {
-    internal sealed class RpcRenderRequest
-    {
-        public RpcRenderJob Job;
-    }
-
-    internal sealed class RpcRenderOptions
-    {
-        public RendererPreset? Preset;
-        public int? Width;
-        public int? Height;
-        public int? TargetFps;
-        public int? VideoFps;
-        public int? BitrateMbps;
-        public float? EndDelaySeconds;
-        public float? AudioGainDb;
-        public AudioCodec? AudioCodec;
-        public bool? BgaMode;
-        public bool? ShowPlanetRings;
-        public bool? ShowSongTitle;
-        public bool? ShowCountdown;
-        public bool? ShowResultText;
-        public bool? ShowHitJudgments;
-        public bool? ShowModOverlay;
-        public VideoCodec? VideoCodec;
-        public VideoBitDepth? BitDepth;
-
-        public bool HasValues
-        {
-            get { return Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
-                || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
-                || ShowPlanetRings.HasValue
-                || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
-                || ShowHitJudgments.HasValue || ShowModOverlay.HasValue
-                || VideoCodec.HasValue || BitDepth.HasValue; }
-        }
-
-        public object Snapshot()
-        {
-            return new
-            {
-                preset = Preset.HasValue ? Preset.Value.ToString() : null,
-                width = Width,
-                height = Height,
-                targetFps = TargetFps,
-                videoFps = VideoFps,
-                fps = VideoFps,
-                bitrateMbps = BitrateMbps,
-                endDelaySeconds = EndDelaySeconds,
-                audioGainDb = AudioGainDb,
-                audioCodec = AudioCodec.HasValue ? AudioCodec.Value.ToString() : null,
-                bgaMode = BgaMode,
-                showPlanetRings = ShowPlanetRings,
-                showSongTitle = ShowSongTitle,
-                showCountdown = ShowCountdown,
-                showResultText = ShowResultText,
-                showHitJudgments = ShowHitJudgments,
-                showModOverlay = ShowModOverlay,
-                videoCodec = VideoCodec.HasValue ? VideoCodec.Value.ToString() : null,
-                bitDepth = BitDepth.HasValue ? (int)(BitDepth.Value == VideoBitDepth.Ten ? 10 : 8) : (int?)null
-            };
-        }
-    }
-
-    internal sealed class RpcCancelRequest
-    {
-        public string JobId;
-    }
-
-    internal enum RpcJobState
-    {
-        Queued,
-        Loading,
-        Preparing,
-        Rendering,
-        Finishing,
-        AwaitingConfirmation,
-        Completed,
-        Failed,
-        Cancelled
-    }
-
-    internal sealed class RpcRenderJob
-    {
-        private readonly object sync = new object();
-        private RpcJobState state = RpcJobState.Queued;
-        private string error;
-        private string outputPath;
-        private long totalFrames;
-        private long capturedFrames;
-        private DateTime updatedUtc = DateTime.UtcNow;
-
-        public RpcRenderJob(string id, string levelPath, bool captureAudio, RpcRenderOptions options, string replayManifestPath = null)
-        {
-            Id = id;
-            LevelPath = levelPath;
-            CaptureAudio = captureAudio;
-            Options = options;
-            ReplayManifestPath = replayManifestPath;
-        }
-
-        public string Id { get; }
-        public string LevelPath { get; }
-        public string ReplayManifestPath { get; }
-        public bool CaptureAudio { get; }
-        public RpcRenderOptions Options { get; }
-
-        public void SetState(RpcJobState value, string message = null)
-        {
-            lock (sync)
-            {
-                state = value;
-                error = message;
-                updatedUtc = DateTime.UtcNow;
-            }
-        }
-
-        public void SetProgress(long captured, long total, string output)
-        {
-            lock (sync)
-            {
-                capturedFrames = captured;
-                totalFrames = total;
-                if (!string.IsNullOrEmpty(output)) outputPath = output;
-                updatedUtc = DateTime.UtcNow;
-            }
-        }
-
-        public void Fail(string message) { SetState(RpcJobState.Failed, message); }
-        public void Cancel() { SetState(RpcJobState.Cancelled); }
-
-        public RpcJobState State
-        {
-            get
-            {
-                lock (sync) return state;
-            }
-        }
-
-        public bool IsTerminal
-        {
-            get
-            {
-                var value = State;
-                return value == RpcJobState.Completed || value == RpcJobState.Failed || value == RpcJobState.Cancelled;
-            }
-        }
-
-        public string OutputPath
-        {
-            get { lock (sync) return outputPath; }
-        }
-
-        internal string CompletedOutputPath
-        {
-            get { lock (sync) return state == RpcJobState.Completed ? outputPath : null; }
-        }
-
-        public object Snapshot()
-        {
-            lock (sync)
-            {
-                return new
-                {
-                    id = Id,
-                    state = state.ToString().ToLowerInvariant(),
-                    levelPath = LevelPath,
-                    settings = Options?.Snapshot(),
-                    outputPath,
-                    totalFrames,
-                    capturedFrames,
-                    progress = totalFrames > 0 ? Math.Min(1.0, capturedFrames / (double)totalFrames) : 0.0,
-                    error,
-                    updatedUtc = updatedUtc.ToString("o")
-                };
-            }
-        }
-    }
-
+    /// <summary>
+    /// Optional loopback HTTP front end over <see cref="RenderJobService"/>.
+    /// Jobs and state live in the service so the HTTP listener, ADOFAI IPC, and
+    /// the C# <see cref="RenderApi"/> facade always agree.
+    /// </summary>
     internal sealed class RendererRpcServer : IDisposable
     {
-        private volatile RendererController controller;
+        private readonly RenderJobService jobs;
         private readonly int port;
         private readonly HttpListener listener = new HttpListener();
-        private readonly ConcurrentDictionary<string, RpcRenderJob> jobs =
-            new ConcurrentDictionary<string, RpcRenderJob>(StringComparer.OrdinalIgnoreCase);
         private Thread thread;
         private volatile bool stopping;
 
-        public RendererRpcServer(RendererController controller, int port)
+        public RendererRpcServer(RenderJobService jobs, int port)
         {
-            this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
+            this.jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
             this.port = port;
         }
 
@@ -213,18 +34,6 @@ namespace OrbitRender.Renderer
             thread = new Thread(ListenLoop) { IsBackground = true, Name = "OrbitRender RPC" };
             thread.Start();
             Main.Entry.Logger.Log("[RPC] Renderer RPC listening on http://127.0.0.1:" + port + "/");
-        }
-
-        public void Rebind(RendererController replacement)
-        {
-            if (replacement == null) return;
-            controller = replacement;
-            foreach (var job in jobs.Values)
-            {
-                if (job.State != RpcJobState.Queued && job.State != RpcJobState.Loading) continue;
-                job.SetState(RpcJobState.Queued);
-                replacement.EnqueueRpcRender(new RpcRenderRequest { Job = job });
-            }
         }
 
         private void ListenLoop()
@@ -262,12 +71,12 @@ namespace OrbitRender.Renderer
                 var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 1 && parts[0].Equals("health", StringComparison.OrdinalIgnoreCase))
                 {
-                    WriteJson(context, 200, new { ok = true, renderer = controller.State.ToString().ToLowerInvariant() });
+                    WriteJson(context, 200, jobs.Health());
                     return;
                 }
                 if (parts.Length == 1 && parts[0].Equals("jobs", StringComparison.OrdinalIgnoreCase) && context.Request.HttpMethod == "GET")
                 {
-                    WriteJson(context, 200, jobs.Values.Select(j => j.Snapshot()).ToArray());
+                    WriteJson(context, 200, jobs.ListJobs());
                     return;
                 }
                 if (parts.Length == 1 && parts[0].Equals("render", StringComparison.OrdinalIgnoreCase)
@@ -278,8 +87,9 @@ namespace OrbitRender.Renderer
                 }
                 if (parts.Length >= 2 && parts[0].Equals("render", StringComparison.OrdinalIgnoreCase))
                 {
-                    var job = jobs.TryGetValue(parts[1], out var found) ? found : null;
-                    if (job == null) { WriteJson(context, 404, new { error = "Unknown render job." }); return; }
+                    RpcRenderJob job;
+                    try { job = jobs.FindJob(parts[1]); }
+                    catch (ArgumentException) { WriteJson(context, 404, new { error = "Unknown render job." }); return; }
                     if (parts.Length == 2 && context.Request.HttpMethod == "GET")
                     {
                         WriteJson(context, 200, job.Snapshot());
@@ -294,9 +104,8 @@ namespace OrbitRender.Renderer
                     if (parts.Length == 3 && parts[2].Equals("cancel", StringComparison.OrdinalIgnoreCase)
                         && (context.Request.HttpMethod == "POST" || context.Request.HttpMethod == "DELETE"))
                     {
-                        if (job.IsTerminal) { WriteJson(context, 409, new { error = "Render job has already finished." }); return; }
-                        controller.EnqueueRpcCancel(new RpcCancelRequest { JobId = job.Id });
-                        WriteJson(context, 202, new { id = job.Id, state = "cancelling" });
+                        try { WriteJson(context, 202, jobs.CancelJob(job.Id)); }
+                        catch (InvalidOperationException ex) { WriteJson(context, 409, new { error = ex.Message }); }
                         return;
                     }
                 }
@@ -311,11 +120,6 @@ namespace OrbitRender.Renderer
 
         private void CreateJob(HttpListenerContext context)
         {
-            if (controller.Busy)
-            {
-                WriteJson(context, 409, new { error = "A render is already in progress." });
-                return;
-            }
             if (context.Request.ContentLength64 < 0 || context.Request.ContentLength64 > 1024 * 1024)
             {
                 WriteJson(context, 413, new { error = "Request body is too large." });
@@ -323,239 +127,8 @@ namespace OrbitRender.Renderer
             }
             string body;
             using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8)) body = reader.ReadToEnd();
-            var result = CreateJob(body, out var status);
+            var result = jobs.CreateJob(body, out var status);
             WriteJson(context, status, result);
-        }
-
-        internal object CreateJob(string body, out int status)
-        {
-            status = 400;
-            if (controller.Busy)
-            {
-                status = 409;
-                return new { error = "A render is already in progress." };
-            }
-            var payload = JsonConvert.DeserializeObject<RpcRenderPayload>(body ?? "{}");
-            var path = payload?.LevelPath ?? payload?.Path;
-            if (!string.IsNullOrWhiteSpace(payload?.ReplayManifestPath))
-            {
-                try
-                {
-                    var bundle = TUFReplayRenderer.Contracts.RecordingBundle.Load(payload.ReplayManifestPath);
-                    var replayLevel = bundle.ResolveLevelPath();
-                    if (!string.IsNullOrWhiteSpace(path) && !string.Equals(Path.GetFullPath(path), Path.GetFullPath(replayLevel),
-                        Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-                        return new { error = "The replay does not match the requested level." };
-                    path = replayLevel;
-                }
-                catch (Exception ex) { return new { error = "Invalid replay bundle: " + ex.Message }; }
-            }
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return new { error = "JSON field 'levelPath' is required." };
-            }
-            try { path = Path.GetFullPath(path); }
-            catch (Exception ex) { return new { error = "Invalid levelPath: " + ex.Message }; }
-            if (!File.Exists(path))
-            {
-                return new { error = "Level file does not exist: " + path };
-            }
-            var options = ParseOptions(payload, out var optionsError);
-            if (optionsError != null)
-            {
-                return new { error = optionsError };
-            }
-            var id = Guid.NewGuid().ToString("N");
-            var job = new RpcRenderJob(id, path,
-                payload.CaptureAudio ?? payload.Audio ?? (Main.Settings == null || Main.Settings.CaptureAudio), options, payload.ReplayManifestPath);
-            jobs[id] = job;
-            controller.EnqueueRpcRender(new RpcRenderRequest { Job = job });
-            status = 202;
-            return new
-            {
-                id,
-                state = "queued",
-                statusUrl = "/render/" + id,
-                downloadUrl = "/render/" + id + "/download"
-            };
-        }
-
-        internal object Health() => new { ok = true, renderer = controller.State.ToString().ToLowerInvariant() };
-        internal object ListJobs() => jobs.Values.Select(job => job.Snapshot()).ToArray();
-        internal RpcRenderJob FindJob(string id)
-        {
-            if (string.IsNullOrWhiteSpace(id) || !jobs.TryGetValue(id, out var job))
-                throw new ArgumentException("Unknown render job.");
-            return job;
-        }
-        internal object CancelJob(string id)
-        {
-            var job = FindJob(id);
-            if (job.IsTerminal) throw new InvalidOperationException("Render job has already finished.");
-            controller.EnqueueRpcCancel(new RpcCancelRequest { JobId = job.Id });
-            return new { id = job.Id, state = "cancelling" };
-        }
-
-        private static RpcRenderOptions ParseOptions(RpcRenderPayload payload, out string error)
-        {
-            error = null;
-            if (payload == null) return null;
-            RendererPreset? preset = null;
-            if (!string.IsNullOrWhiteSpace(payload.Preset))
-            {
-                if (!TryParsePreset(payload.Preset, out var parsed))
-                {
-                    error = "Unknown preset. Use Custom, Preview, FullHD, QHD, or UHD4K.";
-                    return null;
-                }
-                preset = parsed;
-            }
-            if (payload.Width.HasValue && (payload.Width.Value < 320 || payload.Width.Value > 3840))
-            {
-                error = InvalidOption("width", "320..3840");
-                return null;
-            }
-            if (payload.Height.HasValue && (payload.Height.Value < 180 || payload.Height.Value > 2160))
-            {
-                error = InvalidOption("height", "180..2160");
-                return null;
-            }
-            var targetFps = payload.TargetFps;
-            var videoFps = payload.VideoFps ?? payload.Fps;
-            if (payload.VideoFps.HasValue && payload.Fps.HasValue && payload.VideoFps.Value != payload.Fps.Value)
-            {
-                error = "Use either 'videoFps' or 'fps'; both values must match.";
-                return null;
-            }
-            if (targetFps.HasValue && (targetFps.Value < 15 || targetFps.Value > 1024))
-            {
-                error = InvalidOption("targetFps", "15..1024");
-                return null;
-            }
-            if (videoFps.HasValue && (videoFps.Value < 15 || videoFps.Value > 240))
-            {
-                error = InvalidOption("videoFps", "15..240");
-                return null;
-            }
-            var bitrate = payload.BitrateMbps ?? payload.Bitrate;
-            if (payload.BitrateMbps.HasValue && payload.Bitrate.HasValue && payload.BitrateMbps.Value != payload.Bitrate.Value)
-            {
-                error = "Use either 'bitrateMbps' or 'bitrate'; both values must match.";
-                return null;
-            }
-            if (bitrate.HasValue && (bitrate.Value < 1 || bitrate.Value > 200))
-            {
-                error = InvalidOption("bitrateMbps", "1..200");
-                return null;
-            }
-            if (payload.EndDelaySeconds.HasValue && (float.IsNaN(payload.EndDelaySeconds.Value)
-                || float.IsInfinity(payload.EndDelaySeconds.Value) || payload.EndDelaySeconds.Value < 0f))
-            {
-                error = InvalidOption("endDelaySeconds", "finite number >= 0");
-                return null;
-            }
-            if (payload.AudioGainDb.HasValue && (float.IsNaN(payload.AudioGainDb.Value)
-                || float.IsInfinity(payload.AudioGainDb.Value)
-                || payload.AudioGainDb.Value < RendererSettings.MinAudioGainDb
-                || payload.AudioGainDb.Value > RendererSettings.MaxAudioGainDb))
-            {
-                error = InvalidOption("audioGainDb", "-60..12");
-                return null;
-            }
-            VideoCodec? videoCodec = null;
-            VideoCodec? primaryCodec = null;
-            VideoCodec? aliasCodec = null;
-            if (!string.IsNullOrWhiteSpace(payload.VideoCodec))
-            {
-                if (!VideoCodecCatalog.TryParse(payload.VideoCodec, out var parsedCodec))
-                {
-                    error = "Unknown videoCodec. Use H264, H265, VP9, AV1, ProRes, or FFV1.";
-                    return null;
-                }
-                primaryCodec = parsedCodec;
-            }
-            if (!string.IsNullOrWhiteSpace(payload.Codec))
-            {
-                if (!VideoCodecCatalog.TryParse(payload.Codec, out var parsedAliasCodec))
-                {
-                    error = "Unknown codec. Use H264, H265, VP9, AV1, ProRes, or FFV1.";
-                    return null;
-                }
-                aliasCodec = parsedAliasCodec;
-            }
-            if (primaryCodec.HasValue && aliasCodec.HasValue && primaryCodec.Value != aliasCodec.Value)
-            {
-                error = "Use either 'videoCodec' or 'codec'; both values must match.";
-                return null;
-            }
-            videoCodec = primaryCodec ?? aliasCodec;
-            VideoBitDepth? bitDepth = null;
-            if (payload.BitDepth.HasValue)
-            {
-                if (payload.BitDepth.Value != 8 && payload.BitDepth.Value != 10)
-                {
-                    error = "Option 'bitDepth' must be 8 or 10.";
-                    return null;
-                }
-                bitDepth = payload.BitDepth.Value == 10 ? VideoBitDepth.Ten : VideoBitDepth.Eight;
-            }
-            AudioCodec? audioCodec = null;
-            if (!string.IsNullOrWhiteSpace(payload.AudioCodec))
-            {
-                if (!Enum.TryParse<AudioCodec>(payload.AudioCodec, true, out var parsedAudio)
-                    || !Enum.IsDefined(typeof(AudioCodec), parsedAudio))
-                {
-                    error = "Unknown audioCodec. Use Auto, AAC, Opus, or Flac.";
-                    return null;
-                }
-                var extension = OutputFormat.Extension(Main.Settings?.Container ?? VideoContainer.Auto,
-                    videoCodec ?? Main.Settings?.Codec ?? VideoCodec.H264);
-                if (!AudioCodecCatalog.IsSupported(parsedAudio, extension))
-                {
-                    error = parsedAudio + " audio is not supported in " + extension + ".";
-                    return null;
-                }
-                audioCodec = parsedAudio;
-            }
-            var options = new RpcRenderOptions {
-                Preset = preset,
-                Width = payload.Width,
-                Height = payload.Height,
-                TargetFps = targetFps,
-                VideoFps = videoFps,
-                BitrateMbps = bitrate,
-                EndDelaySeconds = payload.EndDelaySeconds,
-                AudioGainDb = payload.AudioGainDb,
-                AudioCodec = audioCodec,
-                BgaMode = payload.BgaMode,
-                ShowPlanetRings = payload.ShowPlanetRings,
-                ShowSongTitle = payload.ShowSongTitle,
-                ShowCountdown = payload.ShowCountdown,
-                ShowResultText = payload.ShowResultText,
-                ShowHitJudgments = payload.ShowHitJudgments,
-                ShowModOverlay = payload.ShowModOverlay,
-                VideoCodec = videoCodec,
-                BitDepth = bitDepth
-            };
-            return options.HasValues ? options : null;
-        }
-
-        private static string InvalidOption(string name, string range)
-        {
-            return "Option '" + name + "' must be in range " + range + ".";
-        }
-
-        private static bool TryParsePreset(string value, out RendererPreset preset)
-        {
-            switch ((value ?? string.Empty).Trim().ToLowerInvariant())
-            {
-                case "custom": preset = RendererPreset.Custom; return true;
-                case "preview": preset = RendererPreset.Preview; return true;
-                case "fullhd": case "1080p": preset = RendererPreset.FullHD; return true;
-                case "qhd": case "1440p": preset = RendererPreset.QHD; return true;
-                case "uhd4k": case "4k": case "2160p": preset = RendererPreset.UHD4K; return true;
-                default: preset = RendererPreset.Custom; return false;
-            }
         }
 
         private static void Download(HttpListenerContext context, RpcRenderJob job)
@@ -595,36 +168,6 @@ namespace OrbitRender.Renderer
             if (thread != null && thread.IsAlive && !thread.Join(500))
                 Main.Entry.Logger.Log("[RPC] Renderer RPC listener thread did not stop immediately.");
             thread = null;
-        }
-
-        private sealed class RpcRenderPayload
-        {
-            [JsonProperty("levelPath")] public string LevelPath { get; set; }
-            [JsonProperty("replayManifestPath")] public string ReplayManifestPath { get; set; }
-            [JsonProperty("path")] public string Path { get; set; }
-            [JsonProperty("preset")] public string Preset { get; set; }
-            [JsonProperty("width")] public int? Width { get; set; }
-            [JsonProperty("height")] public int? Height { get; set; }
-            [JsonProperty("fps")] public int? Fps { get; set; }
-            [JsonProperty("targetFps")] public int? TargetFps { get; set; }
-            [JsonProperty("videoFps")] public int? VideoFps { get; set; }
-            [JsonProperty("bitrateMbps")] public int? BitrateMbps { get; set; }
-            [JsonProperty("bitrate")] public int? Bitrate { get; set; }
-            [JsonProperty("endDelaySeconds")] public float? EndDelaySeconds { get; set; }
-            [JsonProperty("audioGainDb")] public float? AudioGainDb { get; set; }
-            [JsonProperty("audioCodec")] public string AudioCodec { get; set; }
-            [JsonProperty("bgaMode")] public bool? BgaMode { get; set; }
-            [JsonProperty("showPlanetRings")] public bool? ShowPlanetRings { get; set; }
-            [JsonProperty("showSongTitle")] public bool? ShowSongTitle { get; set; }
-            [JsonProperty("showCountdown")] public bool? ShowCountdown { get; set; }
-            [JsonProperty("showResultText")] public bool? ShowResultText { get; set; }
-            [JsonProperty("showHitJudgments")] public bool? ShowHitJudgments { get; set; }
-            [JsonProperty("showModOverlay")] public bool? ShowModOverlay { get; set; }
-            [JsonProperty("videoCodec")] public string VideoCodec { get; set; }
-            [JsonProperty("codec")] public string Codec { get; set; }
-            [JsonProperty("bitDepth")] public int? BitDepth { get; set; }
-            [JsonProperty("captureAudio")] public bool? CaptureAudio { get; set; }
-            [JsonProperty("audio")] public bool? Audio { get; set; }
         }
     }
 }

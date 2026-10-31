@@ -1,72 +1,150 @@
 # C# API
 
-다른 ADOFAI 모드에서 OrbitRender를 직접 호출할 수 있습니다. 모드 프로젝트에 `OrbitRender.dll`을 참조하고, 게임에도 OrbitRender를 설치하고 활성화하세요. 이 API는 Unity 메인 스레드에서 호출해야 합니다.
+다른 ADOFAI 모드에서 OrbitRender에 렌더링을 요청할 수 있습니다. `OrbitRender.dll`을 참조하지
+않아도 되도록, 공개 표면은 **문자열 인자와 JSON 문자열 반환값**으로만 구성됩니다. 리플렉션으로
+`OrbitRender.RenderApi`를 찾아 호출하세요. 모든 호출은 Unity 메인 스레드에서 실행해야 합니다.
 
-## 렌더 시작과 상태 확인
-
-에디터에서 현재 열린 레벨을 렌더링합니다. `TryStart`가 `true`를 반환하면 준비가 시작된 것입니다. 실제 완료 여부는 이후 상태로 확인하세요.
+## 표면
 
 ```csharp
-using OrbitRender;
-using OrbitRender.Renderer;
-
-bool started = RenderApi.TryStart(new RenderRequestOptions
+namespace OrbitRender
 {
-    Width = 1920,
-    Height = 1080,
-    TargetFps = 120,
-    VideoFps = 60,
-    CaptureAudio = true
-});
+    public static class RenderApi
+    {
+        public const int ApiVersion = 2;   // 계약이 깨질 때 증가합니다.
+        public static bool IsAvailable { get; }
+        public static string Version { get; }
+        public static bool IsBusy { get; }
 
-// Unity Update 등에서 확인합니다.
-var renderer = RenderApi.Controller;
-if (renderer != null)
-{
-    RenderState state = renderer.State;
-    long captured = renderer.CapturedFrames;
-    long total = renderer.TotalFrames;
-    string message = renderer.Message;
-    string outputPath = renderer.OutputPath;
+        public static string StartReplay(string manifestPath, string optionsJson);
+        public static string ReadStatus(string jobId);
+        public static string Cancel(string jobId);
+    }
 }
 ```
 
-`RenderApi.Controller`는 OrbitRender가 비활성화되었거나 렌더러가 아직 준비되지 않으면 `null`입니다. `TryStart`는 렌더러를 사용할 수 없거나 사용 중이거나 준비를 시작하지 못하면 `false`를 반환합니다. 실패 원인은 렌더러가 있을 때 `Message`를 확인하세요. 반환값이 `true`여도 이후 준비 또는 렌더링이 실패할 수 있습니다.
+`ApiVersion`이 2보다 작은 OrbitRender는 이 계약을 지원하지 않습니다. `StartReplay`를 호출하기
+전에 `IsAvailable`과 `ApiVersion`을 확인하고, 지원하지 않으면 사용자에게 OrbitRender 2.7.0
+이상 설치를 안내하세요.
 
-상태는 `Idle`, `Preparing`, `Rendering`, `Finishing`, `Completed`, `Failed`, `Cancelled`, `AwaitingConfirmation`입니다. `AwaitingConfirmation`에서는 OrbitRender 화면에서 인코더 대체 여부를 확인해야 합니다. `Busy`는 진행 중인 작업이 있는지 나타냅니다. `TotalFrames`가 0일 수 있으므로 진행률 계산 시 확인하세요.
+## 렌더 시작
+
+`StartReplay`는 TUFReplay가 만든 `manifest.json` 경로를 받아 **레벨 열기 → 렌더 시작 → 작업
+등록**까지 OrbitRender가 담당합니다. 두 번째 인자는 선택 사항인 JSON 옵션이며, `null`이나 빈
+문자열이면 OrbitRender의 현재 설정을 사용합니다.
 
 ```csharp
-// 진행 중인 렌더의 취소를 요청합니다.
-bool cancellationRequested = RenderApi.TryCancel();
+string options = @"{
+  ""width"": 1920,
+  ""height"": 1080,
+  ""targetFps"": 240,
+  ""videoFps"": 60,
+  ""bitrateMbps"": 18,
+  ""videoCodec"": ""H264"",
+  ""bitDepth"": 8,
+  ""captureAudio"": true,
+  ""audioGainDb"": 0,
+  ""endDelaySeconds"": 2,
+  ""bgaMode"": false,
+  ""showPlanetRings"": true,
+  ""showSongTitle"": true,
+  ""showCountdown"": true,
+  ""showResultText"": true,
+  ""showHitJudgments"": true,
+  ""showModOverlay"": true
+}";
+string json = RenderApi.StartReplay(manifestPath, options);
 ```
 
-`TryCancel`은 취소 요청을 전달하면 `true`를 반환합니다. 실제 취소 완료는 `State`에서 확인하세요.
-
-## 렌더 옵션
-
-`RenderRequestOptions`의 값은 모두 선택 사항입니다. 지정하지 않은 값은 OrbitRender의 현재 설정을 따릅니다. 옵션 객체는 시작 시 복사되며 전역 설정을 변경하지 않습니다. `TryStart()` 또는 `TryStart(null)`로 현재 설정을 사용할 수도 있습니다.
+옵션은 모두 선택 사항이며, 지정하지 않은 값은 OrbitRender 설정을 따릅니다.
 
 | 항목 | 필드 |
 | --- | --- |
-| 출력 | `OutputDirectory`, `FileNameFormat`, `OpenOutputFolder` |
-| 화면과 프레임 | `Preset`, `Width`, `Height`, `TargetFps`, `VideoFps`, `EndDelaySeconds` |
-| 영상 인코딩 | `BitrateMbps`, `VideoCodec`, `BitDepth`, `Encoding`, `Encoder`, `Container` |
-| 오디오 | `CaptureAudio`, `AudioGainDb`, `AudioCodec` |
-| 표시 | `ShowRenderPreview`, `BgaMode`, `ShowPlanetRings`, `ShowSongTitle`, `ShowCountdown`, `ShowResultText`, `ShowHitJudgments`, `ShowModOverlay` |
-| 렌더링 자원 | `UseRustRenderer`, `BufferPolicy` |
-| 선택 구간 | `SelectionStartTile`, `SelectionEndTile` |
-| 리플레이 | `ReplayManifestPath` |
+| 화면과 프레임 | `preset`, `width`, `height`, `targetFps`, `videoFps`, `endDelaySeconds` |
+| 영상 인코딩 | `bitrateMbps`, `videoCodec`, `bitDepth`, `audioCodec` |
+| 오디오 | `captureAudio`, `audioGainDb` |
+| 표시 | `bgaMode`, `showPlanetRings`, `showSongTitle`, `showCountdown`, `showResultText`, `showHitJudgments`, `showModOverlay` |
 
-선택 구간을 지정할 때는 시작과 끝 타일을 함께 지정하세요. 한쪽만 지정하면 선택 구간이 적용되지 않습니다. 프리셋과 개별 옵션을 함께 지정하면 개별 옵션이 해당 설정을 덮어씁니다.
+`width`, `height`, `targetFps`, `videoFps`, `bitrateMbps`, `bitDepth`, `videoCodec`,
+`audioCodec`는 범위를 벗어나면 `render_options_invalid`로 즉시 거부됩니다. `preset`은
+`Custom`, `Preview`, `FullHD`, `QHD`, `UHD4K` 중 하나입니다.
 
-## TUFReplay 번들 렌더
+## 응답
 
-`ReplayManifestPath`에 TUFReplay가 만든 `manifest.json` 경로를 지정하면 번들에 기록된 리플레이를 렌더링합니다. 에디터에 기록 당시의 같은 레벨이 열려 있어야 하며, 번들의 `level.path`와 현재 레벨 파일이 다르면 렌더를 시작하지 않습니다. 레벨 파일은 접근 가능해야 합니다.
+모든 메서드는 다음 중 하나의 JSON 봉투를 반환합니다. 예외는 경계를 넘지 않습니다.
 
-```csharp
-bool started = RenderApi.TryStartReplay(
-    @"C:\...\RenderBundles\<jobId>\manifest.json",
-    new RenderRequestOptions { ShowModOverlay = true });
+```json
+{ "ok": true, "job": { "id": "...", "state": "rendering", "progress": 0.42 } }
 ```
 
-TUFReplay 동반 앱은 OrbitRender의 `orbitrender` IPC 계약으로 같은 작업을 수행합니다. TUFReplay에서 기록을 선택하면 번들을 준비한 뒤 `createRender`에 `replayManifestPath`를 전달하고, `renderStatus`로 진행률과 완료 경로를 확인합니다. OrbitRender가 설치·활성화되어 있지 않으면 TUFReplay는 기존 녹화·리플레이 기능만 사용합니다.
+```json
+{ "ok": false, "error": {
+  "code": "level_file_missing",
+  "message": "The recorded level file is missing.",
+  "field": "level.path",
+  "line": null,
+  "file": "level.adofai"
+} }
+```
+
+`job` 스냅샷 필드는 `id`, `state`, `progress`, `capturedFrames`, `totalFrames`,
+`outputPath`, `warnings`, `waitingForGameFocus`, `errorCode`, `errorMessage`,
+`errorDetails`, `message`, `levelPath`, `updatedUtc`입니다.
+
+`state`는 다음 중 하나입니다.
+
+| 상태 | 의미 |
+| --- | --- |
+| `queued` / `loading` | 작업이 등록되었고 레벨을 여는 중 |
+| `preparing` | 렌더 준비(설정·인코더 확인) |
+| `rendering` | 프레임 캡처 중 |
+| `finishing` | 오디오·영상 합성 중 |
+| `awaitingconfirmation` | 게임 창에서 인코더 대체 확인을 기다리는 중. `waitingForGameFocus`가 `true`입니다. |
+| `completed` | 완료. `outputPath`에 결과 파일이 있습니다. |
+| `failed` | 실패. `errorCode`, `errorMessage`, `errorDetails`를 확인하세요. |
+| `cancelled` | 취소됨 |
+
+`progress`는 0..1이며 `totalFrames`가 0이면 0입니다.
+
+## 상태 확인과 취소
+
+```csharp
+string status = RenderApi.ReadStatus(jobId);   // 동일한 봉투
+string cancelled = RenderApi.Cancel(jobId);    // 취소 요청 후의 스냅샷
+```
+
+`Cancel`은 취소를 요청하는 즉시 반환하며, 실제 종료는 이후 `ReadStatus`에서
+`cancelled`로 확인합니다. 이미 끝난 작업을 취소하면 `render_job_finished` 오류가
+반환됩니다.
+
+## 오류 코드
+
+| 코드 | 의미 |
+| --- | --- |
+| `renderer_unavailable` | OrbitRender가 비활성화되었거나 준비되지 않음 |
+| `render_busy` | 이미 다른 렌더가 진행 중 |
+| `render_manifest_missing` / `render_manifest_invalid` | 매니페스트가 없거나 읽을 수 없음 |
+| `render_level_path_missing` / `render_level_path_invalid` | 레벨 경로가 없거나 잘못됨 |
+| `render_level_missing` / `level_file_missing` | 레벨 파일이 없음 |
+| `render_level_mismatch` | 매니페스트와 요청한 레벨이 다름 |
+| `render_options_invalid` | 옵션 값이 범위를 벗어남 |
+| `render_job_unknown` / `render_job_finished` | 작업 ID를 찾을 수 없거나 이미 종료됨 |
+| `render_wrong_thread` | Unity 메인 스레드가 아닌 곳에서 호출함 |
+| `render_internal_error` | OrbitRender 내부 예외 |
+
+매니페스트 검증 실패는 TUFReplay 번들 계약의 코드(`render_metadata_*`,
+`render_input_payload_invalid`, `level_gameplay_modified` 등)를 그대로 전달하며,
+`field`, `line`, `file`로 문제 위치를 알려 줍니다.
+
+## 작업 수명과 정리
+
+- 한 번에 하나의 작업만 실행합니다.
+- 종료된 작업의 상태는 1시간 동안 유지된 뒤 정리됩니다.
+- TUFReplay는 완료·실패·취소 직후 번들 디렉터리를 삭제하므로, 결과 파일만 보관됩니다.
+- 호출자는 `outputPath`를 직접 읽을 수 있고, 파일 이동·삭제는 호출자 책임입니다.
+
+## TUFReplay 연동
+
+TUFReplay는 이 API를 리플렉션으로 호출합니다. 브라우저는 TUFReplay의 ADOFAI IPC 계약만
+사용하며 OrbitRender와 직접 통신하지 않습니다. 렌더 작업의 소유자(번들 생성, 상태 머신,
+취소, 정리)는 TUFReplay이고, OrbitRender는 레벨 열기·렌더링·상태 보고만 담당합니다.

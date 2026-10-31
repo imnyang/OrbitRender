@@ -66,10 +66,26 @@ internal static class ExportWorkflowTests
         Assert(completedOutput.GetValue(job) == null, "Unfinished job exposed its output for download.");
         Call(job, "SetState", Enum.Parse(jobState, "AwaitingConfirmation"), "hardware failed");
         var snapshotWithError = Call(job, "Snapshot");
-        Assert((string)Get(snapshotWithError, "error") == "hardware failed", "Fallback reason was not reported.");
+        Assert((string)Get(snapshotWithError, "Error") == "hardware failed", "Fallback reason was not reported.");
         Call(job, "SetState", Enum.Parse(jobState, "Completed"), null);
         Assert((string)completedOutput.GetValue(job) == "finished.mp4", "Completed job output was unavailable for download.");
-        Assert(Get(Call(job, "Snapshot"), "error") == null, "Successful job retained an obsolete error.");
+        Assert(Get(Call(job, "Snapshot"), "Error") == null, "Successful job retained an obsolete error.");
+        // The reflection boundary in RenderApi is JSON, so the snapshot property
+        // names are the contract other mods bind to.
+        var errorType = assembly.GetType("OrbitRender.Renderer.RenderErrorDetails", true);
+        var formatError = errorType.GetMethod("Create", Internal).Invoke(null, new object[]
+            { "render_manifest_missing", "The recording manifest is missing.", "manifestPath", null, "manifest.json" });
+        var failedJob = Activator.CreateInstance(jobType, new object[] { "failed", "level", true, null });
+        Call(failedJob, "SetWarnings", (object)new[] { "no microphone audio" });
+        jobType.GetMethod("Fail", Internal, null, new[] { errorType }, null).Invoke(failedJob, new[] { formatError });
+        var contract = Newtonsoft.Json.Linq.JObject.Parse(
+            Newtonsoft.Json.JsonConvert.SerializeObject(Call(failedJob, "Snapshot")));
+        Assert((string)contract["state"] == "failed", "Job state was not serialized.");
+        Assert((string)contract["errorCode"] == "render_manifest_missing", "Job error code was not serialized.");
+        Assert((string)contract["errorDetails"]["field"] == "manifestPath", "Job error field was not serialized.");
+        Assert((string)contract["errorDetails"]["file"] == "manifest.json", "Job error file was not serialized.");
+        Assert((string)contract["warnings"][0] == "no microphone audio", "Job warnings were not serialized.");
+        Assert(contract["waitingForGameFocus"] != null, "Job snapshot omitted the focus flag.");
         var queue = Activator.CreateInstance(assembly.GetType("OrbitRender.Renderer.RenderQueue", true), true);
         var optionsType = assembly.GetType("OrbitRender.Renderer.RenderRequestOptions", true);
         var stateType = assembly.GetType("OrbitRender.Renderer.QueueItemState", true);

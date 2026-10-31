@@ -12,9 +12,9 @@ namespace OrbitRender.Renderer
 {
     internal sealed class ADOFAIIpcBridge : IDisposable
     {
-        private readonly RendererRpcServer renderer;
+        private readonly RenderJobService renderer;
         private ModRegistration<OrbitRenderIpcApp> registration;
-        internal ADOFAIIpcBridge(RendererRpcServer renderer) { this.renderer = renderer; }
+        internal ADOFAIIpcBridge(RenderJobService renderer) { this.renderer = renderer; }
 
         internal void Initialize()
         {

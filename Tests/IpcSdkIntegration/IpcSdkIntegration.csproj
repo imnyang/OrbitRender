@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="../../OrbitRender/Renderer/ADOFAIIpcBridge.cs" />
+    <Compile Include="../../OrbitRender/Renderer/RenderJobService.cs" />
     <Compile Include="../../OrbitRender/Renderer/RendererRpcServer.cs" />
     <Compile Include="../../OrbitRender/TufReplay/Contracts/*.cs" />
     <Compile Include="../../OrbitRender/TufReplay/Replay/RecordedEvents.cs" />

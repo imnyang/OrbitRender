@@ -66,8 +66,9 @@ internal static class Program
         var registry = new IpcRegistry(action => action());
         var runtime = new RoutedRuntime(registry, new RuntimeInfo("2.1.0", 1, 3, "commands", "downloads", "typed-files"), action => action(), () => false);
         var controller = new RendererController();
-        using var renderer = new RendererRpcServer(controller, 0);
-        using var bridge = new ADOFAIIpcBridge(renderer);
+        var jobs = new RenderJobService(controller);
+        using var renderer = new RendererRpcServer(jobs, 0);
+        using var bridge = new ADOFAIIpcBridge(jobs);
         bridge.Register(runtime);
         var server = new IpcServer(registry);
         server.Start();
