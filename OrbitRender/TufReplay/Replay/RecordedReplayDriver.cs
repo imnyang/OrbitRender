@@ -151,6 +151,7 @@ public sealed class RecordedReplayDriver : IRenderReplayDriver, IRenderOverlaySy
   public void BeforeSimulationFrame(RenderReplayFrame frame)
   {
     currentVideoTimeUs = ToMicroseconds(frame.TimeSeconds);
+    OrbitRender.OverlayApi.UpdateClock(currentVideoTimeUs / 1_000_000d);
     if (context.IsCancellationRequested) return;
     overlays?.BeforeFrame();
 
@@ -160,6 +161,7 @@ public sealed class RecordedReplayDriver : IRenderReplayDriver, IRenderOverlaySy
   {
     if (ended || context.IsCancellationRequested) return;
     currentVideoTimeUs = ToMicroseconds(frame.TimeSeconds);
+    OrbitRender.OverlayApi.UpdateClock(currentVideoTimeUs / 1_000_000d);
     scrController controller = ADOBase.controller;
     scrConductor conductor = ADOBase.conductor;
     if (controller == null || conductor == null) throw new InvalidOperationException("The game left the recorded level while rendering.");
@@ -246,10 +248,17 @@ public sealed class RecordedReplayDriver : IRenderReplayDriver, IRenderOverlaySy
     {
       ApplyingInputEvent = true;
       currentVideoTimeUs = ReplayToVideoTimeUs(input.TimeUs);
+      OrbitRender.OverlayApi.UpdateClock(currentVideoTimeUs / 1_000_000d);
+      OrbitRender.OverlayApi.DispatchReplayInput(code.ToString(), input.Down, checked(currentVideoTimeUs * 10));
       overlays?.Apply(input, code);
       InputEvent?.Invoke(input);
     }
-    finally { ApplyingInputEvent = false; currentVideoTimeUs = outputTime; }
+    finally
+    {
+      ApplyingInputEvent = false;
+      currentVideoTimeUs = outputTime;
+      OrbitRender.OverlayApi.UpdateClock(outputTime / 1_000_000d);
+    }
   }
 
   private void ApplyHit(RecordedHitEvent hit)

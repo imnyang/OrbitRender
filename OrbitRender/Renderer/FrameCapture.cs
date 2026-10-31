@@ -144,6 +144,7 @@ namespace OrbitRender.Renderer
         private readonly int width;
         private readonly int height;
         private readonly bool replayOverlays;
+        private readonly bool captureOverlays;
         private readonly scrCamera gameCamera;
         private readonly float originalZoomSize;
         private readonly Vector2 originalOffset;
@@ -206,6 +207,7 @@ namespace OrbitRender.Renderer
             IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false, bool replayOverlays = false)
         {
             this.replayOverlays = replayOverlays;
+            captureOverlays = showModOverlay;
             manualGameplay = manualGameplay || replayOverlays;
             this.encoder = encoder;
             this.width = width;
@@ -243,9 +245,15 @@ namespace OrbitRender.Renderer
                 if (captureCanvases != null)
                     foreach (var canvas in captureCanvases)
                         if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
+                // Explicit overlay providers participate only when the user
+                // enabled Mod Overlay (or when a replay render forces it).
                 if (showModOverlay)
+                {
+                    foreach (var canvas in OverlayApi.CaptureCanvases())
+                        if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
                     foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                         if (IsModOverlay(canvas, replayOverlays)) captureCanvasSet.Add(canvas);
+                }
                 if (captureCanvasSet.Count > 0)
                     CreateHudOverlay(captureCanvasSet);
                 foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
@@ -435,7 +443,10 @@ namespace OrbitRender.Renderer
         private void AssignLayerRecursively(GameObject root)
         {
             if (root == null) return;
-            bool jrpKeyViewer = replayOverlays && root.name == "JipperResourcePack KeyViewer";
+            // An overlay provider owns its own replay layout; keep the legacy
+            // JRP depth repair only for versions that do not register.
+            bool jrpKeyViewer = replayOverlays && root.name == "JipperResourcePack KeyViewer"
+                && !OverlayApi.IsProviderCanvas(root.GetComponent<Canvas>());
             foreach (var child in root.GetComponentsInChildren<Transform>(true))
             {
                 var gameObject = child.gameObject;
@@ -597,6 +608,7 @@ namespace OrbitRender.Renderer
             foreach (var state in states)
             {
                 if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
+                if (OverlayApi.IsProviderCanvas(state.Canvas)) continue;
                 foreach (var transform in state.Canvas.GetComponentsInChildren<Transform>(true))
                 {
                     if (!IsExcludedJrpElement(transform)) continue;
@@ -623,6 +635,7 @@ namespace OrbitRender.Renderer
             foreach (var state in states)
             {
                 if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
+                if (OverlayApi.IsProviderCanvas(state.Canvas)) continue;
                 var main = state.Canvas.transform.Find("Main");
                 if (main == null) continue;
                 var rows = new List<RectTransform>();
@@ -669,6 +682,7 @@ namespace OrbitRender.Renderer
             }
             var jrpPositions = replayOverlays ? new List<JrpPosition>() : CompactJrpStatus(canvases);
             var hiddenJrpGraphics = replayOverlays ? new List<UnityEngine.UI.Graphic>() : HideExcludedJrpGraphics(canvases);
+            if (captureOverlays) OverlayApi.BeforeOverlayCapture(replayOverlays);
             try
             {
                 if (replayOverlays)
@@ -681,6 +695,7 @@ namespace OrbitRender.Renderer
             }
             finally
             {
+                if (captureOverlays) OverlayApi.AfterOverlayCapture(replayOverlays);
                 foreach (var position in jrpPositions)
                     if (position.Transform != null) position.Transform.anchoredPosition = position.Position;
                 foreach (var graphic in hiddenJrpGraphics)

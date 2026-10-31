@@ -140,7 +140,9 @@ internal sealed class OptionalModClock : IDisposable
         Register(AccessTools.Field(typeof(scrController), "gameworld"), typeof(OptionalModClock), nameof(GameWorld));
         Register(AccessTools.Field(typeof(scnEditor), "playMode"), typeof(OptionalModClock), nameof(EditorPlayback));
         Register(AccessTools.Method(typeof(RectTransformUtility), "WorldToScreenPoint", new[] { typeof(Camera), typeof(Vector3) }), typeof(OptionalModClock), nameof(WorldToScreen));
-        var viewer = AppDomain.CurrentDomain.GetAssemblies()
+        // A registered overlay provider supplies its own replay clock through
+        // OverlayApi; only patch the private getter of legacy versions.
+        var viewer = OrbitRender.OverlayApi.IsRegistered("JipperResourcePack") ? null : AppDomain.CurrentDomain.GetAssemblies()
             .Select(a => a.GetType("JipperResourcePack.KeyViewerContents.KeyViewer", false))
             .FirstOrDefault(t => t != null);
         jrpTicksGetter = viewer == null ? null : AccessTools.PropertyGetter(viewer, "CurrentTicks");

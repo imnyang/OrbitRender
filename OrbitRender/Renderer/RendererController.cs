@@ -508,7 +508,11 @@ namespace OrbitRender.Renderer
         {
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
-            jrpRenderGuard = JrpRenderGuard.Begin(replayBundle != null);
+            OverlayApi.BeginSession(replayBundle != null, profile.Width, profile.Height, profile.VideoFps);
+            // A registered overlay provider owns its replay clock/input and
+            // persistent-stat guard; patch only legacy versions that do not.
+            jrpRenderGuard = OverlayApi.IsRegistered("JipperResourcePack")
+                ? null : JrpRenderGuard.Begin(replayBundle != null);
             RenderTimingPatches.Apply();
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
@@ -2136,6 +2140,9 @@ namespace OrbitRender.Renderer
                 if (!preserveRecovery && !string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
             TryCleanup(RestoreSkyHook);
+            // Providers keep ownership through the game restore above so a
+            // replay cannot write persistent records on Hide/Show.
+            TryCleanup(OverlayApi.EndSession);
             if (editorRecoveryRoutine == null) { TryCleanup(() => jrpRenderGuard?.Dispose()); jrpRenderGuard = null; }
         }
 
