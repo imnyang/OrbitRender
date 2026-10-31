@@ -36,10 +36,12 @@ export interface RenderOptions {
     captureAudio?: boolean;
     endDelaySeconds?: number;
     height?: number;
-    levelPath: string;
+    levelPath?: string;
     preset?: string;
+    replayManifestPath?: string;
     showCountdown?: boolean;
     showHitJudgments?: boolean;
+    showModOverlay?: boolean;
     showPlanetRings?: boolean;
     showResultText?: boolean;
     showSongTitle?: boolean;
@@ -60,6 +62,7 @@ export interface RenderSettings {
     preset: string | null;
     showCountdown: boolean | null;
     showHitJudgments: boolean | null;
+    showModOverlay: boolean | null;
     showPlanetRings: boolean | null;
     showResultText: boolean | null;
     showSongTitle: boolean | null;

@@ -9,6 +9,9 @@
     <Compile Include="Program.cs" />
     <Compile Include="../../OrbitRender/Renderer/ADOFAIIpcBridge.cs" />
     <Compile Include="../../OrbitRender/Renderer/RendererRpcServer.cs" />
+    <Compile Include="../../OrbitRender/TufReplay/Contracts/*.cs" />
+    <Compile Include="../../OrbitRender/TufReplay/Replay/RecordedEvents.cs" />
+    <Compile Include="../../OrbitRender/TufReplay/Replay/RecordingCsvReader.cs" />
     <Compile Include="../../OrbitRender/VideoCodec.cs" />
     <Compile Include="../../OrbitRender/AudioCodec.cs" />
     <Compile Include="../../OrbitRender/OutputFormat.cs" />

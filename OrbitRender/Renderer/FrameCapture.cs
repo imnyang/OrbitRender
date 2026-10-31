@@ -143,6 +143,7 @@ namespace OrbitRender.Renderer
         private double customFrameNextRefreshTime;
         private readonly int width;
         private readonly int height;
+        private readonly bool replayOverlays;
         private readonly scrCamera gameCamera;
         private readonly float originalZoomSize;
         private readonly Vector2 originalOffset;
@@ -158,6 +159,7 @@ namespace OrbitRender.Renderer
         private Vector3 hudOverlayPosition;
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
+        private readonly Dictionary<Transform, float> jrpRainDepths = new Dictionary<Transform, float>();
         private Texture2D fallback;
         private bool disposed;
         private long readbackWaitTicks;
@@ -170,6 +172,7 @@ namespace OrbitRender.Renderer
         private int peakPending;
         public double BackpressureSeconds { get; private set; }
         internal Texture PreviewTexture => target;
+        internal Camera OverlayCamera => hudOverlayCamera;
         public double EncoderBufferWaitSeconds => encoder.NativeBackend != null ? encoder.NativeBackend.BufferWaitSeconds
             : encoderBufferWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackWaitSeconds => readbackWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -200,8 +203,10 @@ namespace OrbitRender.Renderer
         }
 
         public FrameCapture(FFmpegEncoder encoder, int width, int height,
-            IEnumerable<Canvas> captureCanvases = null)
+            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false, bool replayOverlays = false)
         {
+            this.replayOverlays = replayOverlays;
+            manualGameplay = manualGameplay || replayOverlays;
             this.encoder = encoder;
             this.width = width;
             this.height = height;
@@ -238,9 +243,12 @@ namespace OrbitRender.Renderer
                 if (captureCanvases != null)
                     foreach (var canvas in captureCanvases)
                         if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
+                if (showModOverlay)
+                    foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                        if (IsModOverlay(canvas, replayOverlays)) captureCanvasSet.Add(canvas);
                 if (captureCanvasSet.Count > 0)
                     CreateHudOverlay(captureCanvasSet);
-                foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+                foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 {
                     // Keep world-space level decorations; exclude editor/game HUD
                     // and third-party screen-space overlays from the three cameras.
@@ -261,7 +269,7 @@ namespace OrbitRender.Renderer
                         ConfigureCaptureCanvas(canvas, hudOverlayCamera ?? gameCamera.camobj);
                         // Keep HUD pixels out of the persistent gameplay image
                         // used as Hall of Mirrors' next-frame input.
-                        canvas.enabled = false;
+                        canvas.enabled = replayOverlays && canvas.enabled;
                     }
                     else canvas.enabled = false;
                 }
@@ -271,6 +279,24 @@ namespace OrbitRender.Renderer
             }
             catch { Dispose(); throw; }
         }
+        private static bool IsModOverlay(Canvas canvas, bool replayOverlays)
+        {
+            if (canvas == null || !canvas.isRootCanvas || canvas.renderMode == RenderMode.WorldSpace) return false;
+            var root = canvas.gameObject;
+            if (root.scene.name != "DontDestroyOnLoad") return false;
+            if (TUFReplayRenderer.Replay.OverlayAssemblyDiscovery.IsControlCanvas(canvas)) return false;
+            foreach (var component in root.GetComponentsInChildren<MonoBehaviour>(true))
+                if (component != null && (component.GetType().Assembly.GetName().Name == "RainingKeys"
+                    || component.GetType().FullName == "AdofaiTweaks.Tweaks.KeyViewer.KeyViewer") && !replayOverlays) return false;
+            var name = root.name;
+            if (replayOverlays) return name.IndexOf("OrbitRender", StringComparison.OrdinalIgnoreCase) < 0;
+            return name.IndexOf("keyviewer", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("key viewer", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("rainingkeys", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("raining keys", StringComparison.OrdinalIgnoreCase) < 0
+                && name.IndexOf("OrbitRender", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
         private void Add(Camera camera)
         {
             if (cameras.Exists(s => s.Camera == camera)) return;
@@ -409,12 +435,22 @@ namespace OrbitRender.Renderer
         private void AssignLayerRecursively(GameObject root)
         {
             if (root == null) return;
+            bool jrpKeyViewer = replayOverlays && root.name == "JipperResourcePack KeyViewer";
             foreach (var child in root.GetComponentsInChildren<Transform>(true))
             {
                 var gameObject = child.gameObject;
-                if (!hudLayerObjects.Add(gameObject)) continue;
-                hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
-                gameObject.layer = hudLayer;
+                if (hudLayerObjects.Add(gameObject))
+                    hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
+                if (gameObject.layer != hudLayer) gameObject.layer = hudLayer;
+                // JRP parents new rain with worldPositionStays=true. Once the
+                // overlay canvas is on a camera plane, that leaves new rain at
+                // its old world Z instead of on the canvas plane.
+                if (jrpKeyViewer && child.name == "Rain" && child.parent != null && child.parent.name == "RainLine")
+                {
+                    var position = child.localPosition;
+                    if (!jrpRainDepths.ContainsKey(child)) jrpRainDepths.Add(child, position.z);
+                    if (!Mathf.Approximately(position.z, 0f)) { position.z = 0f; child.localPosition = position; }
+                }
             }
         }
 
@@ -477,8 +513,12 @@ namespace OrbitRender.Renderer
                 foreach (var state in canvases)
                 {
                     if (state.Canvas == null) continue;
-                    if (state.Capture) ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
-                    if (state.Canvas.enabled)
+                    if (state.Capture)
+                    {
+                        AssignLayerRecursively(state.Canvas.gameObject);
+                        ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
+                    }
+                    if (state.Canvas.enabled && (!replayOverlays || !state.Capture))
                     {
                         state.Canvas.enabled = false;
                         RecordBindWrite();
@@ -532,6 +572,84 @@ namespace OrbitRender.Renderer
             if (measuringBind) bindPropertyWrites++;
         }
 
+        private static bool IsExcludedJrpElement(Transform element)
+        {
+            if (element == null || element.parent == null) return false;
+            var parent = element.parent;
+            if (parent.name == "JipperResourcePack Overlay")
+                return element.name == "Combo" || element.name == "Judgement"
+                    || element.name == "Attempt" || element.name == "TimingScale";
+            if (parent.name != "Main" || parent.parent == null
+                || parent.parent.name != "JipperResourcePack Overlay") return false;
+            switch (element.name)
+            {
+                case "Best": case "Checkpoint": case "Timing": case "AvgTiming":
+                case "XScore": case "PotentialXScore": case "Death": case "State":
+                case "XAccuracy": case "PotentialXAccuracy": case "Accuracy": case "PotentialAccuracy":
+                    return true;
+                default: return false;
+            }
+        }
+
+        private static List<UnityEngine.UI.Graphic> HideExcludedJrpGraphics(IEnumerable<CanvasState> states)
+        {
+            var hidden = new List<UnityEngine.UI.Graphic>();
+            foreach (var state in states)
+            {
+                if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
+                foreach (var transform in state.Canvas.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!IsExcludedJrpElement(transform)) continue;
+                    foreach (var graphic in transform.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+                    {
+                        if (!graphic.enabled) continue;
+                        graphic.enabled = false;
+                        hidden.Add(graphic);
+                    }
+                }
+            }
+            return hidden;
+        }
+
+        private sealed class JrpPosition
+        {
+            internal RectTransform Transform;
+            internal Vector2 Position;
+        }
+
+        private static List<JrpPosition> CompactJrpStatus(IEnumerable<CanvasState> states)
+        {
+            var moved = new List<JrpPosition>();
+            foreach (var state in states)
+            {
+                if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
+                var main = state.Canvas.transform.Find("Main");
+                if (main == null) continue;
+                var rows = new List<RectTransform>();
+                foreach (Transform child in main)
+                {
+                    var rect = child as RectTransform;
+                    var graphic = child.GetComponent<UnityEngine.UI.Graphic>();
+                    if (rect != null && child.gameObject.activeInHierarchy && graphic != null && graphic.enabled)
+                        rows.Add(rect);
+                }
+                rows.Sort((a, b) => b.anchoredPosition.y.CompareTo(a.anchoredPosition.y));
+                var slots = new List<float>();
+                foreach (var row in rows) slots.Add(row.anchoredPosition.y);
+                var next = 0;
+                foreach (var row in rows)
+                {
+                    if (IsExcludedJrpElement(row)) continue;
+                    var position = row.anchoredPosition;
+                    var y = slots[next++];
+                    if (Mathf.Approximately(position.y, y)) continue;
+                    moved.Add(new JrpPosition { Transform = row, Position = position });
+                    row.anchoredPosition = new Vector2(position.x, y);
+                }
+            }
+            return moved;
+        }
+
         private void RenderOutputFrame()
         {
             // Hall of Mirrors intentionally feeds prior gameplay frames back
@@ -545,13 +663,30 @@ namespace OrbitRender.Renderer
             {
                 if (!state.Capture || state.Canvas == null) continue;
                 ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera);
-                state.Canvas.enabled = true;
+                // Replay HUD visibility belongs to the game and may change
+                // during play; the saved state is only for restoration.
+                if (!replayOverlays && state.Enabled) state.Canvas.enabled = true;
             }
-            try { hudOverlayCamera.Render(); }
+            var jrpPositions = replayOverlays ? new List<JrpPosition>() : CompactJrpStatus(canvases);
+            var hiddenJrpGraphics = replayOverlays ? new List<UnityEngine.UI.Graphic>() : HideExcludedJrpGraphics(canvases);
+            try
+            {
+                if (replayOverlays)
+                {
+                    Canvas.ForceUpdateCanvases();
+                    foreach (var state in canvases)
+                        if (state.Capture && state.Canvas != null) AssignLayerRecursively(state.Canvas.gameObject);
+                }
+                hudOverlayCamera.Render();
+            }
             finally
             {
+                foreach (var position in jrpPositions)
+                    if (position.Transform != null) position.Transform.anchoredPosition = position.Position;
+                foreach (var graphic in hiddenJrpGraphics)
+                    if (graphic != null) graphic.enabled = true;
                 foreach (var state in canvases)
-                    if (state.Capture && state.Canvas != null) state.Canvas.enabled = false;
+                    if (!replayOverlays && state.Capture && state.Canvas != null) state.Canvas.enabled = false;
             }
         }
 
@@ -748,6 +883,9 @@ namespace OrbitRender.Renderer
                 state.Canvas.planeDistance = state.PlaneDistance;
                 state.Canvas.enabled = state.Enabled;
             }
+            foreach (var entry in jrpRainDepths)
+                if (entry.Key != null) { var position = entry.Key.localPosition; position.z = entry.Value; entry.Key.localPosition = position; }
+            jrpRainDepths.Clear();
             for (var i = 0; i < hudLayers.Count; i++)
             {
                 var state = hudLayers[i];

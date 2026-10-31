@@ -49,6 +49,7 @@ namespace OrbitRender
         private static int filenameSelectionEnd = int.MaxValue;
         private static int filenamePendingCursor = -1;
         private static bool filesExpanded;
+        private static bool replayKeyCompatibilityReady;
 
         public static bool Load(UnityModManager.ModEntry entry)
         {
@@ -108,6 +109,15 @@ namespace OrbitRender
                 entry.OnUpdate = (mod, deltaTime) =>
                 {
                     UpdateManager.PumpMainThread();
+                    if (Enabled && !replayKeyCompatibilityReady)
+                    {
+                        try { replayKeyCompatibilityReady = OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.TryInstallWhenAvailable(); }
+                        catch (Exception ex)
+                        {
+                            replayKeyCompatibilityReady = true;
+                            mod.Logger.Error("[Replay] Could not install keyboard compatibility: " + ex);
+                        }
+                    }
                 };
                 entry.OnUnload = mod =>
                 {
@@ -116,6 +126,7 @@ namespace OrbitRender
                     AudioPreview.Stop();
                     RendererController.Instance?.StopAndClean();
                     OrbitRender.Patches.RenderTimingPatches.Remove();
+                    OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.Remove();
                     StopRpcServer();
                     SceneManager.sceneLoaded -= OnSceneLoaded;
                     UnityEngine.Object.Destroy(host);
@@ -341,6 +352,8 @@ namespace OrbitRender
                 Localization.Get("show-result-text-hit-judgments-stay-hidden"), Settings.ShowResultText);
             Settings.ShowHitJudgments = DrawLocalizedToggle(
                 Localization.Get("show-hit-judgments"), Settings.ShowHitJudgments);
+            Settings.ShowModOverlay = DrawLocalizedToggle(
+                Localization.Get("show-mod-overlay"), Settings.ShowModOverlay);
         }
 
         private static void DrawEncodingSettings()

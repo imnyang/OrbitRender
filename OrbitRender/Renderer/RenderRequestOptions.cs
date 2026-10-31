@@ -2,37 +2,39 @@ namespace OrbitRender.Renderer
 {
     // Per-render values selected from the editor's Export Video dialog.
     // Nullable fields deliberately fall back to the normal UMM settings.
-    internal sealed class RenderRequestOptions
+    public sealed class RenderRequestOptions
     {
         internal RenderRequestOptions Snapshot() => (RenderRequestOptions)MemberwiseClone();
-        internal string OutputDirectory;
-        internal RendererPreset? Preset;
-        internal int? Width;
-        internal int? Height;
-        internal int? TargetFps;
-        internal int? VideoFps;
-        internal int? BitrateMbps;
-        internal float? EndDelaySeconds;
-        internal bool? CaptureAudio;
-        internal float? AudioGainDb;
-        internal AudioCodec? AudioCodec;
-        internal bool? ShowRenderPreview;
-        internal bool? UseRustRenderer;
-        internal FrameBufferPolicy? BufferPolicy;
-        internal bool? BgaMode;
-        internal bool? ShowPlanetRings;
-        internal bool? ShowSongTitle;
-        internal bool? ShowCountdown;
-        internal bool? ShowResultText;
-        internal bool? ShowHitJudgments;
-        internal EncoderSpeed? Encoding;
-        internal VideoEncoder? Encoder;
-        internal VideoContainer? Container;
-        internal string FileNameFormat;
-        internal VideoCodec? VideoCodec;
-        internal VideoBitDepth? BitDepth;
-        internal bool? OpenOutputFolder;
-        internal int? SelectionStartTile;
-        internal int? SelectionEndTile;
+        public string ReplayManifestPath;
+        public string OutputDirectory;
+        public RendererPreset? Preset;
+        public int? Width;
+        public int? Height;
+        public int? TargetFps;
+        public int? VideoFps;
+        public int? BitrateMbps;
+        public float? EndDelaySeconds;
+        public bool? CaptureAudio;
+        public float? AudioGainDb;
+        public AudioCodec? AudioCodec;
+        public bool? ShowRenderPreview;
+        public bool? UseRustRenderer;
+        public FrameBufferPolicy? BufferPolicy;
+        public bool? BgaMode;
+        public bool? ShowPlanetRings;
+        public bool? ShowSongTitle;
+        public bool? ShowCountdown;
+        public bool? ShowResultText;
+        public bool? ShowHitJudgments;
+        public bool? ShowModOverlay;
+        public EncoderSpeed? Encoding;
+        public VideoEncoder? Encoder;
+        public VideoContainer? Container;
+        public string FileNameFormat;
+        public VideoCodec? VideoCodec;
+        public VideoBitDepth? BitDepth;
+        public bool? OpenOutputFolder;
+        public int? SelectionStartTile;
+        public int? SelectionEndTile;
     }
 }

@@ -11,9 +11,9 @@ export interface Job { capturedFrames: number; error: string | null; id: string;
 
 export interface RenderAccepted { downloadUrl: string; id: string; state: string; statusUrl: string }
 
-export interface RenderOptions { audioCodec?: string; audioGainDb?: number; bgaMode?: boolean; bitDepth?: number; bitrateMbps?: number; captureAudio?: boolean; endDelaySeconds?: number; height?: number; levelPath: string; preset?: string; showCountdown?: boolean; showHitJudgments?: boolean; showPlanetRings?: boolean; showResultText?: boolean; showSongTitle?: boolean; targetFps?: number; videoCodec?: string; videoFps?: number; width?: number }
+export interface RenderOptions { audioCodec?: string; audioGainDb?: number; bgaMode?: boolean; bitDepth?: number; bitrateMbps?: number; captureAudio?: boolean; endDelaySeconds?: number; height?: number; levelPath?: string; preset?: string; replayManifestPath?: string; showCountdown?: boolean; showHitJudgments?: boolean; showModOverlay?: boolean; showPlanetRings?: boolean; showResultText?: boolean; showSongTitle?: boolean; targetFps?: number; videoCodec?: string; videoFps?: number; width?: number }
 
-export interface RenderSettings { audioCodec: string | null; audioGainDb: number | null; bgaMode: boolean | null; bitDepth: number | null; bitrateMbps: number | null; endDelaySeconds: number | null; fps: number | null; height: number | null; preset: string | null; showCountdown: boolean | null; showHitJudgments: boolean | null; showPlanetRings: boolean | null; showResultText: boolean | null; showSongTitle: boolean | null; targetFps: number | null; videoCodec: string | null; videoFps: number | null; width: number | null }
+export interface RenderSettings { audioCodec: string | null; audioGainDb: number | null; bgaMode: boolean | null; bitDepth: number | null; bitrateMbps: number | null; endDelaySeconds: number | null; fps: number | null; height: number | null; preset: string | null; showCountdown: boolean | null; showHitJudgments: boolean | null; showModOverlay: boolean | null; showPlanetRings: boolean | null; showResultText: boolean | null; showSongTitle: boolean | null; targetFps: number | null; videoCodec: string | null; videoFps: number | null; width: number | null }
 
 export interface OrbitRenderIpcMod {
   "cancelRender"(request: { id: string }): Promise<Cancelled>;
@@ -30,7 +30,7 @@ export interface OrbitRenderIpcAppHandlers {
 
 export const OrbitRenderIpcContract: IpcContract<OrbitRenderIpcMod, OrbitRenderIpcAppHandlers> = defineContract<OrbitRenderIpcMod, OrbitRenderIpcAppHandlers>({
   "id": "orbitrender",
-  "hash": "484b56be7d0b5269e044cf18d17c8efd4c5ec93255cfce393affc1f06c751041",
+  "hash": "a979ba0c8078dea4048fd28087fbdefb33f23290aaac80669ef47ff1f85b2be4",
   "models": {
     "Cancelled": {
       "object": {
@@ -100,14 +100,22 @@ export const OrbitRenderIpcContract: IpcContract<OrbitRenderIpcMod, OrbitRenderI
         "height": {
           "optional": "int32"
         },
-        "levelPath": "string",
+        "levelPath": {
+          "optional": "string"
+        },
         "preset": {
+          "optional": "string"
+        },
+        "replayManifestPath": {
           "optional": "string"
         },
         "showCountdown": {
           "optional": "boolean"
         },
         "showHitJudgments": {
+          "optional": "boolean"
+        },
+        "showModOverlay": {
           "optional": "boolean"
         },
         "showPlanetRings": {
@@ -166,6 +174,9 @@ export const OrbitRenderIpcContract: IpcContract<OrbitRenderIpcMod, OrbitRenderI
           "nullable": "boolean"
         },
         "showHitJudgments": {
+          "nullable": "boolean"
+        },
+        "showModOverlay": {
           "nullable": "boolean"
         },
         "showPlanetRings": {

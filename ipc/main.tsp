@@ -3,7 +3,8 @@ import "@adofai-ipc/typespec";
 @ipc.mod("orbitrender")
 namespace OrbitRenderIpc {
   model RenderOptions {
-    levelPath: string;
+    levelPath?: string;
+    replayManifestPath?: string;
     preset?: string;
     width?: int32;
     height?: int32;
@@ -22,6 +23,7 @@ namespace OrbitRenderIpc {
     showCountdown?: boolean;
     showResultText?: boolean;
     showHitJudgments?: boolean;
+    showModOverlay?: boolean;
   }
   model Health { ok: boolean; renderer: string; }
   model RenderAccepted { id: string; state: string; statusUrl: string; downloadUrl: string; }
@@ -43,6 +45,7 @@ namespace OrbitRenderIpc {
     showCountdown: boolean | null;
     showResultText: boolean | null;
     showHitJudgments: boolean | null;
+    showModOverlay: boolean | null;
     videoCodec: string | null;
     bitDepth: int32 | null;
   }

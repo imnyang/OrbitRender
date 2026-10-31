@@ -43,6 +43,12 @@ Get-Package `
     'packages/net48' `
     'build/.NETFramework/v4.8/mscorlib.dll'
 
+Get-Package `
+    'newtonsoft.json' `
+    '13.0.3' `
+    'packages/Newtonsoft.Json' `
+    'lib/net45/Newtonsoft.Json.dll'
+
 if (!(Test-Path 'packages/0Harmony.dll')) {
     Get-Package `
         'lib.harmony' `

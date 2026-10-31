@@ -1,0 +1,47 @@
+name: Pull request tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  renderer-tests:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Download test dependencies
+        shell: pwsh
+        run: |
+          $packages = @(
+            @{ Id = 'microsoft.netframework.referenceassemblies.net48'; Version = '1.0.3'; Destination = 'packages/net48' },
+            @{ Id = 'newtonsoft.json'; Version = '13.0.3'; Destination = 'packages/Newtonsoft.Json' },
+            @{ Id = 'lib.harmony'; Version = '2.2.2'; Destination = 'packages/Harmony' }
+          )
+          foreach ($package in $packages) {
+            $archive = Join-Path $env:RUNNER_TEMP "$($package.Id).zip"
+            Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/$($package.Id)/$($package.Version)/$($package.Id).$($package.Version).nupkg" -OutFile $archive
+            Expand-Archive -LiteralPath $archive -DestinationPath $package.Destination -Force
+          }
+          Copy-Item packages/Harmony/lib/net48/0Harmony.dll packages/0Harmony.dll
+      - name: Build test executable
+        run: msbuild Tests/RendererTests.csproj /t:Rebuild /p:Configuration=Release /v:minimal /nologo
+      - name: Install FFmpeg
+        run: choco install ffmpeg --no-progress -y
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $test = './Tests/bin/Release/RendererTests.exe'
+          foreach ($suite in @('--tuf-replay-parser', '--tuf-media-plan', '--tuf-korean-key', '--jrp-guard', '--filename-template')) {
+            & $test $suite
+            if ($LASTEXITCODE -ne 0) { throw "Test failed: $suite" }
+          }
+          $ffmpeg = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
+          & $test --encoder-probe $ffmpeg
+          if ($LASTEXITCODE -ne 0) { throw 'Encoder discovery test failed.' }
+          & $test $ffmpeg (Join-Path $env:RUNNER_TEMP 'orbit-render-tests')
+          if ($LASTEXITCODE -ne 0) { throw 'Renderer tests failed.' }

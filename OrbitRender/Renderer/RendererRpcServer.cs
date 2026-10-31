@@ -33,6 +33,7 @@ namespace OrbitRender.Renderer
         public bool? ShowCountdown;
         public bool? ShowResultText;
         public bool? ShowHitJudgments;
+        public bool? ShowModOverlay;
         public VideoCodec? VideoCodec;
         public VideoBitDepth? BitDepth;
 
@@ -42,7 +43,7 @@ namespace OrbitRender.Renderer
                 || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
                 || ShowPlanetRings.HasValue
                 || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
-                || ShowHitJudgments.HasValue
+                || ShowHitJudgments.HasValue || ShowModOverlay.HasValue
                 || VideoCodec.HasValue || BitDepth.HasValue; }
         }
 
@@ -66,6 +67,7 @@ namespace OrbitRender.Renderer
                 showCountdown = ShowCountdown,
                 showResultText = ShowResultText,
                 showHitJudgments = ShowHitJudgments,
+                showModOverlay = ShowModOverlay,
                 videoCodec = VideoCodec.HasValue ? VideoCodec.Value.ToString() : null,
                 bitDepth = BitDepth.HasValue ? (int)(BitDepth.Value == VideoBitDepth.Ten ? 10 : 8) : (int?)null
             };
@@ -100,16 +102,18 @@ namespace OrbitRender.Renderer
         private long capturedFrames;
         private DateTime updatedUtc = DateTime.UtcNow;
 
-        public RpcRenderJob(string id, string levelPath, bool captureAudio, RpcRenderOptions options)
+        public RpcRenderJob(string id, string levelPath, bool captureAudio, RpcRenderOptions options, string replayManifestPath = null)
         {
             Id = id;
             LevelPath = levelPath;
             CaptureAudio = captureAudio;
             Options = options;
+            ReplayManifestPath = replayManifestPath;
         }
 
         public string Id { get; }
         public string LevelPath { get; }
+        public string ReplayManifestPath { get; }
         public bool CaptureAudio { get; }
         public RpcRenderOptions Options { get; }
 
@@ -333,6 +337,19 @@ namespace OrbitRender.Renderer
             }
             var payload = JsonConvert.DeserializeObject<RpcRenderPayload>(body ?? "{}");
             var path = payload?.LevelPath ?? payload?.Path;
+            if (!string.IsNullOrWhiteSpace(payload?.ReplayManifestPath))
+            {
+                try
+                {
+                    var bundle = TUFReplayRenderer.Contracts.RecordingBundle.Load(payload.ReplayManifestPath);
+                    var replayLevel = bundle.ResolveLevelPath();
+                    if (!string.IsNullOrWhiteSpace(path) && !string.Equals(Path.GetFullPath(path), Path.GetFullPath(replayLevel),
+                        Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                        return new { error = "The replay does not match the requested level." };
+                    path = replayLevel;
+                }
+                catch (Exception ex) { return new { error = "Invalid replay bundle: " + ex.Message }; }
+            }
             if (string.IsNullOrWhiteSpace(path))
             {
                 return new { error = "JSON field 'levelPath' is required." };
@@ -350,7 +367,7 @@ namespace OrbitRender.Renderer
             }
             var id = Guid.NewGuid().ToString("N");
             var job = new RpcRenderJob(id, path,
-                payload.CaptureAudio ?? payload.Audio ?? (Main.Settings == null || Main.Settings.CaptureAudio), options);
+                payload.CaptureAudio ?? payload.Audio ?? (Main.Settings == null || Main.Settings.CaptureAudio), options, payload.ReplayManifestPath);
             jobs[id] = job;
             controller.EnqueueRpcRender(new RpcRenderRequest { Job = job });
             status = 202;
@@ -516,6 +533,7 @@ namespace OrbitRender.Renderer
                 ShowCountdown = payload.ShowCountdown,
                 ShowResultText = payload.ShowResultText,
                 ShowHitJudgments = payload.ShowHitJudgments,
+                ShowModOverlay = payload.ShowModOverlay,
                 VideoCodec = videoCodec,
                 BitDepth = bitDepth
             };
@@ -582,6 +600,7 @@ namespace OrbitRender.Renderer
         private sealed class RpcRenderPayload
         {
             [JsonProperty("levelPath")] public string LevelPath { get; set; }
+            [JsonProperty("replayManifestPath")] public string ReplayManifestPath { get; set; }
             [JsonProperty("path")] public string Path { get; set; }
             [JsonProperty("preset")] public string Preset { get; set; }
             [JsonProperty("width")] public int? Width { get; set; }
@@ -600,6 +619,7 @@ namespace OrbitRender.Renderer
             [JsonProperty("showCountdown")] public bool? ShowCountdown { get; set; }
             [JsonProperty("showResultText")] public bool? ShowResultText { get; set; }
             [JsonProperty("showHitJudgments")] public bool? ShowHitJudgments { get; set; }
+            [JsonProperty("showModOverlay")] public bool? ShowModOverlay { get; set; }
             [JsonProperty("videoCodec")] public string VideoCodec { get; set; }
             [JsonProperty("codec")] public string Codec { get; set; }
             [JsonProperty("bitDepth")] public int? BitDepth { get; set; }

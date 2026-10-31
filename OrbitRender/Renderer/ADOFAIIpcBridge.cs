@@ -43,7 +43,23 @@ namespace OrbitRender.Renderer
             try
             {
                 var mod = runtime.RegisterMod(OrbitRenderIpcContract.Instance, "OrbitRender",
-                    new[] { "https://orbitrender.imnya.ng" });
+                    new[]
+                    {
+                        "https://orbitrender.imnya.ng",
+                        "https://tufreplay.impl1113.dev",
+                        "https://tufreplay-dev.impl1113.dev",
+                        "https://tufreplay-auto.impl1113.dev",
+                        // Match TUFReplay's local development origins. The IPC
+                        // loader compares origins exactly, including the port.
+                        "http://localhost",
+                        "http://127.0.0.1",
+                        "http://localhost:5173",
+                        "http://127.0.0.1:5173",
+                        "http://localhost:5174",
+                        "http://127.0.0.1:5174",
+                        "http://localhost:4173",
+                        "http://127.0.0.1:4173",
+                    });
                 registration = mod;
                 mod.Handle(OrbitRenderIpcMethods.Health, (request, context) =>
                     Task.FromResult(Convert<Health>(renderer.Health())));

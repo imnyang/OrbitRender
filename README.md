@@ -51,6 +51,8 @@ ADOFAI 에디터에서 커스텀 레벨을 열고 `File → Export Video`를 선
 
 렌더 오류 창의 **오류 진단 정보 복사**는 실패 내용, 출력 설정, 인코더, 시스템·GPU 정보와 파일 경로를 클립보드에 복사합니다. 외부로 자동 전송하지 않습니다.
 
+다른 모드에서 렌더링을 제어하려면 [C# API 문서](docs/CSharp-API.md)를 참고하세요.
+
 ## 빌드
 
 `./build.ps1` 또는 `GAME_DIR="게임 설치 경로" bash ./build.sh`로 빌드합니다. Rider에서 빌드해도 저장소의 `Build/` 폴더에 `OrbitRender-yyyyMMdd-HHmmss-fff.zip`이 자동 생성됩니다. ZIP 최상위에 모드 DLL, `Info.json`, 라이선스와 `OrbitRender/Native/` 아래의 Native DLL이 포함됩니다. Native DLL은 빌드 출력에서도 모드 루트에 배치됩니다. 번역 파일은 모드 DLL에 내장되므로 ZIP에 별도로 넣지 않습니다.
