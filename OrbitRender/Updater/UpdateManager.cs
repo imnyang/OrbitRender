@@ -27,6 +27,8 @@ namespace OrbitRender
         internal static void Start(UnityModManager.ModEntry entry)
         {
             if (entry == null || Interlocked.Exchange(ref started, 1) != 0) return;
+            try { SyncEntryMetadataFromDisk(entry); }
+            catch (Exception ex) { entry.Logger.Log("[Update] Could not refresh mod metadata: " + ex.Message); }
             originalDisplayName = entry.Info == null || string.IsNullOrEmpty(entry.Info.DisplayName)
                 ? entry.Info == null ? "OrbitRender" : entry.Info.Id
                 : entry.Info.DisplayName;
@@ -206,6 +208,7 @@ namespace OrbitRender
         {
             try
             {
+                RefreshEntryMetadata(entry, packageRoot);
                 var reload = entry.GetType().GetMethod("Reload", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
                 if (reload == null) throw new MissingMethodException("Unity Mod Manager ModEntry.Reload was not found.");
                 if (!entry.CanReload) throw new NotSupportedException("Unity Mod Manager hot reload is not enabled for this mod.");
@@ -213,7 +216,6 @@ namespace OrbitRender
                 reload.Invoke(entry, null);
                 if (entry.ErrorOnLoading || !entry.Loaded || entry.Assembly == oldAssembly)
                     throw new InvalidOperationException("Unity Mod Manager did not load the updated assembly.");
-                RefreshEntryMetadata(entry, packageRoot);
                 TryDelete(tempRoot);
                 RestoreDisplayName(entry);
                 entry.Logger.Log("[Update] Update " + FormatVersion(version) + " applied without restarting ADOFAI.");
@@ -497,6 +499,23 @@ namespace OrbitRender
             return true;
         }
 
+        private static void SyncEntryMetadataFromDisk(UnityModManager.ModEntry entry)
+        {
+            if (entry?.Info == null || string.IsNullOrEmpty(entry.Path)) return;
+
+            var infoPath = Path.Combine(entry.Path, "Info.json");
+            if (!File.Exists(infoPath)) infoPath = Path.Combine(entry.Path, "info.json");
+            if (!File.Exists(infoPath)) return;
+
+            var info = JsonConvert.DeserializeObject<UnityModManager.ModInfo>(File.ReadAllText(infoPath));
+            if (info == null || !string.Equals(info.Id, entry.Info.Id, StringComparison.OrdinalIgnoreCase)) return;
+            if (string.Equals(info.Version, entry.Info.Version, StringComparison.Ordinal)
+                && string.Equals(info.DisplayName, entry.Info.DisplayName, StringComparison.Ordinal))
+                return;
+
+            RefreshEntryMetadata(entry, entry.Path);
+        }
+
         private static void RefreshEntryMetadata(UnityModManager.ModEntry entry, string packageRoot)
         {
             var infoPath = Path.Combine(packageRoot, "Info.json");
@@ -519,6 +538,11 @@ namespace OrbitRender
             // newly installed version without another game launch.
             infoField.SetValue(entry, info);
             versionField.SetValue(entry, parsedVersion);
+
+            // Keep the progress label based on the metadata that was just
+            // installed. Otherwise a hot reload can restore the previous
+            // version's display name (or a status-decorated one).
+            originalDisplayName = string.IsNullOrEmpty(info.DisplayName) ? info.Id : info.DisplayName;
         }
 
         private static string FormatVersion(Version version)
