@@ -24,7 +24,6 @@ internal sealed class OptionalModClock : IDisposable
     private static readonly Harmony harmony = new("KGH1113.TUFReplayRenderer.OptionalModClock");
     private static readonly Dictionary<MemberInfo, MethodInfo> replacements = new();
     private static OverlayQueuePlan queuePlan;
-    private static MethodInfo jrpTicksGetter;
     private readonly ConditionalWeakTable<Stopwatch, VirtualWatch> watches = new();
     private readonly double scaledOrigin = Time.timeAsDouble, unscaledOrigin = Time.unscaledTimeAsDouble, realtimeOrigin = Time.realtimeSinceStartupAsDouble;
     private readonly long timestampOrigin;
@@ -67,7 +66,6 @@ internal sealed class OptionalModClock : IDisposable
             Dictionary<MemberInfo, MethodInfo> standardClocks;
             lock (replacements) standardClocks = replacements.Where(pair => pair.Key.DeclaringType == typeof(Time)
                 || pair.Key.DeclaringType == typeof(Stopwatch) || pair.Key.DeclaringType == typeof(DateTime)
-                || pair.Key == jrpTicksGetter
                 || pair.Value is DynamicMethod).ToDictionary(pair => pair.Key, pair => pair.Value);
             // Follow bounded inline clock-conversion chains as well: a timestamp
             // normalizer can itself be inlined into the original input listener.
@@ -140,17 +138,6 @@ internal sealed class OptionalModClock : IDisposable
         Register(AccessTools.Field(typeof(scrController), "gameworld"), typeof(OptionalModClock), nameof(GameWorld));
         Register(AccessTools.Field(typeof(scnEditor), "playMode"), typeof(OptionalModClock), nameof(EditorPlayback));
         Register(AccessTools.Method(typeof(RectTransformUtility), "WorldToScreenPoint", new[] { typeof(Camera), typeof(Vector3) }), typeof(OptionalModClock), nameof(WorldToScreen));
-        // A registered overlay provider supplies its own replay clock through
-        // OverlayApi; only patch the private getter of legacy versions.
-        var viewer = OrbitRender.OverlayApi.IsRegistered("JipperResourcePack") ? null : AppDomain.CurrentDomain.GetAssemblies()
-            .Select(a => a.GetType("JipperResourcePack.KeyViewerContents.KeyViewer", false))
-            .FirstOrDefault(t => t != null);
-        jrpTicksGetter = viewer == null ? null : AccessTools.PropertyGetter(viewer, "CurrentTicks");
-        if (jrpTicksGetter != null && jrpTicksGetter.ReturnType == typeof(long))
-        {
-            Register(jrpTicksGetter, typeof(OptionalModClock), nameof(JrpTicks));
-            Main.Entry.Logger.Log("[Replay] JRP replay clock enabled for " + viewer.Assembly.GetName().Name + ".");
-        }
         void Add(Type type, string property, string replacement) => Register(AccessTools.PropertyGetter(type, property), typeof(OptionalModClock), replacement);
     }
     private static void Register(MemberInfo original, Type owner, string name)
@@ -205,7 +192,6 @@ internal sealed class OptionalModClock : IDisposable
     private static long WatchTicks(Stopwatch watch) => active == null ? watch.ElapsedTicks : checked((long)Math.Round(WatchSeconds(watch) * Stopwatch.Frequency));
     private static long WatchMilliseconds(Stopwatch watch) => active == null ? watch.ElapsedMilliseconds : checked((long)Math.Floor(WatchSeconds(watch) * 1000));
     private static long Timestamp() => active == null ? Stopwatch.GetTimestamp() : active.timestampOrigin + checked((long)Math.Round(Seconds * Stopwatch.Frequency));
-    private static long JrpTicks() => active == null ? (long)jrpTicksGetter.Invoke(null, null) : checked((long)Math.Round(Seconds * TimeSpan.TicksPerSecond));
     private static DateTime LocalNow() => active == null ? DateTime.Now : active.localOrigin.AddSeconds(Seconds);
     private static DateTime UtcNow() => active == null ? DateTime.UtcNow : active.clock.UtcNow;
     private static Stopwatch NewWatch() { var watch = Stopwatch.StartNew(); if (active != null) active.watches.Add(watch, new VirtualWatch { Running = true, Started = Seconds }); return watch; }

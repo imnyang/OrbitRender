@@ -31,7 +31,7 @@ TUFReplay
 
 - 시간은 리플레이 **영상 타임라인** 기준입니다. `VideoTicks`와 `OnReplayClock`/`OnReplayInput`의 `ticks`는 `TimeSpan.TicksPerSecond`(1초 = 10,000,000) 단위라 `Stopwatch` 기반 표시기와 그대로 맞출 수 있습니다.
 - `OnReplayInput`의 `ticks`는 해당 입력이 발생한 시각이며, `ApplyInput` 동안에만 이벤트 시각으로 갱신된 뒤 프레임 시각으로 돌아갑니다.
-- 등록된 provider는 OrbitRender의 기존 이름 기반 탐색·JRP 전용 보정에서 제외됩니다. provider가 있으면 JRP의 `JrpRenderGuard`/`jrpTicksGetter` 같은 사설 접근도 건너뜁니다.
+- JRP 리플레이 입력과 시간은 provider가 처리합니다. 일반 레벨 렌더에서는 provider가 없는 JRP 버전의 플레이 횟수를 보호합니다.
 
 ## OrbitRender 표면
 
@@ -74,7 +74,7 @@ namespace OrbitRender
 | `void OnReplayInput(string keyCode, bool down, long ticks)` | 리플레이 렌더 중 기록된 키 입력 |
 
 - `GetOverlayCanvases()`가 반환한 캔버스는 OrbitRender가 직접 캡처합니다. `showModOverlay` 설정과 무관하게 동작합니다.
-- 일반적인 provider의 레이아웃은 해당 모드가 관리합니다. JipperResourcePack의 렌더 전용 배치와 레인 깊이 보정은 OrbitRender가 적용합니다.
+- 일반적인 provider의 레이아웃은 해당 모드가 관리합니다. JipperResourcePack은 리플레이 캡처 전후에 레인 깊이를 보정·복원하고, OrbitRender는 일반 레벨 렌더 전용 배치를 적용합니다.
 - 리플레이 입력은 `KeyCode` 이름 문자열로 전달됩니다. 실시간 입력과 중복되지 않도록 어댑터에서 처리 방식을 정하세요.
 - provider 콜백에서 예외가 나도 렌더는 중단되지 않고 로그만 남습니다.
 

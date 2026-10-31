@@ -46,7 +46,7 @@ namespace OrbitRender.Renderer
             || (!Main.IsBatchMode && (OrbitRender.UI.ExportVideoDialog.IsOpen
                 || OrbitRender.UI.CompletionScreen.BlocksInput
                 || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen));
-        internal static bool ShowHitJudgments => Instance != null && (Instance.showHitJudgmentsForRun || ReplayActive);
+        internal static bool ShowHitJudgments => Instance != null && (Instance.showHitJudgmentsForRun || Instance.showGameplayHudForRun);
         internal static bool BgaModeActive => Instance != null && Instance.bgaModeForRun
             && (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering
                 || Instance.State == RenderState.Finishing);
@@ -140,6 +140,7 @@ namespace OrbitRender.Renderer
         private bool showCountdownForRun;
         private bool showResultTextForRun;
         private bool showHitJudgmentsForRun;
+        private bool showGameplayHudForRun;
         private bool showModOverlayForRun;
         private double scheduledMusicStartDsp;
         private double scheduledMusicLengthSeconds;
@@ -509,10 +510,8 @@ namespace OrbitRender.Renderer
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
             OverlayApi.BeginSession(replayBundle != null, profile.Width, profile.Height, profile.VideoFps);
-            // A registered overlay provider owns its replay clock/input and
-            // persistent-stat guard; patch only legacy versions that do not.
-            jrpRenderGuard = OverlayApi.IsRegistered("JipperResourcePack")
-                ? null : JrpRenderGuard.Begin(replayBundle != null);
+            jrpRenderGuard = replayBundle != null || OverlayApi.IsRegistered("JipperResourcePack")
+                ? null : JrpRenderGuard.Begin();
             RenderTimingPatches.Apply();
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
@@ -596,11 +595,11 @@ namespace OrbitRender.Renderer
             Persistence.skipIntroBehavior = SkipIntroBehavior.Off;
             GCS.checkpointNum = replayBundle != null ? replayBundle.Manifest.Replay.StartTile : 0;
             RDC.auto = false; // Preserve the normal countdown, avoiding the editor's fast-takeoff shortcut.
-            // ADOFAI's hit-text manager exits early when noHud is enabled.
-            // Keep the normal HUD-hidden render path, but allow the explicit
-            // hit-judgment option to reach ShowHitText.
-            RDC.noHud = replayBundle == null && !showHitJudgmentsForRun;
-            RDC.noAutoHud = replayBundle == null;
+            // Respect the game's autoplay HUD preference and keep the separate
+            // hit-judgment option available when the gameplay HUD is hidden.
+            showGameplayHudForRun = replayBundle != null || !Persistence.hideGameplayUIDuringAutoplay;
+            RDC.noHud = !showGameplayHudForRun && !showHitJudgmentsForRun;
+            RDC.noAutoHud = !showGameplayHudForRun;
             yield return null;
             if (replayBundle != null)
             {
@@ -670,7 +669,7 @@ namespace OrbitRender.Renderer
             FrameRateEventPatch.ResetRuntimeState();
             LogRenderChain("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
-                showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun, replayDriver != null);
+                showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun, showGameplayHudForRun);
             if (replayDriver != null)
             {
                 var context = new RenderReplayContext(Clock, profile.Width, profile.Height, profile.VideoFps,
@@ -681,7 +680,7 @@ namespace OrbitRender.Renderer
             var renderCanvases = replayDriver != null
                 ? defaultText.CaptureCanvases.Concat(TUFReplayRenderer.Replay.ReplayHitErrorMeter.CaptureCanvases())
                 : defaultText.CaptureCanvases;
-            capture = new FrameCapture(encoder, profile.Width, profile.Height, renderCanvases, showModOverlayForRun || replayDriver != null, replayDriver != null);
+            capture = new FrameCapture(encoder, profile.Width, profile.Height, renderCanvases, showModOverlayForRun || showGameplayHudForRun, showGameplayHudForRun);
             if (useRustRendererForRun)
                 capture.TryEnableNative(profile);
             encoder.Check();
@@ -2082,7 +2081,6 @@ namespace OrbitRender.Renderer
             replaySession = null;
             TryCleanup(() => replayDriver?.RestoreAfterRender());
             replayDriver = null;
-            TryCleanup(() => jrpRenderGuard?.RestoreInputClock());
             TryCleanup(() => replayOverlayClock?.Dispose());
             replayOverlayClock = null;
             overlayRefreshOnly = false;
