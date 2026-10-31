@@ -5,6 +5,7 @@ namespace OrbitRender.Renderer
     public sealed class RenderRequestOptions
     {
         internal RenderRequestOptions Snapshot() => (RenderRequestOptions)MemberwiseClone();
+        public string ReplayManifestPath;
         public string OutputDirectory;
         public RendererPreset? Preset;
         public int? Width;

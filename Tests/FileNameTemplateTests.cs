@@ -81,11 +81,38 @@ internal static class FileNameTemplateTests
         }
         finally { CultureInfo.CurrentCulture = originalCulture; }
 
+        if (OutputFormat.ReplayNamedDirectory("My/Level") != "My_Level"
+            || OutputFormat.ReplayNamedDirectory(" CON ") != "_CON"
+            || OutputFormat.ReplayNamedDirectory("../") != null
+            || OutputFormat.ReplayNamedDirectory(null) != null
+            || OutputFormat.ReplayNamedDirectory(" Level ") != null
+            || OutputFormat.ReplayNamedDirectory("level") != null)
+            throw new Exception("Replay map folder naming or fallback failed.");
+        var hash = new string('A', 64);
+        var replayName = OutputFormat.ReplayFileName(null, hash, now);
+        if (replayName != Path.Combine("TUFReplay", hash.ToLowerInvariant(), "TUFReplay_2026-10-05_12-34-56"))
+            throw new Exception("Replay output path did not group by level hash and date.");
+        try { OutputFormat.ReplayFileName(null, "../invalid", now); throw new Exception("Unsafe replay hash was accepted."); }
+        catch (ArgumentException) { }
+        var levelFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(levelFile, "abc");
+            var computed = OutputFormat.ReplayFileName(levelFile, null, now);
+            if (computed != Path.Combine("TUFReplay", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "TUFReplay_2026-10-05_12-34-56"))
+                throw new Exception("Replay output did not compute a missing level hash.");
+        }
+        finally { File.Delete(levelFile); }
         var directory = Path.Combine(Path.GetTempPath(), "orbit-filename-" + Guid.NewGuid().ToString("N"));
         var nestedName = OutputFormat.FileName("{level}/Render_{id}.mp4", "wowcoollevel", now, "abc123");
         var first = OutputFormat.UniquePath(directory, nestedName, ".mp4");
         try
         {
+            var replayFirst = OutputFormat.UniquePath(directory, replayName, ".mkv");
+            Directory.CreateDirectory(Path.GetDirectoryName(replayFirst));
+            File.WriteAllText(replayFirst, "keep replay");
+            if (OutputFormat.UniquePath(directory, replayName, ".mkv") != Path.Combine(directory, "TUFReplay", hash.ToLowerInvariant(), "TUFReplay_2026-10-05_12-34-56_1.mkv"))
+                throw new Exception("Replay output collision handling failed.");
             Directory.CreateDirectory(Path.GetDirectoryName(first));
             File.WriteAllText(first, "keep");
             var next = OutputFormat.UniquePath(directory, nestedName, ".mp4");

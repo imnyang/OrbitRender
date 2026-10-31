@@ -143,6 +143,7 @@ namespace OrbitRender.Renderer
         private double customFrameNextRefreshTime;
         private readonly int width;
         private readonly int height;
+        private readonly bool replayOverlays;
         private readonly scrCamera gameCamera;
         private readonly float originalZoomSize;
         private readonly Vector2 originalOffset;
@@ -158,6 +159,7 @@ namespace OrbitRender.Renderer
         private Vector3 hudOverlayPosition;
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
+        private readonly Dictionary<Transform, float> jrpRainDepths = new Dictionary<Transform, float>();
         private Texture2D fallback;
         private bool disposed;
         private long readbackWaitTicks;
@@ -170,6 +172,7 @@ namespace OrbitRender.Renderer
         private int peakPending;
         public double BackpressureSeconds { get; private set; }
         internal Texture PreviewTexture => target;
+        internal Camera OverlayCamera => hudOverlayCamera;
         public double EncoderBufferWaitSeconds => encoder.NativeBackend != null ? encoder.NativeBackend.BufferWaitSeconds
             : encoderBufferWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ReadbackWaitSeconds => readbackWaitTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -200,8 +203,10 @@ namespace OrbitRender.Renderer
         }
 
         public FrameCapture(FFmpegEncoder encoder, int width, int height,
-            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false)
+            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false, bool replayOverlays = false)
         {
+            this.replayOverlays = replayOverlays;
+            manualGameplay = manualGameplay || replayOverlays;
             this.encoder = encoder;
             this.width = width;
             this.height = height;
@@ -240,7 +245,7 @@ namespace OrbitRender.Renderer
                         if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
                 if (showModOverlay)
                     foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                        if (IsModOverlay(canvas)) captureCanvasSet.Add(canvas);
+                        if (IsModOverlay(canvas, replayOverlays)) captureCanvasSet.Add(canvas);
                 if (captureCanvasSet.Count > 0)
                     CreateHudOverlay(captureCanvasSet);
                 foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
@@ -264,7 +269,7 @@ namespace OrbitRender.Renderer
                         ConfigureCaptureCanvas(canvas, hudOverlayCamera ?? gameCamera.camobj);
                         // Keep HUD pixels out of the persistent gameplay image
                         // used as Hall of Mirrors' next-frame input.
-                        canvas.enabled = false;
+                        canvas.enabled = replayOverlays && canvas.enabled;
                     }
                     else canvas.enabled = false;
                 }
@@ -274,14 +279,17 @@ namespace OrbitRender.Renderer
             }
             catch { Dispose(); throw; }
         }
-        private static bool IsModOverlay(Canvas canvas)
+        private static bool IsModOverlay(Canvas canvas, bool replayOverlays)
         {
             if (canvas == null || !canvas.isRootCanvas || canvas.renderMode == RenderMode.WorldSpace) return false;
             var root = canvas.gameObject;
             if (root.scene.name != "DontDestroyOnLoad") return false;
+            if (TUFReplayRenderer.Replay.OverlayAssemblyDiscovery.IsControlCanvas(canvas)) return false;
             foreach (var component in root.GetComponentsInChildren<MonoBehaviour>(true))
-                if (component != null && component.GetType().Assembly.GetName().Name == "RainingKeys") return false;
+                if (component != null && (component.GetType().Assembly.GetName().Name == "RainingKeys"
+                    || component.GetType().FullName == "AdofaiTweaks.Tweaks.KeyViewer.KeyViewer") && !replayOverlays) return false;
             var name = root.name;
+            if (replayOverlays) return name.IndexOf("OrbitRender", StringComparison.OrdinalIgnoreCase) < 0;
             return name.IndexOf("keyviewer", StringComparison.OrdinalIgnoreCase) < 0
                 && name.IndexOf("key viewer", StringComparison.OrdinalIgnoreCase) < 0
                 && name.IndexOf("rainingkeys", StringComparison.OrdinalIgnoreCase) < 0
@@ -427,12 +435,22 @@ namespace OrbitRender.Renderer
         private void AssignLayerRecursively(GameObject root)
         {
             if (root == null) return;
+            bool jrpKeyViewer = replayOverlays && root.name == "JipperResourcePack KeyViewer";
             foreach (var child in root.GetComponentsInChildren<Transform>(true))
             {
                 var gameObject = child.gameObject;
-                if (!hudLayerObjects.Add(gameObject)) continue;
-                hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
-                gameObject.layer = hudLayer;
+                if (hudLayerObjects.Add(gameObject))
+                    hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
+                if (gameObject.layer != hudLayer) gameObject.layer = hudLayer;
+                // JRP parents new rain with worldPositionStays=true. Once the
+                // overlay canvas is on a camera plane, that leaves new rain at
+                // its old world Z instead of on the canvas plane.
+                if (jrpKeyViewer && child.name == "Rain" && child.parent != null && child.parent.name == "RainLine")
+                {
+                    var position = child.localPosition;
+                    if (!jrpRainDepths.ContainsKey(child)) jrpRainDepths.Add(child, position.z);
+                    if (!Mathf.Approximately(position.z, 0f)) { position.z = 0f; child.localPosition = position; }
+                }
             }
         }
 
@@ -500,7 +518,7 @@ namespace OrbitRender.Renderer
                         AssignLayerRecursively(state.Canvas.gameObject);
                         ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera ?? gameCamera.camobj);
                     }
-                    if (state.Canvas.enabled)
+                    if (state.Canvas.enabled && (!replayOverlays || !state.Capture))
                     {
                         state.Canvas.enabled = false;
                         RecordBindWrite();
@@ -643,13 +661,24 @@ namespace OrbitRender.Renderer
             SyncHudOverlayCamera();
             foreach (var state in canvases)
             {
-                if (!state.Capture || state.Canvas == null || !state.Enabled) continue;
+                if (!state.Capture || state.Canvas == null) continue;
                 ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera);
-                state.Canvas.enabled = true;
+                // Replay HUD visibility belongs to the game and may change
+                // during play; the saved state is only for restoration.
+                if (!replayOverlays && state.Enabled) state.Canvas.enabled = true;
             }
-            var jrpPositions = CompactJrpStatus(canvases);
-            var hiddenJrpGraphics = HideExcludedJrpGraphics(canvases);
-            try { hudOverlayCamera.Render(); }
+            var jrpPositions = replayOverlays ? new List<JrpPosition>() : CompactJrpStatus(canvases);
+            var hiddenJrpGraphics = replayOverlays ? new List<UnityEngine.UI.Graphic>() : HideExcludedJrpGraphics(canvases);
+            try
+            {
+                if (replayOverlays)
+                {
+                    Canvas.ForceUpdateCanvases();
+                    foreach (var state in canvases)
+                        if (state.Capture && state.Canvas != null) AssignLayerRecursively(state.Canvas.gameObject);
+                }
+                hudOverlayCamera.Render();
+            }
             finally
             {
                 foreach (var position in jrpPositions)
@@ -657,7 +686,7 @@ namespace OrbitRender.Renderer
                 foreach (var graphic in hiddenJrpGraphics)
                     if (graphic != null) graphic.enabled = true;
                 foreach (var state in canvases)
-                    if (state.Capture && state.Canvas != null) state.Canvas.enabled = false;
+                    if (!replayOverlays && state.Capture && state.Canvas != null) state.Canvas.enabled = false;
             }
         }
 
@@ -854,6 +883,9 @@ namespace OrbitRender.Renderer
                 state.Canvas.planeDistance = state.PlaneDistance;
                 state.Canvas.enabled = state.Enabled;
             }
+            foreach (var entry in jrpRainDepths)
+                if (entry.Key != null) { var position = entry.Key.localPosition; position.z = entry.Value; entry.Key.localPosition = position; }
+            jrpRainDepths.Clear();
             for (var i = 0; i < hudLayers.Count; i++)
             {
                 var state = hudLayers[i];

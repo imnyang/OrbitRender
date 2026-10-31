@@ -3,7 +3,8 @@ import "@adofai-ipc/typespec";
 @ipc.mod("orbitrender")
 namespace OrbitRenderIpc {
   model RenderOptions {
-    levelPath: string;
+    levelPath?: string;
+    replayManifestPath?: string;
     preset?: string;
     width?: int32;
     height?: int32;

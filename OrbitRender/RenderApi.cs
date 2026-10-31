@@ -21,6 +21,19 @@ namespace OrbitRender
             return controller.State == RenderState.Preparing || controller.State == RenderState.Rendering;
         }
 
+        /// <summary>
+        /// Starts rendering a TUFReplay bundle. The recorded level must already be
+        /// open in the editor. Returns false when the renderer is unavailable,
+        /// busy, or cannot begin preparation.
+        /// </summary>
+        public static bool TryStartReplay(string manifestPath, RenderRequestOptions options = null)
+        {
+            if (string.IsNullOrWhiteSpace(manifestPath)) return false;
+            options = options?.Snapshot() ?? new RenderRequestOptions();
+            options.ReplayManifestPath = manifestPath;
+            return TryStart(options);
+        }
+
         /// <summary>Requests cancellation of the active render.</summary>
         public static bool TryCancel()
         {

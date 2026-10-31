@@ -36,8 +36,9 @@ export interface RenderOptions {
     captureAudio?: boolean;
     endDelaySeconds?: number;
     height?: number;
-    levelPath: string;
+    levelPath?: string;
     preset?: string;
+    replayManifestPath?: string;
     showCountdown?: boolean;
     showHitJudgments?: boolean;
     showModOverlay?: boolean;

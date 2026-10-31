@@ -2,7 +2,7 @@
 import { defineContract } from "adofai-ipc";
 export const OrbitRenderIpcContract = defineContract({
     "id": "orbitrender",
-    "hash": "6ebc8f6f4a5733c04a39a152a9e3e33cb6aa64d9599c7a45f55174af8f3a517b",
+    "hash": "a979ba0c8078dea4048fd28087fbdefb33f23290aaac80669ef47ff1f85b2be4",
     "models": {
         "Cancelled": {
             "object": {
@@ -72,8 +72,13 @@ export const OrbitRenderIpcContract = defineContract({
                 "height": {
                     "optional": "int32"
                 },
-                "levelPath": "string",
+                "levelPath": {
+                    "optional": "string"
+                },
                 "preset": {
+                    "optional": "string"
+                },
+                "replayManifestPath": {
                     "optional": "string"
                 },
                 "showCountdown": {

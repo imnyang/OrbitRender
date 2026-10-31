@@ -21,20 +21,72 @@ namespace OrbitRender.Renderer
         private readonly HashSet<Behaviour> seen = new HashSet<Behaviour>();
         private readonly HashSet<Behaviour> visibleTexts = new HashSet<Behaviour>();
         private readonly List<Canvas> captureCanvases = new List<Canvas>();
+        private GameObject replayModifiers, replayNoFail;
+        private bool modifiersActive, noFailActive;
+        private Image replayDifficulty;
+        private Sprite difficultySprite;
         private bool disposed;
 
         internal IEnumerable<Canvas> CaptureCanvases => captureCanvases;
         private DefaultTextRenderState() { }
 
         internal static DefaultTextRenderState Capture(bool showSongTitle, bool showCountdown,
-            bool showResultText, bool showHitJudgments)
+            bool showResultText, bool showHitJudgments, bool showGameplayHud = false)
         {
             var state = new DefaultTextRenderState();
             var controller = ADOBase.controller;
             var ui = scrUIController.instance;
 
-            if (ui != null && (showSongTitle || showCountdown || showResultText || showHitJudgments))
+            if (ui != null && (showGameplayHud || showSongTitle || showCountdown || showResultText || showHitJudgments))
                 state.AddCaptureCanvas(ui.canvas);
+
+            if (showGameplayHud)
+            {
+                // Editor playback uses its own difficulty, no-fail and auto
+                // indicators rather than the normal gameplay modifier UI.
+                var editor = scnEditor.instance;
+                if (editor != null)
+                {
+                    state.AddCaptureCanvas(editor.editorDifficultySelector);
+                    state.AddCaptureCanvas(editor.buttonNoFail);
+                    state.AddCaptureCanvas(editor.buttonUnlockKeyLimiter);
+                    state.AddCaptureCanvas(editor.autoImage);
+                }
+                // The normal gameplay modifier strip has a different layout.
+                // Do not force it on during editor playback, where the editor
+                // already supplies the indicators in their usual position.
+                if (editor == null && ui != null && ui.modifiersContainer != null)
+                {
+                    state.replayModifiers = ui.modifiersContainer.gameObject;
+                    state.modifiersActive = state.replayModifiers.activeSelf;
+                    state.replayModifiers.SetActive(true);
+                    if (ui.noFailImage != null)
+                    {
+                        state.replayNoFail = ui.noFailImage.gameObject;
+                        state.noFailActive = state.replayNoFail.activeSelf;
+                    }
+                    state.replayDifficulty = ui.difficultyImage;
+                    if (state.replayDifficulty != null)
+                    {
+                        state.difficultySprite = state.replayDifficulty.sprite;
+                        var sprites = RDConstants.data.bullseyeSprites;
+                        int difficulty = (int)GCS.difficulty;
+                        if (sprites != null && difficulty >= 0 && difficulty < sprites.Length)
+                            state.replayDifficulty.sprite = sprites[difficulty];
+                    }
+                    state.AddCaptureCanvas(ui.modifiersContainer);
+                }
+                foreach (var item in UnityEngine.Object.FindObjectsByType<scrHUDText>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                    state.AddCaptureCanvas(item);
+                foreach (var item in UnityEngine.Object.FindObjectsByType<scrShowIfDebug>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                    state.AddCaptureCanvas(item);
+                foreach (var item in UnityEngine.Object.FindObjectsByType<scrVersionText>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                    state.AddCaptureCanvas(item);
+                var hitManager = ADOBase.playerManager != null ? ADOBase.playerManager.hitTextManager : null;
+                if (hitManager != null && hitManager.hitTextContainer != null)
+                    state.AddCaptureCanvas(hitManager.hitTextContainer.GetComponentInParent<Canvas>());
+                return state;
+            }
 
             if (showSongTitle)
             {
@@ -111,6 +163,10 @@ namespace OrbitRender.Renderer
         internal void Apply()
         {
             if (disposed) return;
+            if (replayModifiers != null && !replayModifiers.activeSelf) replayModifiers.SetActive(true);
+            if (replayNoFail != null && ADOBase.controller != null
+                && replayNoFail.activeSelf != ADOBase.controller.noFail)
+                replayNoFail.SetActive(ADOBase.controller.noFail);
             for (var i = 0; i < controlledTexts.Count; i++)
             {
                 var snapshot = controlledTexts[i];
@@ -124,6 +180,9 @@ namespace OrbitRender.Renderer
         {
             if (disposed) return;
             disposed = true;
+            if (replayModifiers != null) replayModifiers.SetActive(modifiersActive);
+            if (replayNoFail != null) replayNoFail.SetActive(noFailActive);
+            if (replayDifficulty != null) replayDifficulty.sprite = difficultySprite;
             for (var i = 0; i < controlledTexts.Count; i++)
             {
                 var snapshot = controlledTexts[i];
