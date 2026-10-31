@@ -55,5 +55,18 @@ bool cancellationRequested = RenderApi.TryCancel();
 | 표시 | `ShowRenderPreview`, `BgaMode`, `ShowPlanetRings`, `ShowSongTitle`, `ShowCountdown`, `ShowResultText`, `ShowHitJudgments`, `ShowModOverlay` |
 | 렌더링 자원 | `UseRustRenderer`, `BufferPolicy` |
 | 선택 구간 | `SelectionStartTile`, `SelectionEndTile` |
+| 리플레이 | `ReplayManifestPath` |
 
 선택 구간을 지정할 때는 시작과 끝 타일을 함께 지정하세요. 한쪽만 지정하면 선택 구간이 적용되지 않습니다. 프리셋과 개별 옵션을 함께 지정하면 개별 옵션이 해당 설정을 덮어씁니다.
+
+## TUFReplay 번들 렌더
+
+`ReplayManifestPath`에 TUFReplay가 만든 `manifest.json` 경로를 지정하면 번들에 기록된 리플레이를 렌더링합니다. 에디터에 기록 당시의 같은 레벨이 열려 있어야 하며, 번들의 `level.path`와 현재 레벨 파일이 다르면 렌더를 시작하지 않습니다. 레벨 파일은 접근 가능해야 합니다.
+
+```csharp
+bool started = RenderApi.TryStartReplay(
+    @"C:\...\RenderBundles\<jobId>\manifest.json",
+    new RenderRequestOptions { ShowModOverlay = true });
+```
+
+TUFReplay 동반 앱은 OrbitRender의 `orbitrender` IPC 계약으로 같은 작업을 수행합니다. TUFReplay에서 기록을 선택하면 번들을 준비한 뒤 `createRender`에 `replayManifestPath`를 전달하고, `renderStatus`로 진행률과 완료 경로를 확인합니다. OrbitRender가 설치·활성화되어 있지 않으면 TUFReplay는 기존 녹화·리플레이 기능만 사용합니다.

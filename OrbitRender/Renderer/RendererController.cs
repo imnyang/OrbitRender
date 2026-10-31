@@ -534,7 +534,23 @@ namespace OrbitRender.Renderer
             var settings = Main.Settings ?? new RendererSettings();
             var directory = outputDirectoryForRun ?? settings.ResolveOutputDirectory();
             Directory.CreateDirectory(directory);
-            var name = OutputFormat.FileName(fileNameFormatForRun,
+            string name;
+            if (replayBundle != null)
+            {
+                var now = DateTime.Now;
+                var mapName = OutputFormat.ReplayNamedDirectory(level.levelData?.song);
+                var replayDirectory = mapName == null ? null : Path.Combine(directory, "TUFReplay", mapName);
+                if (replayDirectory != null)
+                {
+                    try { Directory.CreateDirectory(replayDirectory); }
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+                    { replayDirectory = null; }
+                }
+                name = replayDirectory == null
+                    ? OutputFormat.ReplayFileName(replayBundle.ResolveLevelPath(), replayBundle.Manifest.Level.FileSha256, now)
+                    : Path.Combine("TUFReplay", mapName, "TUFReplay_" + now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else name = OutputFormat.FileName(fileNameFormatForRun,
                 ExportFileName.Variables(profile, bgaModeForRun, DateTime.Now, Guid.NewGuid().ToString("N").Substring(0, 6)));
             OutputPath = OutputFormat.UniquePath(directory, name, profile.ContainerExtension);
             Directory.CreateDirectory(Path.GetDirectoryName(OutputPath));
@@ -1175,7 +1191,8 @@ namespace OrbitRender.Renderer
                 plan.Arguments.InsertRange(audioOption, codec == AudioCodec.Flac
                     ? new[] { "-c:a", "flac" }
                     : new[] { "-c:a", AudioCodecCatalog.Encoder(codec), "-b:a", AudioCodecCatalog.Bitrate(codec) });
-            }            using (var process = new System.Diagnostics.Process { StartInfo = new System.Diagnostics.ProcessStartInfo {
+            }
+            using (var process = new System.Diagnostics.Process { StartInfo = new System.Diagnostics.ProcessStartInfo {
                 FileName = FFmpegPath, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true, RedirectStandardOutput = true,
                 Arguments = string.Join(" ", plan.Arguments.Select(QuoteFfmpegArgument))

@@ -261,13 +261,3 @@ field-prores-container = ProRes requires Auto (MOV), MOV or MKV. Choose a compat
 field-ffv1-container = FFV1 requires MKV. Choose a compatible output format.
 lossless = Lossless
 field-ts-container = MPEG-TS requires H.264 or H.265. Choose another codec or output format.
-
-replay-select = Choose TUF replay bundle (manifest.json)
-replay-clear = Clear replay selection
-replay-no-queue = Replay renders cannot be added to the queue.
-replay-no-selection = Replay renders do not support selection export.
-
-replay-list = Load TUF replays for this level
-replay-preparing = Preparing replay render bundle...
-replay-empty = No playable TUF recordings for this level.
-replay-export-failed = Could not prepare the replay bundle.

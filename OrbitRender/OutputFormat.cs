@@ -85,6 +85,26 @@ namespace OrbitRender
             return value;
         }
 
+        internal static string ReplayNamedDirectory(string levelName)
+        {
+            if (string.IsNullOrWhiteSpace(levelName) || string.Equals(levelName.Trim(), "Level", StringComparison.OrdinalIgnoreCase)
+                || !levelName.Any(c => !char.IsWhiteSpace(c)
+                && !char.IsControl(c) && !Path.GetInvalidFileNameChars().Contains(c) && !"<>:\"/\\|?*.".Contains(c)))
+                return null;
+            return CleanComponent(levelName);
+        }
+        internal static string ReplayFileName(string levelPath, string levelHash, DateTime now)
+        {
+            if (string.IsNullOrEmpty(levelHash))
+            {
+                using (var stream = File.OpenRead(levelPath))
+                using (var sha256 = System.Security.Cryptography.SHA256.Create())
+                    levelHash = BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", "");
+            }
+            if (levelHash.Length != 64 || levelHash.Any(c => !Uri.IsHexDigit(c)))
+                throw new ArgumentException("Invalid level hash.", nameof(levelHash));
+            return Path.Combine("TUFReplay", levelHash.ToLowerInvariant(), "TUFReplay_" + now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture));
+        }
         internal static string UniquePath(string directory, string name, string extension)
         {
             for (var i = 0; ; i++)

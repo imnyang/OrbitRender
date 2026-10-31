@@ -29,6 +29,14 @@ namespace OrbitRender.TufReplay
             catch { patcher.UnpatchAll(patcher.Id); throw; }
         }
 
+        internal static bool TryInstallWhenAvailable()
+        {
+            if (harmony != null) return true;
+            if (AccessTools.TypeByName("TUFReplay.Shared.NativeInput.NativeInputKeyCodeMapper") == null) return false;
+            EnsureInstalled();
+            return true;
+        }
+
         private static bool Prefix(object[] __args, ref bool __result)
         {
             if (!Main.Enabled || __args == null || __args.Length != 3 || __args[1] == null) return true;

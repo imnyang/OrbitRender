@@ -159,6 +159,7 @@ namespace OrbitRender.Renderer
         private Vector3 hudOverlayPosition;
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
+        private readonly Dictionary<Transform, float> jrpRainDepths = new Dictionary<Transform, float>();
         private Texture2D fallback;
         private bool disposed;
         private long readbackWaitTicks;
@@ -434,12 +435,22 @@ namespace OrbitRender.Renderer
         private void AssignLayerRecursively(GameObject root)
         {
             if (root == null) return;
+            bool jrpKeyViewer = replayOverlays && root.name == "JipperResourcePack KeyViewer";
             foreach (var child in root.GetComponentsInChildren<Transform>(true))
             {
                 var gameObject = child.gameObject;
                 if (hudLayerObjects.Add(gameObject))
                     hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
                 if (gameObject.layer != hudLayer) gameObject.layer = hudLayer;
+                // JRP parents new rain with worldPositionStays=true. Once the
+                // overlay canvas is on a camera plane, that leaves new rain at
+                // its old world Z instead of on the canvas plane.
+                if (jrpKeyViewer && child.name == "Rain" && child.parent != null && child.parent.name == "RainLine")
+                {
+                    var position = child.localPosition;
+                    if (!jrpRainDepths.ContainsKey(child)) jrpRainDepths.Add(child, position.z);
+                    if (!Mathf.Approximately(position.z, 0f)) { position.z = 0f; child.localPosition = position; }
+                }
             }
         }
 
@@ -650,9 +661,11 @@ namespace OrbitRender.Renderer
             SyncHudOverlayCamera();
             foreach (var state in canvases)
             {
-                if (!state.Capture || state.Canvas == null || !state.Enabled) continue;
+                if (!state.Capture || state.Canvas == null) continue;
                 ConfigureCaptureCanvas(state.Canvas, hudOverlayCamera);
-                state.Canvas.enabled = true;
+                // Replay HUD visibility belongs to the game and may change
+                // during play; the saved state is only for restoration.
+                if (!replayOverlays && state.Enabled) state.Canvas.enabled = true;
             }
             var jrpPositions = replayOverlays ? new List<JrpPosition>() : CompactJrpStatus(canvases);
             var hiddenJrpGraphics = replayOverlays ? new List<UnityEngine.UI.Graphic>() : HideExcludedJrpGraphics(canvases);
@@ -870,6 +883,9 @@ namespace OrbitRender.Renderer
                 state.Canvas.planeDistance = state.PlaneDistance;
                 state.Canvas.enabled = state.Enabled;
             }
+            foreach (var entry in jrpRainDepths)
+                if (entry.Key != null) { var position = entry.Key.localPosition; position.z = entry.Value; entry.Key.localPosition = position; }
+            jrpRainDepths.Clear();
             for (var i = 0; i < hudLayers.Count; i++)
             {
                 var state = hudLayers[i];

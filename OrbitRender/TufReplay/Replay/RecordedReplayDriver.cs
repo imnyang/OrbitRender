@@ -117,6 +117,10 @@ public sealed class RecordedReplayDriver : IRenderReplayDriver, IRenderOverlaySy
     if (conductor.song3 != null) conductor.song3.pitch = pitch;
     if (scnEditor.instance != null) scnEditor.instance.playbackSpeed = (float)PlaybackRateMultiplier;
     ADOBase.controller.noFail = bundle.Manifest.Replay.NoFailMode;
+    // Apply the calibration captured with the recording. The conductor reads
+    // this preset when it starts, so this must run before editor.Play/level.Play.
+    if (scrConductor.currentPreset.inputOffset != (int)Math.Round(bundle.Manifest.Replay.GameInputOffsetMs))
+      scrConductor.currentPreset.inputOffset = (int)Math.Round(bundle.Manifest.Replay.GameInputOffsetMs);
     if (!string.IsNullOrEmpty(bundle.Manifest.Replay.JudgmentDifficulty))
     {
       if (!Enum.TryParse(bundle.Manifest.Replay.JudgmentDifficulty, out Difficulty difficulty)
@@ -378,10 +382,12 @@ public sealed class RecordedReplayDriver : IRenderReplayDriver, IRenderOverlaySy
     private readonly float pitch3 = ADOBase.conductor.song3 != null ? ADOBase.conductor.song3.pitch : 1f;
     private readonly scnEditor editor = scnEditor.instance;
     private readonly float editorSpeed = scnEditor.instance != null ? scnEditor.instance.playbackSpeed : 1f;
+    private readonly int inputOffset = scrConductor.currentPreset.inputOffset;
     public void Restore()
     {
       RDC.auto = auto;
       GCS.difficulty = difficulty;
+      scrConductor.currentPreset.inputOffset = inputOffset;
       if (controller != null) { controller.noFail = noFail; controller.noFailInfiniteMargin = noFailInfinite; }
       if (conductor != null)
       {

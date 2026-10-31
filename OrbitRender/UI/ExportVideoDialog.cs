@@ -37,10 +37,6 @@ namespace OrbitRender.UI
         private static UserRenderPreset selectedUserPreset;
         private static readonly System.Collections.Generic.Dictionary<string, FieldView> fieldViews = new System.Collections.Generic.Dictionary<string, FieldView>();
         private static int queueRevision;
-        private static string replayManifestPath;
-        private static System.Collections.Generic.List<OrbitRender.TufReplay.RecordedRun> replayRuns;
-        private static string replayJobId;
-        private static float nextReplayPoll;
 
         internal static bool IsOpen => open;
         internal static void CloseDialog() => Close();
@@ -51,8 +47,6 @@ namespace OrbitRender.UI
             Close();
             editor = owner;
             draft = Draft.From(Main.Settings);
-            replayManifestPath = null;
-            replayRuns = null;
             selectedUserPreset = null;
             selectedTab = 0;
             showHelp = false;
@@ -70,32 +64,6 @@ namespace OrbitRender.UI
         internal static void Refresh(RendererController renderer)
         {
             if (!open || canvasObject == null) return;
-            if (replayJobId != null && Time.unscaledTime >= nextReplayPoll)
-            {
-                nextReplayPoll = Time.unscaledTime + 0.5f;
-                try
-                {
-                    var status = OrbitRender.TufReplay.TufReplayBridge.Status(replayJobId);
-                    var state = OrbitRender.TufReplay.TufReplayBridge.Read(status, "State");
-                    if (state == "completed")
-                    {
-                        var path = OrbitRender.TufReplay.TufReplayBridge.Read(status, "ManifestPath");
-                        var bundle = TUFReplayRenderer.Contracts.RecordingBundle.Load(path);
-                        bundle.ValidateLevelHash();
-                        replayManifestPath = path;
-                        replayJobId = null;
-                        error = string.Empty;
-                        RebuildContent();
-                    }
-                    else if (state == "failed" || state == "cancelled")
-                    {
-                        error = OrbitRender.TufReplay.TufReplayBridge.Read(status, "ErrorMessage") ?? Localization.Get("replay-export-failed");
-                        replayJobId = null;
-                        RebuildContent();
-                    }
-                }
-                catch (Exception ex) { replayJobId = null; error = ex.Message; RebuildContent(); }
-            }
             RefreshLayout();
             if (Time.unscaledTime >= nextStorageRefresh) { nextStorageRefresh = Time.unscaledTime + 1f; RefreshStorage(); }
             if (selectedTab == 3 && queueRevision != RendererController.Queue.Revision) { RebuildContent(); return; }
@@ -403,61 +371,6 @@ namespace OrbitRender.UI
             }
             else if (selectedTab == 2)
             {
-                var list = UguiFactory.Button(content, Localization.Get("replay-list"), () => {
-                    try { replayRuns = OrbitRender.TufReplay.TufReplayBridge.ListRuns(editor?.customLevel?.levelPath); error = string.Empty; }
-                    catch (Exception ex) { replayRuns = null; error = ex.Message; }
-                    RebuildContent();
-                });
-                UguiFactory.Preferred(list, 0f, 34f);
-                if (replayJobId != null)
-                {
-                    var preparing = UguiFactory.Text(content, Localization.Get("replay-preparing"), UiLayout.LabelFontSize, TextAnchor.UpperLeft, UguiFactory.Muted);
-                    UguiFactory.Preferred(preparing, 0f, 30f);
-                }
-                else if (replayRuns != null)
-                {
-                    if (replayRuns.Count == 0)
-                    {
-                        var empty = UguiFactory.Text(content, Localization.Get("replay-empty"), UiLayout.LabelFontSize, TextAnchor.UpperLeft, UguiFactory.Muted);
-                        UguiFactory.Preferred(empty, 0f, 30f);
-                    }
-                    foreach (var run in replayRuns)
-                    {
-                        var chosen = run;
-                        DateTime timestamp;
-                        var time = DateTime.TryParse(chosen.StartedUtc, out timestamp) ? timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : chosen.StartedUtc;
-                        var button = UguiFactory.Button(content, time + " · " + chosen.Result + " · #" + chosen.StartTile, () => {
-                            try {
-                                var status = OrbitRender.TufReplay.TufReplayBridge.Start(chosen.Id, editor.customLevel.levelPath);
-                                replayJobId = OrbitRender.TufReplay.TufReplayBridge.Read(status, "JobId");
-                                if (string.IsNullOrEmpty(replayJobId)) throw new InvalidOperationException(Localization.Get("replay-export-failed"));
-                                replayManifestPath = null; nextReplayPoll = 0; error = string.Empty;
-                            } catch (Exception ex) { error = ex.Message; }
-                            RebuildContent();
-                        });
-                        UguiFactory.Preferred(button, 0f, 34f);
-                    }
-                }
-                var replay = UguiFactory.Button(content, Localization.Get("replay-select"), () => {
-                    if (replayJobId != null) { error = Localization.Get("replay-preparing"); return; }
-                    var file = FileDialogService.PickFile(Main.Settings.ResolveOutputDirectory(), "replay-select");
-                    if (string.IsNullOrEmpty(file)) return;
-                    try {
-                        var bundle = TUFReplayRenderer.Contracts.RecordingBundle.Load(file);
-                        bundle.ValidateLevelHash();
-                        replayManifestPath = file;
-                        error = string.Empty;
-                    } catch (Exception ex) { error = ex.Message; }
-                    RebuildContent();
-                });
-                UguiFactory.Preferred(replay, 0f, 34f);
-                if (!string.IsNullOrEmpty(replayManifestPath))
-                {
-                    var name = UguiFactory.Text(content, replayManifestPath, UiLayout.LabelFontSize, TextAnchor.UpperLeft, UguiFactory.Muted);
-                    UguiFactory.Preferred(name, 0f, 40f);
-                    var clear = UguiFactory.Button(content, Localization.Get("replay-clear"), () => { replayManifestPath = null; RebuildContent(); });
-                    UguiFactory.Preferred(clear, 0f, 34f);
-                }
                 var recovery = UguiFactory.Button(content, Localization.Get("recovery-retry"), () => {
                     var file = FileDialogService.PickFile(Main.Settings.ResolveOutputDirectory(), "recovery-select");
                     if (string.IsNullOrEmpty(file)) return;
@@ -721,8 +634,6 @@ namespace OrbitRender.UI
 
         private static void AddQueueItem(bool selectionOnly)
         {
-            if (replayJobId != null) { error = Localization.Get("replay-preparing"); Refresh(RendererController.Instance); return; }
-            if (!string.IsNullOrEmpty(replayManifestPath)) { error = Localization.Get("replay-no-queue"); Refresh(RendererController.Instance); return; }
             if (editor == null || editor.isLoading || editor.customLevel == null || editor.customLevel.levelData == null)
             { error = Localization.Get("open-a-custom-level-then-render"); Refresh(RendererController.Instance); return; }
             if (!TryValidatedOptions(out var options, out var message)) { error = message; Refresh(RendererController.Instance); return; }
@@ -852,11 +763,8 @@ namespace OrbitRender.UI
         }
         private static void Confirm(RendererController renderer, bool selectionOnly)
         {
-            if (replayJobId != null) { error = Localization.Get("replay-preparing"); Refresh(renderer); return; }
-            if (selectionOnly && !string.IsNullOrEmpty(replayManifestPath)) { error = Localization.Get("replay-no-selection"); Refresh(renderer); return; }
             if (renderer == null || renderer.Busy || RendererController.Queue.IsRunning) { error = Localization.Get("a-render-is-already-in-progress"); Refresh(renderer); return; }
             if (!TryValidatedOptions(out var options, out var message)) { error = message; Refresh(renderer); return; }
-            options.ReplayManifestPath = replayManifestPath;
             RefreshFilenamePreview();
             if (!string.IsNullOrEmpty(filenameError)) { error = filenameError; Refresh(renderer); return; }
             if (selectionOnly) { var selected = GetSelectedTileRange(); if (selected.Length < 2) {
@@ -869,8 +777,7 @@ namespace OrbitRender.UI
         private static int[] GetSelectedTileRange() => editor != null && editor.selectedFloors != null
             ? editor.selectedFloors.Where(f => f != null).Select(f => f.seqID).Distinct().OrderBy(id => id).ToArray() : new int[0];
         private static void Close()
-        { if (replayJobId != null) { try { OrbitRender.TufReplay.TufReplayBridge.Cancel(replayJobId); } catch (Exception ex) { Main.Entry.Logger.Error("[Replay] " + ex); } replayJobId = null; }
-            PresetSaveModal.Close(); AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
+        { PresetSaveModal.Close(); AudioPreview.Stop(); open = false; if (canvasObject != null) UnityEngine.Object.Destroy(canvasObject);
             canvasObject = null; panelRect = null; content = null; scrollRect = null; errorText = null; audioPreviewText = null;
             storageText = null;
             nextStorageRefresh = 0;

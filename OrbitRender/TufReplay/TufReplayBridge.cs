@@ -49,7 +49,7 @@ namespace OrbitRender.TufReplay
                 {
                     while (reader.Read() && results.Count < 50)
                     {
-                        if (!PathsEqual(currentLevelPath, reader.GetString(4))) continue;
+                        if (reader.IsDBNull(4) || !PathsEqual(currentLevelPath, reader.GetString(4))) continue;
                         results.Add(new RecordedRun { Id = reader.GetString(0), StartedUtc = reader.GetString(1), Result = reader.GetString(2), StartTile = reader.GetInt32(3) });
                     }
                 }

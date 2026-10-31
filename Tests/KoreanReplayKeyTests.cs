@@ -17,7 +17,7 @@ internal static class KoreanReplayKeyTests
 {
     internal static void Run()
     {
-        TufReplayKoreanKeyCompatibility.EnsureInstalled();
+        if (!TufReplayKoreanKeyCompatibility.TryInstallWhenAvailable()) throw new Exception("Available TUFReplay mapper was not patched.");
         try
         {
             string name;
