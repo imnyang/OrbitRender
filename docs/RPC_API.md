@@ -44,7 +44,7 @@ Unknown paths return `404` with a JSON error object.
 
 ### ADOFAI IPC SDK integration
 
-OrbitRender bundles ADOFAI IPC SDK 2.1.0 and registers the `orbitrender` contract when the mod is enabled. A separate AdofaiIpc mod is not required. The shared runtime remains active when OrbitRender is disabled; OrbitRender disposes its own registration. Browser connections are limited to the OrbitRender site plus the TUFReplay companion origins and their local development ports; the companion's render dialog itself goes through TUFReplay, not this contract.
+OrbitRender bundles ADOFAI IPC SDK 2.1.0 and registers the `orbitrender` contract when the mod is enabled. A separate AdofaiIpc mod is not required. The shared runtime remains active when OrbitRender is disabled; OrbitRender disposes its own registration. Browser connections are limited to the exact origin `https://orbitrender.imnya.ng`.
 
 The TypeSpec source is `ipc/main.tsp`. Generated C# and TypeScript packages share the same contract hash; web clients must use the matching generated package in `ipc/generated/typescript` and `adofai-ipc` 2.1.0. Run `pnpm install` and `pnpm check` in `ipc/` to verify generated files.
 
