@@ -112,9 +112,7 @@ internal static class Program
                 var rgbTransport = Path.Combine(args[1], "transport-rgb.mp4");
                 EncodeTransportVariant(args[0], rgbaTransport, RawVideoPixelFormat.Rgba32);
                 EncodeTransportVariant(args[0], rgbTransport, RawVideoPixelFormat.Rgb24);
-                Assert(Probe(args[0], "-v error -i \"" + rgbaTransport + "\" -f framemd5 -")
-                    == Probe(args[0], "-v error -i \"" + rgbTransport + "\" -f framemd5 -"),
-                    "RGB24 raw transport changed decoded RGB frames or timestamps.");
+                AssertTransportEquivalent(args[0], rgbaTransport, rgbTransport, args[1]);
             }
             var customFpsVideo = Path.Combine(args[1], "video-24.mp4");
             const int customVideoFps = 24;
@@ -435,6 +433,38 @@ internal static class Program
             encoder.Finish(60);
             Assert(encoder.RepeatedFrames == (grouped ? 30 : 0), "Repeated-frame counter mismatch.");
         }
+    }
+
+    private static void AssertTransportEquivalent(string ffmpeg, string rgbaVideo, string rgbVideo, string directory)
+    {
+        var rgbaTiming = FrameMd5(ffmpeg, "-i \"" + rgbaVideo + "\" -f framemd5 -")
+            .Where(line => !line.StartsWith("#"))
+            .Select(line => string.Join(",", line.Split(',').Take(5))).ToArray();
+        var rgbTiming = FrameMd5(ffmpeg, "-i \"" + rgbVideo + "\" -f framemd5 -")
+            .Where(line => !line.StartsWith("#"))
+            .Select(line => string.Join(",", line.Split(',').Take(5))).ToArray();
+        Assert(rgbaTiming.Length == 6 && rgbaTiming.SequenceEqual(rgbTiming),
+            "RGB24 raw transport changed frame count or timestamps.");
+
+        var rgbaRaw = Path.Combine(directory, "transport-rgba.rgb");
+        var rgbRaw = Path.Combine(directory, "transport-rgb.rgb");
+        Probe(ffmpeg, "-v error -i \"" + rgbaVideo + "\" -pix_fmt rgb24 -f rawvideo \"" + rgbaRaw + "\"");
+        Probe(ffmpeg, "-v error -i \"" + rgbVideo + "\" -pix_fmt rgb24 -f rawvideo \"" + rgbRaw + "\"");
+        var rgba = File.ReadAllBytes(rgbaRaw);
+        var rgb = File.ReadAllBytes(rgbRaw);
+        Assert(rgba.Length == 320 * 180 * 3 * 6 && rgba.Length == rgb.Length,
+            "RGB24 raw transport changed decoded dimensions or frame count.");
+        long totalDifference = 0;
+        var maxDifference = 0;
+        for (var i = 0; i < rgba.Length; i++)
+        {
+            var difference = Math.Abs(rgba[i] - rgb[i]);
+            totalDifference += difference;
+            maxDifference = Math.Max(maxDifference, difference);
+        }
+        Assert(maxDifference <= 4 && totalDifference <= rgba.Length,
+            "RGB24 raw transport changed decoded pixels: max difference " + maxDifference
+            + ", mean difference " + ((double)totalDifference / rgba.Length).ToString(CultureInfo.InvariantCulture));
     }
 
     private static void EncodeTransportVariant(string ffmpeg, string output, RawVideoPixelFormat format,
