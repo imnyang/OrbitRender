@@ -74,7 +74,7 @@ namespace OrbitRender
 | `void OnReplayInput(string keyCode, bool down, long ticks)` | 리플레이 렌더 중 기록된 키 입력 |
 
 - `GetOverlayCanvases()`가 반환한 캔버스는 OrbitRender가 직접 캡처합니다. `showModOverlay` 설정과 무관하게 동작합니다.
-- 등록된 캔버스에는 기존 이름 기반 처리(예: JRP 전용 레이아웃 보정)를 적용하지 않습니다. 레이아웃은 provider가 직접 관리하세요.
+- 일반적인 provider의 레이아웃은 해당 모드가 관리합니다. JipperResourcePack의 렌더 전용 배치와 레인 깊이 보정은 OrbitRender가 적용합니다.
 - 리플레이 입력은 `KeyCode` 이름 문자열로 전달됩니다. 실시간 입력과 중복되지 않도록 어댑터에서 처리 방식을 정하세요.
 - provider 콜백에서 예외가 나도 렌더는 중단되지 않고 로그만 남습니다.
 
@@ -103,17 +103,6 @@ public static class OrbitRenderAPI
             yield return Overlay.Instance.Canvas;                        // 상태 HUD
             yield return KeyViewer.Instance.KeyViewerObject
                 .GetComponent<Canvas>();                                 // 키뷰어
-        }
-
-        public void OnBeforeOverlayCapture(bool replay)
-        {
-            if (replay) FixRainDepth();              // 리플레이: 레인 Z 보정
-            else CaptureLayout.Apply();              // 일반 렌더: 상태 줄 숨김/압축
-        }
-
-        public void OnAfterOverlayCapture(bool replay)
-        {
-            if (!replay) CaptureLayout.Restore();
         }
 
         public void OnReplayClock(double videoSeconds, long ticks)
