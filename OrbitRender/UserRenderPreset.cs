@@ -27,6 +27,7 @@ namespace OrbitRender
         public bool ShowResultText = true;
         public bool ShowHitJudgments = false;
         public bool ShowModOverlay = false;
+        public bool ShowAllGameplayHud = false;
         public EncoderSpeed Encoding = EncoderSpeed.Quality;
         public VideoEncoder Encoder = VideoEncoder.Auto;
         public VideoCodec Codec = VideoCodec.H264;
@@ -58,6 +59,7 @@ namespace OrbitRender
                 ShowResultText = settings.ShowResultText,
                 ShowHitJudgments = settings.ShowHitJudgments,
                 ShowModOverlay = settings.ShowModOverlay,
+                ShowAllGameplayHud = settings.ShowAllGameplayHud,
                 Encoding = settings.Encoding,
                 Encoder = settings.Encoder,
                 Codec = settings.Codec,
@@ -89,6 +91,7 @@ namespace OrbitRender
             settings.ShowResultText = ShowResultText;
             settings.ShowHitJudgments = ShowHitJudgments;
             settings.ShowModOverlay = ShowModOverlay;
+            settings.ShowAllGameplayHud = ShowAllGameplayHud;
             settings.Encoding = Encoding;
             settings.Encoder = Encoder;
             settings.Codec = Codec;

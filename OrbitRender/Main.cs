@@ -370,6 +370,8 @@ namespace OrbitRender
                 Localization.Get("show-hit-judgments"), Settings.ShowHitJudgments);
             Settings.ShowModOverlay = DrawLocalizedToggle(
                 Localization.Get("show-mod-overlay"), Settings.ShowModOverlay);
+            Settings.ShowAllGameplayHud = DrawLocalizedToggle(
+                Localization.Get("show-all-gameplay-hud"), Settings.ShowAllGameplayHud);
         }
 
         private static void DrawEncodingSettings()

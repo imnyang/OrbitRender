@@ -29,6 +29,7 @@ namespace OrbitRender.Renderer
         internal static double InputCalibrationSeconds => Instance != null && Instance.replayDriver != null
             ? scrConductor.calibration_i : 0.0;
         internal static bool ReplayActive => Instance != null && Instance.replayDriver != null && Instance.Busy;
+        internal static bool GameplayHudActive => Instance != null && Instance.showGameplayHudForRun && Instance.Busy;
         // The render clock does not advance during preparation. Keep game
         // components that use a patched delta in step with it instead of
         // letting setup frames move animations ahead of output frame zero.
@@ -275,6 +276,7 @@ namespace OrbitRender.Renderer
                 ?? settings.ShowHitJudgments;
             showModOverlayForRun = requestOptions?.ShowModOverlay ?? rpcOptions?.ShowModOverlay
                 ?? settings.ShowModOverlay;
+            showGameplayHudForRun = replayBundle != null || (requestOptions?.ShowAllGameplayHud ?? settings.ShowAllGameplayHud);
             fileNameFormatForRun = requestOptions?.FileNameFormat ?? settings.FileNameFormat;
             profile = settings.ResolveProfile(
                 requestOptions?.Preset ?? rpcOptions?.Preset,
@@ -595,9 +597,7 @@ namespace OrbitRender.Renderer
             Persistence.skipIntroBehavior = SkipIntroBehavior.Off;
             GCS.checkpointNum = replayBundle != null ? replayBundle.Manifest.Replay.StartTile : 0;
             RDC.auto = false; // Preserve the normal countdown, avoiding the editor's fast-takeoff shortcut.
-            // Respect the game's autoplay HUD preference and keep the separate
-            // hit-judgment option available when the gameplay HUD is hidden.
-            showGameplayHudForRun = replayBundle != null || !Persistence.hideGameplayUIDuringAutoplay;
+            // Keep the separate hit-judgment option available when the HUD is hidden.
             RDC.noHud = !showGameplayHudForRun && !showHitJudgmentsForRun;
             RDC.noAutoHud = !showGameplayHudForRun;
             yield return null;
@@ -670,6 +670,8 @@ namespace OrbitRender.Renderer
             LogRenderChain("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun, showGameplayHudForRun);
+            if (replayDriver == null && showGameplayHudForRun && editor != null)
+                TUFReplayRenderer.Replay.ReplayHitErrorMeter.Activate(null);
             if (replayDriver != null)
             {
                 var context = new RenderReplayContext(Clock, profile.Width, profile.Height, profile.VideoFps,
@@ -677,7 +679,7 @@ namespace OrbitRender.Renderer
                 replaySession = new RenderReplaySession(replayDriver, context);
                 replaySession.Begin();
             }
-            var renderCanvases = replayDriver != null
+            var renderCanvases = showGameplayHudForRun
                 ? defaultText.CaptureCanvases.Concat(TUFReplayRenderer.Replay.ReplayHitErrorMeter.CaptureCanvases())
                 : defaultText.CaptureCanvases;
             capture = new FrameCapture(encoder, profile.Width, profile.Height, renderCanvases, showModOverlayForRun || showGameplayHudForRun, showGameplayHudForRun);
@@ -2079,6 +2081,7 @@ namespace OrbitRender.Renderer
             useGUILayout = true;
             TryCleanup(() => replaySession?.End(State));
             replaySession = null;
+            if (replayDriver == null) TryCleanup(() => TUFReplayRenderer.Replay.ReplayHitErrorMeter.Deactivate(null));
             TryCleanup(() => replayDriver?.RestoreAfterRender());
             replayDriver = null;
             TryCleanup(() => replayOverlayClock?.Dispose());

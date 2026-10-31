@@ -32,7 +32,7 @@ namespace OrbitRender.Patches
     {
         static void Postfix(ref bool __result)
         {
-            if (RendererController.ReplayActive) __result = false;
+            if (RendererController.GameplayHudActive) __result = false;
         }
     }
     [HarmonyPatch(typeof(scnLevelSelect), "CheckAudioBreak")]

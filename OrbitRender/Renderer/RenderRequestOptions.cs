@@ -27,6 +27,7 @@ namespace OrbitRender.Renderer
         public bool? ShowResultText;
         public bool? ShowHitJudgments;
         public bool? ShowModOverlay;
+        public bool? ShowAllGameplayHud;
         public EncoderSpeed? Encoding;
         public VideoEncoder? Encoder;
         public VideoContainer? Container;

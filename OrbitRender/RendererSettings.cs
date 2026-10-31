@@ -141,6 +141,7 @@ namespace OrbitRender
 
         [Draw("Show mod overlay", DrawType.Toggle)]
         public bool ShowModOverlay = false;
+        public bool ShowAllGameplayHud = false;
 
         [Draw("Encoding speed", DrawType.PopupList)]
         public EncoderSpeed Encoding = EncoderSpeed.Quality;
@@ -225,6 +226,7 @@ namespace OrbitRender
             ShowResultText = true;
             ShowHitJudgments = false;
             ShowModOverlay = false;
+            ShowAllGameplayHud = false;
             Encoding = EncoderSpeed.Quality;
             Encoder = VideoEncoder.Auto;
             Codec = VideoCodec.H264;
