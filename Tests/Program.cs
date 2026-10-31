@@ -438,11 +438,15 @@ internal static class Program
     private static void AssertTransportEquivalent(string ffmpeg, string rgbaVideo, string rgbVideo, string directory)
     {
         var rgbaTiming = FrameMd5(ffmpeg, "-i \"" + rgbaVideo + "\" -f framemd5 -")
-            .Where(line => !line.StartsWith("#"))
-            .Select(line => string.Join(",", line.Split(',').Take(5))).ToArray();
+            .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => string.Join(",", line.Split(',').Take(5)))
+            .ToArray();
+
         var rgbTiming = FrameMd5(ffmpeg, "-i \"" + rgbVideo + "\" -f framemd5 -")
-            .Where(line => !line.StartsWith("#"))
-            .Select(line => string.Join(",", line.Split(',').Take(5))).ToArray();
+            .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => string.Join(",", line.Split(',').Take(5)))
+            .ToArray();
+
         Assert(rgbaTiming.Length == 6 && rgbaTiming.SequenceEqual(rgbTiming),
             "RGB24 raw transport changed frame count or timestamps.");
 
