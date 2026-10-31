@@ -36,6 +36,9 @@ namespace OrbitRender.Renderer
                 }
                 if (replay)
                 {
+                    var keyCount = assembly.GetType("JipperResourcePack.KeyViewerContents.KeyCountData", false);
+                    var save = keyCount == null ? null : AccessTools.DeclaredMethod(keyCount, "Save", Type.EmptyTypes);
+                    if (save != null) guard.harmony.Patch(save, prefix: new HarmonyMethod(typeof(JrpRenderGuard), nameof(BlockMutation)) { priority = Priority.First });
                     var type = assembly.GetType("JipperResourcePack.KeyViewerContents.KeyViewer", false);
                     guard.viewer = type == null ? null : AccessTools.Field(type, "Instance")?.GetValue(null);
                     guard.eventOffset = type == null ? null : AccessTools.Field(type, "_eventOffsetTicks");

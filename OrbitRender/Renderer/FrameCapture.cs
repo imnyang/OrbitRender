@@ -443,10 +443,8 @@ namespace OrbitRender.Renderer
         private void AssignLayerRecursively(GameObject root)
         {
             if (root == null) return;
-            // An overlay provider owns its own replay layout; keep the legacy
-            // JRP depth repair only for versions that do not register.
-            bool jrpKeyViewer = replayOverlays && root.name == "JipperResourcePack KeyViewer"
-                && !OverlayApi.IsProviderCanvas(root.GetComponent<Canvas>());
+            // JRP rain is flattened on the capture camera plane.
+            bool jrpKeyViewer = replayOverlays && root.name == "JipperResourcePack KeyViewer";
             foreach (var child in root.GetComponentsInChildren<Transform>(true))
             {
                 var gameObject = child.gameObject;
@@ -608,7 +606,6 @@ namespace OrbitRender.Renderer
             foreach (var state in states)
             {
                 if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
-                if (OverlayApi.IsProviderCanvas(state.Canvas)) continue;
                 foreach (var transform in state.Canvas.GetComponentsInChildren<Transform>(true))
                 {
                     if (!IsExcludedJrpElement(transform)) continue;
@@ -635,7 +632,6 @@ namespace OrbitRender.Renderer
             foreach (var state in states)
             {
                 if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
-                if (OverlayApi.IsProviderCanvas(state.Canvas)) continue;
                 var main = state.Canvas.transform.Find("Main");
                 if (main == null) continue;
                 var rows = new List<RectTransform>();
@@ -682,6 +678,22 @@ namespace OrbitRender.Renderer
             }
             var jrpPositions = replayOverlays ? new List<JrpPosition>() : CompactJrpStatus(canvases);
             var hiddenJrpGraphics = replayOverlays ? new List<UnityEngine.UI.Graphic>() : HideExcludedJrpGraphics(canvases);
+            var jrpBpmTexts = new Dictionary<UnityEngine.UI.Graphic, string>();
+            foreach (var state in canvases)
+            {
+                if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
+                foreach (var text in state.Canvas.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+                {
+                    var property = text.GetType().GetProperty("text");
+                    if (property == null || property.PropertyType != typeof(string) || !property.CanRead || !property.CanWrite) continue;
+                    var value = property.GetValue(text, null) as string;
+                    if (string.IsNullOrEmpty(value) || !value.Contains("TBPM |") || !value.Contains("CBPM |")) continue;
+                    var kps = value.IndexOf("\n<color=white>KPS |", StringComparison.Ordinal);
+                    if (kps < 0) continue;
+                    jrpBpmTexts.Add(text, value);
+                    property.SetValue(text, value.Substring(0, kps), null);
+                }
+            }
             if (captureOverlays) OverlayApi.BeforeOverlayCapture(replayOverlays);
             try
             {
@@ -696,6 +708,8 @@ namespace OrbitRender.Renderer
             finally
             {
                 if (captureOverlays) OverlayApi.AfterOverlayCapture(replayOverlays);
+                foreach (var pair in jrpBpmTexts)
+                    if (pair.Key != null) pair.Key.GetType().GetProperty("text")?.SetValue(pair.Key, pair.Value, null);
                 foreach (var position in jrpPositions)
                     if (position.Transform != null) position.Transform.anchoredPosition = position.Position;
                 foreach (var graphic in hiddenJrpGraphics)
