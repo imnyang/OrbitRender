@@ -2,6 +2,8 @@
 
 다른 ADOFAI 모드에서 OrbitRender에 렌더링을 요청할 수 있습니다. `OrbitRender.dll`을 참조하지 않아도 되도록 공개 표면은 **문자열 인자와 JSON 문자열 반환값**으로만 구성됩니다. 리플렉션으로 `OrbitRender.RenderApi`를 찾아 호출하세요. 모든 호출은 Unity 메인 스레드에서 실행해야 합니다.
 
+출력 폴더 지원 여부는 `RenderApi.OutputDirectoryOptionVersion` 필드가 존재하고 값이 1 이상인지 리플렉션으로 확인할 수 있습니다. 이전 버전은 알 수 없는 JSON 옵션을 무시할 수 있으므로, 폴더를 지정하기 전에 확인하세요.
+
 ## 표면
 
 ```csharp
@@ -31,6 +33,7 @@ namespace OrbitRender
 string options = @"{
   ""width"": 1920,
   ""height"": 1080,
+  ""outputDirectory"": ""C:\\Renders"",
   ""targetFps"": 240,
   ""videoFps"": 60,
   ""bitrateMbps"": 18,
@@ -52,8 +55,12 @@ string json = RenderApi.StartReplay(manifestPath, options);
 
 옵션은 모두 선택 사항이며, 지정하지 않은 값은 OrbitRender 설정을 따릅니다.
 
+`outputDirectory`는 해당 작업에만 적용되는 절대 폴더 경로입니다. `~/Videos/Renders`처럼 `~`를 현재 사용자의 홈 폴더로 사용할 수도 있습니다. 생략하거나 빈 문자열 또는 `null`로 지정하면 현재 출력 폴더 설정을 사용합니다. 폴더가 없으면 렌더링할 때 생성합니다. 잘못된 경로는 `render_options_invalid`로 거부됩니다. Windows 경로의 역슬래시는 JSON에서 `\\`로 이스케이프해야 합니다. 이 옵션은 C# API 전용이며 UMM 설정을 변경하지 않습니다.
+
 | 항목 | 필드 |
 | --- | --- |
+| 저장 폴더 | `outputDirectory` |
+| 완료 화면 | `noPreview` (`true`이면 렌더 완료 화면을 표시하지 않음) |
 | 화면과 프레임 | `preset`, `width`, `height`, `targetFps`, `videoFps`, `endDelaySeconds` |
 | 영상 인코딩 | `bitrateMbps`, `videoCodec`, `bitDepth`, `audioCodec` |
 | 오디오 | `captureAudio`, `audioGainDb` |

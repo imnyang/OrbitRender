@@ -59,6 +59,13 @@ internal static class ExportWorkflowTests
         }
         catch (TargetInvocationException ex) when (ex.InnerException is System.IO.IOException) { }
         var jobType = assembly.GetType("OrbitRender.Renderer.RpcRenderJob", true);
+        var payloadType = assembly.GetType("OrbitRender.Renderer.RpcRenderPayload", true);
+        var payload = Newtonsoft.Json.JsonConvert.DeserializeObject("{\"noPreview\":true}", payloadType);
+        var parseOptions = assembly.GetType("OrbitRender.Renderer.RenderJobService", true).GetMethod("ParseOptions", Internal);
+        var parseArguments = new object[] { payload, null };
+        var parsedOptions = parseOptions.Invoke(null, parseArguments);
+        Assert(parsedOptions != null && (bool)parsedOptions.GetType().GetField("NoPreview", Internal).GetValue(parsedOptions),
+            "noPreview was not carried into the render job.");
         var jobState = assembly.GetType("OrbitRender.Renderer.RpcJobState", true);
         var job = Activator.CreateInstance(jobType, new object[] { "job", "level", true, null });
         Call(job, "SetProgress", 1L, 1L, "finished.mp4");

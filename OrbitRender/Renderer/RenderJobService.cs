@@ -68,6 +68,8 @@ namespace OrbitRender.Renderer
 
     internal sealed class RpcRenderOptions
     {
+        public string OutputDirectory;
+        public bool? NoPreview;
         public RendererPreset? Preset;
         public int? Width;
         public int? Height;
@@ -91,7 +93,7 @@ namespace OrbitRender.Renderer
         {
             get
             {
-                return Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
+                return OutputDirectory != null || NoPreview.HasValue || Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
                     || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
                     || ShowPlanetRings.HasValue
                     || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
@@ -163,6 +165,7 @@ namespace OrbitRender.Renderer
 
     internal sealed class RpcRenderPayload
     {
+        [JsonProperty("noPreview")] public bool? NoPreview { get; set; }
         [JsonProperty("levelPath")] public string LevelPath { get; set; }
         [JsonProperty("replayManifestPath")] public string ReplayManifestPath { get; set; }
         [JsonProperty("path")] public string Path { get; set; }
@@ -457,7 +460,8 @@ namespace OrbitRender.Renderer
         /// Returns false with a structured error instead of throwing so the
         /// reflection boundary stays exception-free.
         /// </summary>
-        internal bool TryCreate(RpcRenderPayload payload, out RenderJobSnapshot job, out RenderErrorDetails error)
+        internal bool TryCreate(RpcRenderPayload payload, out RenderJobSnapshot job, out RenderErrorDetails error,
+            string outputDirectory = null)
         {
             job = null;
             error = null;
@@ -518,6 +522,11 @@ namespace OrbitRender.Renderer
             }
             var options = ParseOptions(payload, out error);
             if (error != null) return false;
+            if (outputDirectory != null)
+            {
+                if (options == null) options = new RpcRenderOptions();
+                options.OutputDirectory = outputDirectory;
+            }
 
             lock (createGate)
             {
@@ -704,6 +713,7 @@ namespace OrbitRender.Renderer
             }
             var options = new RpcRenderOptions
             {
+                NoPreview = payload.NoPreview,
                 Preset = preset,
                 Width = payload.Width,
                 Height = payload.Height,

@@ -155,7 +155,7 @@ namespace OrbitRender
         [Draw("Video bit depth", DrawType.PopupList)]
         public VideoBitDepth BitDepth = VideoBitDepth.Eight;
 
-        // These paths are rendered by Main.OnGUI so a Browse button can sit
+        // These paths are rendered by the settings window so a Browse button can sit
         // next to each field. UMM's stock Field drawer cannot add a button
         // to the same row.
         [Draw(DrawType.Ignore)]
@@ -319,7 +319,9 @@ namespace OrbitRender
                 ? dataDirectory.FullName
                 : dataDirectory.Parent.FullName;
             var configured = Environment.ExpandEnvironmentVariables((OutputDirectory ?? string.Empty).Trim());
-            if (string.IsNullOrEmpty(configured)) return Path.Combine(gameRoot, "Renders");
+            if (string.IsNullOrEmpty(configured))
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "Videos", "A Dance of Fire and Ice", "OrbitRender");
             if (!Path.IsPathRooted(configured)) configured = Path.Combine(gameRoot, configured);
             return Path.GetFullPath(configured);
         }

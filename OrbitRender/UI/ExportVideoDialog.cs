@@ -86,7 +86,9 @@ namespace OrbitRender.UI
             if (!int.TryParse(draft.WidthText, out var width) || !int.TryParse(draft.HeightText, out var height)
                 || !int.TryParse(draft.VideoFpsText, out var fps) || !int.TryParse(draft.BitrateText, out var bitrate)
                 || width <= 0 || height <= 0 || fps <= 0 || bitrate <= 0) { storageText.text = ""; return; }
-            var free = RenderResources.FreeBytes(Main.Settings.ResolveOutputDirectory());
+            long? free;
+            try { free = RenderResources.FreeBytes(Main.Settings.ResolveOutputDirectory()); }
+            catch (Exception) { free = null; }
             var available = free.HasValue ? RenderResources.Size(free.Value) : Localization.Get("storage-unknown");
             var floors = editor != null ? editor.floors : null;
             var conductor = ADOBase.conductor;
@@ -342,6 +344,7 @@ namespace OrbitRender.UI
             else if (selectedTab == 0)
             {
                 AddUserPresets();
+                AddOutputDirectory();
                 storageText = UguiFactory.Text(content, "", UiLayout.LabelFontSize, TextAnchor.UpperLeft, UguiFactory.Muted);
                 UguiFactory.Preferred(storageText, 0f, 96f);
                 RefreshStorage();
@@ -529,6 +532,29 @@ namespace OrbitRender.UI
         private static void AddRadioGroup(string label, string[] options, int value, Action<int> changed)
         { AddLabel(label, UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
             UguiFactory.RadioGroup(content, options, Mathf.Max(0, value), changed); }
+
+        private static void AddOutputDirectory()
+        {
+            AddLabel(Localization.Get("output-folder"), UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
+            var row = UguiFactory.Row(content, 34f);
+            row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+            var input = UguiFactory.Input(row.transform, Main.Settings.OutputDirectory ?? string.Empty,
+                value => { Main.Settings.OutputDirectory = value; nextStorageRefresh = 0; });
+            UguiFactory.Preferred(input, 0f, 34f);
+            input.GetComponent<LayoutElement>().flexibleWidth = 1f;
+            input.onEndEdit.AddListener(value => Main.Settings.Save(Main.Entry));
+            var browse = UguiFactory.Button(row.transform, Localization.Get("browse"), () => {
+                string initial;
+                try { initial = Main.Settings.ResolveOutputDirectory(); }
+                catch (Exception) { initial = FileDialogService.GetGameDirectory(); }
+                var selected = FileDialogService.PickFolder(initial);
+                if (string.IsNullOrEmpty(selected)) return;
+                input.text = selected;
+                Main.Settings.Save(Main.Entry);
+            });
+            UguiFactory.Preferred(browse, 90f, 34f);
+            AddNote(Localization.Get("output-folder-default-help"));
+        }
         private static void AddInputRow(Field[] fields)
         {
             var row = UguiFactory.Row(content, 64f);
@@ -644,7 +670,8 @@ namespace OrbitRender.UI
                 if (selected.Length < 2) { error = Localization.Get("select-at-least-two-tiles-to-export-a-selection"); return; }
                 options.SelectionStartTile = selected[0]; options.SelectionEndTile = selected[selected.Length - 1];
             }
-            options.OutputDirectory = Main.Settings.ResolveOutputDirectory();
+            try { options.OutputDirectory = Main.Settings.ResolveOutputDirectory(); }
+            catch (Exception ex) { error = Localization.Format("output-folder-invalid", ex.Message); return; }
             var preset = RendererSettings.GetPresetProfile(draft.Preset);
             options.Width = draft.Preset == RendererPreset.Custom ? int.Parse(draft.WidthText) : preset.Width;
             options.Height = draft.Preset == RendererPreset.Custom ? int.Parse(draft.HeightText) : preset.Height;
@@ -766,6 +793,8 @@ namespace OrbitRender.UI
         {
             if (renderer == null || renderer.Busy || RendererController.Queue.IsRunning) { error = Localization.Get("a-render-is-already-in-progress"); Refresh(renderer); return; }
             if (!TryValidatedOptions(out var options, out var message)) { error = message; Refresh(renderer); return; }
+            try { options.OutputDirectory = Main.Settings.ResolveOutputDirectory(); }
+            catch (Exception ex) { error = Localization.Format("output-folder-invalid", ex.Message); return; }
             RefreshFilenamePreview();
             if (!string.IsNullOrEmpty(filenameError)) { error = filenameError; Refresh(renderer); return; }
             if (selectionOnly) { var selected = GetSelectedTileRange(); if (selected.Length < 2) {

@@ -1,5 +1,7 @@
 using System;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System.IO;
 using OrbitRender.Renderer;
 
 namespace OrbitRender
@@ -13,6 +15,9 @@ namespace OrbitRender
     {
         /// <summary>Bumped when the JSON shape below changes incompatibly.</summary>
         public const int ApiVersion = 2;
+
+        /// <summary>Indicates support for the outputDirectory replay option.</summary>
+        public const int OutputDirectoryOptionVersion = 1;
 
         /// <summary>True when OrbitRender is loaded and can accept render jobs.</summary>
         public static bool IsAvailable
@@ -54,11 +59,40 @@ namespace OrbitRender
                         "manifestPath", file: "manifest.json"));
                 }
                 RpcRenderPayload payload;
+                string outputDirectory = null;
                 try
                 {
-                    payload = string.IsNullOrWhiteSpace(optionsJson)
-                        ? new RpcRenderPayload()
-                        : JsonConvert.DeserializeObject<RpcRenderPayload>(optionsJson);
+                    var options = string.IsNullOrWhiteSpace(optionsJson) ? new JObject() : JObject.Parse(optionsJson);
+                    var output = options.GetValue("outputDirectory", StringComparison.OrdinalIgnoreCase);
+                    if (output != null && output.Type != JTokenType.Null)
+                    {
+                        if (output.Type != JTokenType.String)
+                            return Error(RenderErrorDetails.Create(RenderErrorCodes.OptionsInvalid,
+                                "outputDirectory must be an absolute folder path.", "outputDirectory"));
+                        var path = ((string)output).Trim();
+                        if (path.Length > 0)
+                        {
+                            try
+                            {
+                                if (path == "~")
+                                    path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                                else if (path.StartsWith("~/", StringComparison.Ordinal)
+                                    || path.StartsWith("~\\", StringComparison.Ordinal))
+                                    path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path.Substring(2));
+                                var root = Path.GetPathRoot(path);
+                                if (!Path.IsPathRooted(path) || (Path.DirectorySeparatorChar == '\\'
+                                    && (string.IsNullOrEmpty(root) || root.Length < 3)))
+                                    throw new ArgumentException("The path must be absolute.");
+                                outputDirectory = Path.GetFullPath(path);
+                            }
+                            catch (Exception exception) when (exception is ArgumentException || exception is NotSupportedException || exception is PathTooLongException)
+                            {
+                                return Error(RenderErrorDetails.Create(RenderErrorCodes.OptionsInvalid,
+                                    "Invalid outputDirectory: " + exception.Message, "outputDirectory"));
+                            }
+                        }
+                    }
+                    payload = options.ToObject<RpcRenderPayload>();
                 }
                 catch (JsonException exception)
                 {
@@ -70,7 +104,7 @@ namespace OrbitRender
                 payload.ReplayManifestPath = manifestPath;
                 payload.LevelPath = null;
                 payload.Path = null;
-                if (!service.TryCreate(payload, out var job, out var error)) return Error(error);
+                if (!service.TryCreate(payload, out var job, out var error, outputDirectory)) return Error(error);
                 return Ok(job);
             });
         }

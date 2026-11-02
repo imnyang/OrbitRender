@@ -158,6 +158,7 @@ namespace OrbitRender.Renderer
         private double audioPacingOrigin;
         private long latePlaySoundSchedules;
         private bool openOutputFolderForRun;
+        private bool noPreviewForRun;
         private int? selectionStartTileForRun;
         private int? selectionEndTileForRun;
         private long selectionStartFrameForRun;
@@ -258,7 +259,9 @@ namespace OrbitRender.Renderer
             escapeHeldAt = -1;
             forceCancelTriggered = false;
             var settings = Main.Settings ?? new RendererSettings();
-            outputDirectoryForRun = requestOptions?.OutputDirectory ?? settings.ResolveOutputDirectory();
+            outputDirectoryForRun = requestOptions?.OutputDirectory ?? activeRpcJob?.Options?.OutputDirectory
+                ?? settings.ResolveOutputDirectory();
+            noPreviewForRun = requestOptions?.NoPreview ?? activeRpcJob?.Options?.NoPreview ?? false;
             showPreviewForRun = requestOptions?.ShowRenderPreview ?? settings.ShowRenderPreview;
             useRustRendererForRun = requestOptions?.UseRustRenderer ?? settings.UseRustRenderer;
             bufferPolicyForRun = requestOptions?.BufferPolicy ?? settings.BufferPolicy;
@@ -908,7 +911,7 @@ namespace OrbitRender.Renderer
             finally { finalizationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - finalizationStart; }
             totalRenderTicks = System.Diagnostics.Stopwatch.GetTimestamp() - totalRenderStartTicks;
             State = RenderState.Completed;
-            CompletionVisible = !Queue.IsRunning || !Queue.HasPending;
+            CompletionVisible = !noPreviewForRun && (!Queue.IsRunning || !Queue.HasPending);
             Message = Localization.Format("completed-frames", CapturedFrames)
                 + (audio != null && audio.Peak < 0.000001f
                     ? Localization.Get("audio-mix-was-silent-check-game-sound-settings")

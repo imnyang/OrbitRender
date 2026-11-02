@@ -18,6 +18,7 @@ namespace OrbitRender.Renderer
         public float? AudioGainDb;
         public AudioCodec? AudioCodec;
         public bool? ShowRenderPreview;
+        public bool? NoPreview;
         public bool? UseRustRenderer;
         public FrameBufferPolicy? BufferPolicy;
         public bool? BgaMode;
