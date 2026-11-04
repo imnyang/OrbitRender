@@ -197,12 +197,27 @@ internal static class Program
                 "-v error -select_streams a:0 -show_entries stream=duration -of default=noprint_wrappers=1 \""
                 + offsetMuxed + "\"");
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
+            // Replays with a positive input offset start the audio later.
+            var delayedMuxed = Path.Combine(args[1], "with-delayed-audio.mp4");
+            FFmpegEncoder.MuxAudio(args[0], fast, wav, delayedMuxed, audioDelaySeconds: 0.25);
+            Assert(Probe(args[0], "-v error -i \"" + delayedMuxed + "\" -map 0:v:0 -f framemd5 -") == fastHash,
+                "Delayed audio mux changed video frames or timestamps.");
+            Assert(MeanVolume(args[0], delayedMuxed, "0:0.2") < -80 && MeanVolume(args[0], delayedMuxed, "0.3:0.9") > -40,
+                "Replay audio did not start 0.25 s after the first video frame.");
+            // A negative input offset starts the audio earlier; the end is
+            // padded so a WAV as long as the video keeps every frame.
+            var advancedMuxed = Path.Combine(args[1], "with-advanced-audio.mp4");
+            FFmpegEncoder.MuxAudio(args[0], fast, wav, advancedMuxed, audioDelaySeconds: -0.25);
+            Assert(Probe(args[0], "-v error -i \"" + advancedMuxed + "\" -map 0:v:0 -f framemd5 -") == fastHash,
+                "Advanced audio mux dropped video frames.");
+            Assert(MeanVolume(args[0], advancedMuxed, "0:0.7") > -40 && MeanVolume(args[0], advancedMuxed, "0.8:1") < -80,
+                "Advanced replay audio was not padded with silence at the end.");
             TestVideoCodecs(args[0], args[1]);
             TestProRes(args[0], args[1]);
             TestFFV1(args[0], args[1]);
             TestOpusAudio(args[0], args[1]);
             TestFlacAudio(args[0], args[1]);
-            Console.WriteLine("PASS: filename tokens/sanitization/collisions, MP4/TS/MKV/MOV video and AAC mux/copy, encoder availability and Vulkan FFV1, four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus/FLAC mux, concurrent AAC gain/mux, bit-exact lossless FFV1, selection audio offset and H.264/H.265/VP9/AV1/ProRes/FFV1 codec support.");
+            Console.WriteLine("PASS: filename tokens/sanitization/collisions, MP4/TS/MKV/MOV video and AAC mux/copy, encoder availability and Vulkan FFV1, four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus/FLAC mux, concurrent AAC gain/mux, bit-exact lossless FFV1, selection and replay audio offsets and H.264/H.265/VP9/AV1/ProRes/FFV1 codec support.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -731,10 +746,10 @@ internal static class Program
             Assert(process.ExitCode == 0, "Video decode failed."); return result;
         }
     }
-    private static double MeanVolume(string ffmpeg, string input)
+    private static double MeanVolume(string ffmpeg, string input, string range = null)
     {
         var output = ProbeStderr(ffmpeg, "-v info -i \"" + input
-            + "\" -map 0:a:0 -af volumedetect -f null -");
+            + "\" -map 0:a:0 -af " + (range == null ? "" : "atrim=" + range + ",") + "volumedetect -f null -");
         foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var marker = "mean_volume:";

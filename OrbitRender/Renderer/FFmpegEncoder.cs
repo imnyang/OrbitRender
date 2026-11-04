@@ -463,23 +463,37 @@ namespace OrbitRender.Renderer
             return extension == ".mp4" || extension == ".mov" ? " -movflags +faststart"
                 : extension == ".webm" ? " -f webm" : string.Empty;
         }
+        // audioOffsetSeconds skips the start of the WAV (selection renders).
+        // audioDelaySeconds starts the WAV that much after the first video
+        // frame, or earlier when negative (replay renders).
         public static void MuxAudio(string executable, string video, string audio, string output,
-            double audioOffsetSeconds = 0.0, double audioGainDb = 0.0, AudioCodec audioCodec = AudioCodec.Auto)
+            double audioOffsetSeconds = 0.0, double audioGainDb = 0.0, AudioCodec audioCodec = AudioCodec.Auto,
+            double audioDelaySeconds = 0.0)
         {
             if (double.IsNaN(audioGainDb) || double.IsInfinity(audioGainDb)
                 || audioGainDb < MinAudioGainDb
                 || audioGainDb > MaxAudioGainDb)
                 throw new ArgumentOutOfRangeException(nameof(audioGainDb));
+            if (double.IsNaN(audioDelaySeconds) || double.IsInfinity(audioDelaySeconds))
+                throw new ArgumentOutOfRangeException(nameof(audioDelaySeconds));
             audioCodec = AudioCodecCatalog.Resolve(audioCodec, Path.GetExtension(output));
             var containerOptions = ContainerOptions(output);
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
             var audioSeek = audioOffsetSeconds > 0
-                ? "-ss " + audioOffsetSeconds.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + " "
+                ? "-ss " + audioOffsetSeconds.ToString("0.########", culture) + " "
                 : string.Empty;
-            var audioFilter = audioGainDb <= MinAudioGainDb
-                ? " -af \"volume=0\""
-                : Math.Abs(audioGainDb) > 0.000001
-                    ? " -af \"volume=" + audioGainDb.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture) + "dB\""
-                    : string.Empty;
+            var filters = new System.Collections.Generic.List<string>();
+            // A later start runs past the last video frame, where -shortest
+            // ends it. An earlier start is padded with the same length of
+            // silence, so a WAV as long as the video keeps every frame.
+            if (audioDelaySeconds > 0)
+                filters.Add("adelay=" + (audioDelaySeconds * 1000).ToString("0.######", culture) + ":all=1");
+            else if (audioDelaySeconds < 0)
+                filters.Add("atrim=start=" + (-audioDelaySeconds).ToString("0.########", culture)
+                    + ",asetpts=PTS-STARTPTS,apad=pad_dur=" + (-audioDelaySeconds).ToString("0.########", culture));
+            if (audioGainDb <= MinAudioGainDb) filters.Add("volume=0");
+            else if (Math.Abs(audioGainDb) > 0.000001) filters.Add("volume=" + audioGainDb.ToString("0.########", culture) + "dB");
+            var audioFilter = filters.Count == 0 ? string.Empty : " -af \"" + string.Join(",", filters) + "\"";
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true,

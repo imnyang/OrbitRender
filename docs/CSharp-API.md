@@ -139,3 +139,5 @@ string cancelled = RenderApi.Cancel(jobId);    // 취소 요청 후의 스냅샷
 ## TUFReplay 연동
 
 TUFReplay는 이 API를 리플렉션으로 호출합니다. 브라우저는 TUFReplay의 ADOFAI IPC 계약만 사용하며 OrbitRender와 직접 통신하지 않습니다. 렌더 작업의 소유자(번들 생성, 상태 머신, 취소, 정리)는 TUFReplay이고, OrbitRender는 레벨 열기·렌더링·상태 보고만 담당합니다.
+
+리플레이 렌더는 판정을 그대로 재현하려고 녹화 당시의 input offset(`replay.gameInputOffsetMs`)을 사용합니다. ADOFAI는 행성을 이 값만큼 믹싱된 소리보다 늦게 그리므로, OrbitRender는 게임 소리와 마이크를 포함한 출력 오디오 전체를 같은 값만큼 늦춰 화면에 맞춥니다. 마이크의 `latencyUs`는 게임 소리를 기준으로 계산하면 됩니다.

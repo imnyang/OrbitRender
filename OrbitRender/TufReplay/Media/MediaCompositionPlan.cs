@@ -14,12 +14,16 @@ public sealed class MediaCompositionPlan
     public string FilterGraph { get; private set; }
     private static string N(double v) => v.ToString("0.#########", CultureInfo.InvariantCulture);
 
+    // audioDelayUs is how much later than the picture the game audio starts. The
+    // microphone is placed against the game audio, so it moves by the same amount.
     public static MediaCompositionPlan Create(string game, string output, int width, int height, int fps,
         double durationUs, RenderTimeline timeline, JObject webcam, string webcamPath,
         JObject microphone, string microphonePath, string dmnotePath = null, JObject dmnoteLayout = null,
-        string[] videoEncoding = null, bool captureGameAudio = true, IEnumerable<MediaOverlay> dmnoteOverlays = null)
+        string[] videoEncoding = null, bool captureGameAudio = true, IEnumerable<MediaOverlay> dmnoteOverlays = null,
+        double audioDelayUs = 0)
     {
         if (width <= 0 || height <= 0 || fps <= 0 || durationUs <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+        if (double.IsNaN(audioDelayUs) || double.IsInfinity(audioDelayUs)) throw new ArgumentOutOfRangeException(nameof(audioDelayUs));
         var plan = new MediaCompositionPlan();
         var filters = new List<string>();
         plan.Arguments.AddRange(new[] { "-nostdin", "-hide_banner", "-y", "-i", game });
@@ -101,7 +105,7 @@ public sealed class MediaCompositionPlan
             int micIndex = input++;
             plan.Arguments.AddRange(new[] { "-i", microphonePath });
             double delayUs = timeline.GameplayStartUs + RequiredNumber(microphone, "captureStartOffsetUs")
-                - ((double?)microphone["latencyUs"] ?? 0);
+                - ((double?)microphone["latencyUs"] ?? 0) + audioDelayUs;
             double skipUs = Math.Max(0, -delayUs);
             double gain = (double?)microphone["volume"] ?? 1;
             if (double.IsNaN(gain) || double.IsInfinity(gain) || gain < 0 || gain > 32) throw new InvalidOperationException("Invalid microphone volume.");
