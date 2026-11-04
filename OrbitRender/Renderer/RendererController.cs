@@ -898,8 +898,12 @@ namespace OrbitRender.Renderer
                         Main.Entry.Logger.Log("[Render] Applying audio gain "
                             + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB during final audio mux.");
+                        if (ReplayAudioDelaySeconds != 0.0)
+                            Main.Entry.Logger.Log("[Replay] Delaying render audio by the recorded input offset: "
+                                + (ReplayAudioDelaySeconds * 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                                + " ms.");
                         FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
-                            audioGainDbForRun, profile.AudioCodec);
+                            audioGainDbForRun, profile.AudioCodec, ReplayAudioDelaySeconds);
                     }
                     if (HasReplayMedia()) ComposeReplayMedia(muxPath, OutputPath, true);
                     else File.Move(muxPath, OutputPath);
@@ -1167,6 +1171,12 @@ namespace OrbitRender.Renderer
             }
         }
 
+        // Replays keep the recorded input offset so judgments match the run.
+        // ADOFAI draws the planets one input offset behind the song it mixes,
+        // so all output audio starts that much later to stay on the picture.
+        private double ReplayAudioDelaySeconds => replayBundle != null
+            ? replayBundle.Manifest.Replay.GameInputOffsetMs / 1000d : 0.0;
+
         private bool HasReplayMedia()
         {
             var media = replayBundle?.Manifest.Media;
@@ -1194,7 +1204,8 @@ namespace OrbitRender.Renderer
             var composedPath = Path.ChangeExtension(output, ".composed" + profile.ContainerExtension);
             var plan = TUFReplayRenderer.Media.MediaCompositionPlan.Create(input, composedPath, profile.Width, profile.Height,
                 profile.VideoFps, CapturedFrames * 1000000d / profile.VideoFps, timeline,
-                webcam, cameraPath, microphone, microphonePath, videoEncoding: encoding, captureGameAudio: hasGameAudio);
+                webcam, cameraPath, microphone, microphonePath, videoEncoding: encoding, captureGameAudio: hasGameAudio,
+                audioDelayUs: ReplayAudioDelaySeconds * 1000000d);
             var audioOption = plan.Arguments.IndexOf("-c:a");
             if (audioOption >= 0)
             {
@@ -1263,7 +1274,9 @@ namespace OrbitRender.Renderer
             {
                 audio = new GameAudioCapture();
                 audio.Begin(audioPath);
-                if (!selectionStartTileForRun.HasValue)
+                // The streamed encoder starts the audio at output frame zero.
+                // Shifted audio is aligned by the final WAV mux instead.
+                if (!selectionStartTileForRun.HasValue && ReplayAudioDelaySeconds == 0.0)
                     audio.BeginConcurrentEncoding(FFmpegPath, audioEncodedPath, audioGainDbForRun, profile.AudioCodec);
                 audioPacingOrigin = Time.realtimeSinceStartupAsDouble;
             }
@@ -1415,6 +1428,7 @@ namespace OrbitRender.Renderer
             if (captureAudioForRun)
                 new RenderRecovery {
                     AudioOffset = selectionStartTileForRun.HasValue ? selectionStartFrameForRun / (double)profile.VideoFps : 0,
+                    AudioDelay = ReplayAudioDelaySeconds,
                     GainDb = audioGainDbForRun, Codec = profile.AudioCodec
                 }.Save(OutputPath);
         }

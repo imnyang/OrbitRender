@@ -10,6 +10,8 @@ namespace OrbitRender.Renderer
     {
         public int Version = 1;
         public double AudioOffset;
+        // Replay audio start after the first video frame; older files omit it.
+        public double AudioDelay;
         public float GainDb;
         public AudioCodec Codec;
         internal const string Suffix = ".recovery.json";
@@ -31,6 +33,7 @@ namespace OrbitRender.Renderer
             var recovery = JsonConvert.DeserializeObject<RenderRecovery>(File.ReadAllText(manifest));
             if (recovery == null || recovery.Version != 1 || !Enum.IsDefined(typeof(AudioCodec), recovery.Codec)
                 || double.IsNaN(recovery.AudioOffset) || double.IsInfinity(recovery.AudioOffset) || recovery.AudioOffset < 0
+                || double.IsNaN(recovery.AudioDelay) || double.IsInfinity(recovery.AudioDelay)
                 || float.IsNaN(recovery.GainDb) || recovery.GainDb < -60 || recovery.GainDb > 12)
                 throw new IOException("Invalid recovery information.");
             if (File.Exists(output)) throw new IOException("Output already exists: " + output);
@@ -44,7 +47,7 @@ namespace OrbitRender.Renderer
                 var needed = checked(new FileInfo(VideoPath(output)).Length + 256L * 1024 * 1024);
                 if (available.HasValue && available.Value < needed) throw new IOException("Insufficient disk space for recovery.");
                 FFmpegEncoder.MuxAudio(executable, VideoPath(output), AudioPath(output), mux,
-                    recovery.AudioOffset, recovery.GainDb, recovery.Codec);
+                    recovery.AudioOffset, recovery.GainDb, recovery.Codec, recovery.AudioDelay);
                 File.Move(mux, output);
             }
             finally { DeleteTemporary(mux); }

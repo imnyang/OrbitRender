@@ -27,6 +27,10 @@ internal static class ReplayMediaPlanTests
             3000000, new RenderTimeline(1000000, 1, null), camera, "camera.mp4", mic, "mic.wav");
         if (!adjusted.FilterGraph.Contains("+0.875/TB") || !adjusted.FilterGraph.Contains("volume=2,adelay=948:all=1"))
             throw new Exception("Recorded webcam offset and microphone latency/gain must be applied to the output timeline.");
+        var delayed = MediaCompositionPlan.Create("game.mp4", "out.mp4", 1920, 1080, 60,
+            3000000, new RenderTimeline(1000000, 1, null), camera, "camera.mp4", mic, "mic.wav", audioDelayUs: 40000);
+        if (!delayed.FilterGraph.Contains("+0.875/TB") || !delayed.FilterGraph.Contains("volume=2,adelay=988:all=1"))
+            throw new Exception("A delayed game audio track must move the microphone, not the webcam.");
         Console.WriteLine("Replay media composition planning tests passed.");
     }
 }
