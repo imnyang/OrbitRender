@@ -93,7 +93,16 @@ namespace OrbitRender
                 return null;
             return CleanComponent(levelName);
         }
-        internal static string ReplayFileName(string levelPath, string levelHash, DateTime now)
+        /// <summary>
+        /// The folder, inside the output folder, that holds a replay's videos. A folder the caller chose
+        /// for this render holds the level folders directly; OrbitRender's own output folder keeps them
+        /// under TUFReplay.
+        /// </summary>
+        internal static string ReplayFolder(string levelFolder, bool callerChoseFolder)
+            => callerChoseFolder ? levelFolder : Path.Combine("TUFReplay", levelFolder);
+        internal static string ReplayFileStem(DateTime now)
+            => "TUFReplay_" + now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture);
+        internal static string ReplayFileName(string levelPath, string levelHash, DateTime now, bool callerChoseFolder = false)
         {
             if (string.IsNullOrEmpty(levelHash))
             {
@@ -103,7 +112,7 @@ namespace OrbitRender
             }
             if (levelHash.Length != 64 || levelHash.Any(c => !Uri.IsHexDigit(c)))
                 throw new ArgumentException("Invalid level hash.", nameof(levelHash));
-            return Path.Combine("TUFReplay", levelHash.ToLowerInvariant(), "TUFReplay_" + now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture));
+            return Path.Combine(ReplayFolder(levelHash.ToLowerInvariant(), callerChoseFolder), ReplayFileStem(now));
         }
         internal static string UniquePath(string directory, string name, string extension)
         {

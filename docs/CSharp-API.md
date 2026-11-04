@@ -55,7 +55,7 @@ string json = RenderApi.StartReplay(manifestPath, options);
 
 옵션은 모두 선택 사항이며, 지정하지 않은 값은 OrbitRender 설정을 따릅니다.
 
-`outputDirectory`는 해당 작업에만 적용되는 절대 폴더 경로입니다. `~/Videos/Renders`처럼 `~`를 현재 사용자의 홈 폴더로 사용할 수도 있습니다. 생략하거나 빈 문자열 또는 `null`로 지정하면 현재 출력 폴더 설정을 사용합니다. 폴더가 없으면 렌더링할 때 생성합니다. 잘못된 경로는 `render_options_invalid`로 거부됩니다. Windows 경로의 역슬래시는 JSON에서 `\\`로 이스케이프해야 합니다. 이 옵션은 C# API 전용이며 UMM 설정을 변경하지 않습니다.
+`outputDirectory`는 해당 작업에만 적용되는 절대 폴더 경로입니다. `~/Videos/Renders`처럼 `~`를 현재 사용자의 홈 폴더로 사용할 수도 있습니다. 생략하거나 빈 문자열 또는 `null`로 지정하면 현재 출력 폴더 설정을 사용합니다. 폴더가 없으면 렌더링할 때 생성합니다. 잘못된 경로는 `render_options_invalid`로 거부됩니다. Windows 경로의 역슬래시는 JSON에서 `\\`로 이스케이프해야 합니다. 이 옵션은 C# API 전용이며 UMM 설정을 변경하지 않습니다. 폴더를 지정하면 영상은 그 폴더 바로 아래 `<레벨 이름>/TUFReplay_<날짜_시각>`에 저장됩니다. 생략하면 출력 폴더 설정 아래 `TUFReplay/<레벨 이름>/`에 저장됩니다.
 
 | 항목 | 필드 |
 | --- | --- |
