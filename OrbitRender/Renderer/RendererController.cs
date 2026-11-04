@@ -152,6 +152,8 @@ namespace OrbitRender.Renderer
         private bool useRustRendererForRun;
         private FrameBufferPolicy bufferPolicyForRun;
         private string outputDirectoryForRun;
+        // True when the caller passed this render's folder, rather than OrbitRender's own setting.
+        private bool outputDirectoryChosenForRun;
         private string lastFailureReport;
         internal static RenderQueue Queue { get; } = new RenderQueue();
         private bool audioRealtimePacing;
@@ -259,8 +261,9 @@ namespace OrbitRender.Renderer
             escapeHeldAt = -1;
             forceCancelTriggered = false;
             var settings = Main.Settings ?? new RendererSettings();
-            outputDirectoryForRun = requestOptions?.OutputDirectory ?? activeRpcJob?.Options?.OutputDirectory
-                ?? settings.ResolveOutputDirectory();
+            var chosenOutputDirectory = requestOptions?.OutputDirectory ?? activeRpcJob?.Options?.OutputDirectory;
+            outputDirectoryChosenForRun = chosenOutputDirectory != null;
+            outputDirectoryForRun = chosenOutputDirectory ?? settings.ResolveOutputDirectory();
             noPreviewForRun = requestOptions?.NoPreview ?? activeRpcJob?.Options?.NoPreview ?? false;
             showPreviewForRun = requestOptions?.ShowRenderPreview ?? settings.ShowRenderPreview;
             useRustRendererForRun = requestOptions?.UseRustRenderer ?? settings.UseRustRenderer;
@@ -548,7 +551,8 @@ namespace OrbitRender.Renderer
             {
                 var now = DateTime.Now;
                 var mapName = OutputFormat.ReplayNamedDirectory(level.levelData?.song);
-                var replayDirectory = mapName == null ? null : Path.Combine(directory, "TUFReplay", mapName);
+                var replayFolder = mapName == null ? null : OutputFormat.ReplayFolder(mapName, outputDirectoryChosenForRun);
+                var replayDirectory = replayFolder == null ? null : Path.Combine(directory, replayFolder);
                 if (replayDirectory != null)
                 {
                     try { Directory.CreateDirectory(replayDirectory); }
@@ -556,8 +560,8 @@ namespace OrbitRender.Renderer
                     { replayDirectory = null; }
                 }
                 name = replayDirectory == null
-                    ? OutputFormat.ReplayFileName(replayBundle.ResolveLevelPath(), replayBundle.Manifest.Level.FileSha256, now)
-                    : Path.Combine("TUFReplay", mapName, "TUFReplay_" + now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture));
+                    ? OutputFormat.ReplayFileName(replayBundle.ResolveLevelPath(), replayBundle.Manifest.Level.FileSha256, now, outputDirectoryChosenForRun)
+                    : Path.Combine(replayFolder, OutputFormat.ReplayFileStem(now));
             }
             else name = OutputFormat.FileName(fileNameFormatForRun,
                 ExportFileName.Variables(profile, bgaModeForRun, DateTime.Now, Guid.NewGuid().ToString("N").Substring(0, 6)));
