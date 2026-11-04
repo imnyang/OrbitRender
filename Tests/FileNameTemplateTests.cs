@@ -92,6 +92,11 @@ internal static class FileNameTemplateTests
         var replayName = OutputFormat.ReplayFileName(null, hash, now);
         if (replayName != Path.Combine("TUFReplay", hash.ToLowerInvariant(), "TUFReplay_2026-10-05_12-34-56"))
             throw new Exception("Replay output path did not group by level hash and date.");
+        if (OutputFormat.ReplayFileName(null, hash, now, callerChoseFolder: true) != Path.Combine(hash.ToLowerInvariant(), "TUFReplay_2026-10-05_12-34-56"))
+            throw new Exception("A caller-chosen replay folder gained an extra TUFReplay folder.");
+        if (OutputFormat.ReplayFolder("My_Level", false) != Path.Combine("TUFReplay", "My_Level")
+            || OutputFormat.ReplayFolder("My_Level", true) != "My_Level")
+            throw new Exception("Replay level folders were not placed by who chose the output folder.");
         try { OutputFormat.ReplayFileName(null, "../invalid", now); throw new Exception("Unsafe replay hash was accepted."); }
         catch (ArgumentException) { }
         var levelFile = Path.GetTempFileName();
