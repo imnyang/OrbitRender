@@ -169,7 +169,7 @@ namespace OrbitRender.Renderer
             result.Info("Container: " + profile.ContainerExtension + " (" + profile.ContainerMimeType + ").");
             if (FFmpegEncoder.TryValidateVideo(executable, profile.BitrateMbps, profile.FfmpegPreset,
                 profile.FfmpegCodec, profile.PixelFormat, profile.ContainerExtension, !settings.CaptureAudio,
-                out var validationError))
+                out var validationError, profile.ProResProfile))
                 result.Pass("Encoder smoke test passed: " + profile.FfmpegCodec + " / " + profile.PixelFormat + ".");
             else
                 result.Error("Encoder smoke test failed: " + validationError);

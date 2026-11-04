@@ -117,7 +117,7 @@ namespace OrbitRender.UI
         private static string StorageLine(string key, double seconds, double audioSeconds,
             int width, int height, int fps, int bitrate, string available, VideoCodec codec)
         {
-            var video = RenderResources.VideoBytes(seconds, width, height, fps, bitrate, codec);
+            var video = RenderResources.VideoBytes(seconds, width, height, fps, bitrate, codec, draft.ProResProfile);
             var required = RenderResources.RequiredBytes(video, audioSeconds, draft.CaptureAudio);
             return Localization.Format(key, RenderResources.Size(video), RenderResources.Size(required), available);
         }
@@ -129,7 +129,7 @@ namespace OrbitRender.UI
             var artist = level != null && level.levelData != null ? level.levelData.artist : string.Empty;
             var signature = string.Join("\n", draft.FileNameFormat, draft.WidthText, draft.HeightText,
                 draft.FpsText, draft.VideoFpsText, draft.BitrateText, draft.Codec.ToString(), draft.BitDepth.ToString(),
-                draft.Container.ToString(), draft.BgaMode.ToString(),
+                draft.Container.ToString(), draft.BgaMode.ToString(), draft.ProResProfile.ToString(),
                 ExportFileName.LevelName, artist);
             if (signature == filenamePreviewSignature) return;
             filenamePreviewSignature = signature;
@@ -349,11 +349,18 @@ namespace OrbitRender.UI
                 UguiFactory.Preferred(storageText, 0f, 96f);
                 RefreshStorage();
                 if (draft.Preset == RendererPreset.Custom)
-                    AddInputRow(new[] { new Field("width", draft.WidthText, v => draft.WidthText = v),
-                        new Field("height", draft.HeightText, v => draft.HeightText = v),
-                        new Field("bitrate", draft.BitrateText, v => draft.BitrateText = v) });
-                else AddLabel(Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText,
-                    draft.VideoFpsText, draft.BitrateText), UiLayout.LabelFontSize, 22f, UguiFactory.Muted);
+                {
+                    var fields = new[] { new Field("width", draft.WidthText, v => draft.WidthText = v),
+                        new Field("height", draft.HeightText, v => draft.HeightText = v) };
+                    if (draft.Codec != VideoCodec.ProRes)
+                        fields = fields.Concat(new[] { new Field("bitrate", draft.BitrateText, v => draft.BitrateText = v) }).ToArray();
+                    AddInputRow(fields);
+                }
+                else AddLabel(draft.Codec == VideoCodec.ProRes
+                    ? Localization.Format("prores-preset-output", draft.WidthText, draft.HeightText, draft.FpsText,
+                        draft.VideoFpsText, ProResProfiles.DisplayName(draft.ProResProfile))
+                    : Localization.Format("preset-output", draft.WidthText, draft.HeightText, draft.FpsText,
+                        draft.VideoFpsText, draft.BitrateText), UiLayout.LabelFontSize, 22f, UguiFactory.Muted);
                 AddInputRow(new[] { new Field("ingame-fps", draft.FpsText, v => draft.FpsText = v),
                     new Field("video-fps", draft.VideoFpsText, v => draft.VideoFpsText = v) });
 
@@ -382,6 +389,15 @@ namespace OrbitRender.UI
                 UguiFactory.Preferred(recovery, 0f, 34f);
                 AddHeading(Localization.Get("encoding"));
                 AddEncoderDropdown();
+                if (draft.Codec == VideoCodec.ProRes)
+                {
+                    AddLabel(Localization.Get("prores-profile"), UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
+                    var profile = UguiFactory.Dropdown(content, SettingsUi.ProResProfileLabels,
+                        Array.IndexOf(SettingsUi.ProResProfileChoices, ProResProfiles.Normalize(draft.ProResProfile)),
+                        v => { draft.ProResProfile = SettingsUi.ProResProfileChoices[v]; RebuildContent(); });
+                    UguiFactory.Preferred(profile, 0f, 34f);
+                    AddNote(Localization.Get("prores-profile-note"));
+                }
                 if (showHelp)
                 {
                     AddHelp(draft.Codec == VideoCodec.ProRes ? "help-prores"
@@ -479,7 +495,7 @@ namespace OrbitRender.UI
 
         private static void AddEncoderDropdown()
         {
-            encoderAvailability = SettingsUi.AvailableEncoders(draft.BitDepth, draft.Container);
+            encoderAvailability = SettingsUi.AvailableEncoders(draft.BitDepth, draft.Container, draft.ProResProfile);
             encoderAvailabilityComplete = encoderAvailability.Complete;
             AddLabel(Localization.Get("video-encoder"), UiLayout.LabelFontSize, 20f, UguiFactory.Foreground);
             var choices = encoderAvailability.Complete ? encoderAvailability.Choices : new EncoderAvailability.Choice[0];
@@ -501,7 +517,9 @@ namespace OrbitRender.UI
             UguiFactory.Preferred(refresh, 0f, 30f);
             if (choices.Length > 0 && showHelp)
                 AddNote(Localization.Format("help-compatibility", SettingsUi.EncoderLabel(choices[selected]),
-                    VideoCodecCatalog.PixelFormat(draft.Codec, draft.BitDepth), OutputFormat.Extension(draft.Container, draft.Codec)));
+                    VideoCodecCatalog.PixelFormat(draft.Codec, draft.BitDepth, draft.ProResProfile,
+                        VideoCodecCatalog.Get(draft.Codec).ResolveEncoder(draft.Encoder, false, false, false)),
+                    OutputFormat.Extension(draft.Container, draft.Codec)));
         }
 
         private static void AddAudioGain()
@@ -833,6 +851,7 @@ namespace OrbitRender.UI
             internal bool UseRustRenderer, CaptureAudio, ShowRenderPreview, BgaMode, ShowPlanetRings, ShowSongTitle, ShowCountdown,
                 ShowResultText, ShowHitJudgments, ShowModOverlay, ShowAllGameplayHud, OpenOutputFolder, SaveAsDefault;
             internal EncoderSpeed Encoding; internal VideoEncoder Encoder; internal VideoCodec Codec; internal VideoBitDepth BitDepth;
+            internal ProResProfile ProResProfile;
             internal static Draft From(RendererSettings s) => new Draft { Preset = s.Preset, BufferPolicy = s.BufferPolicy,
                 WidthText = s.Width.ToString(CultureInfo.InvariantCulture), HeightText = s.Height.ToString(CultureInfo.InvariantCulture),
                 FpsText = s.Fps.ToString(CultureInfo.InvariantCulture), VideoFpsText = s.VideoFps.ToString(CultureInfo.InvariantCulture),
@@ -841,7 +860,8 @@ namespace OrbitRender.UI
                 UseRustRenderer = s.UseRustRenderer, ShowRenderPreview = s.ShowRenderPreview, BgaMode = s.BgaMode, ShowPlanetRings = s.ShowPlanetRings,
                 ShowSongTitle = s.ShowSongTitle, ShowCountdown = s.ShowCountdown, ShowResultText = s.ShowResultText,
                 ShowHitJudgments = s.ShowHitJudgments, ShowModOverlay = s.ShowModOverlay, ShowAllGameplayHud = s.ShowAllGameplayHud, OpenOutputFolder = s.OpenOutputFolder, Encoding = s.Encoding,
-                Encoder = s.Encoder, Codec = s.Codec, BitDepth = s.BitDepth, Container = s.Container, FileNameFormat = s.FileNameFormat };
+                Encoder = s.Encoder, Codec = s.Codec, BitDepth = s.BitDepth, ProResProfile = s.ProResProfile,
+                Container = s.Container, FileNameFormat = s.FileNameFormat };
             internal void ApplyPreset() { switch (Preset) { case RendererPreset.Preview: SetVideoValues(1280,720,30,30,8); break;
                 case RendererPreset.QHD: SetVideoValues(2560,1440,60,60,30); break; case RendererPreset.UHD4K: SetVideoValues(3840,2160,60,60,50); break;
                 case RendererPreset.FullHD: SetVideoValues(1920,1080,60,60,36); break; } }
@@ -851,7 +871,7 @@ namespace OrbitRender.UI
                 int.TryParse(FpsText, out var fps); int.TryParse(VideoFpsText, out var videoFps);
                 int.TryParse(BitrateText, out var bitrate);
                 return ExportFileName.Variables(new RenderProfile(width, height, fps, videoFps, bitrate,
-                    "", videoCodec: Codec, bitDepth: BitDepth, container: Container), BgaMode, filenamePreviewTime, filenamePreviewId);
+                    "", videoCodec: Codec, bitDepth: BitDepth, container: Container, proResProfile: ProResProfile), BgaMode, filenamePreviewTime, filenamePreviewId);
             }
             internal System.Collections.Generic.List<ExportFieldError> ValidationErrors()
             {
@@ -874,13 +894,13 @@ namespace OrbitRender.UI
                     AudioCodec=AudioCodecCatalog.CompatibleSelection(AudioCodec,OutputFormat.Extension(Container,Codec)),
                     UseRustRenderer=UseRustRenderer,ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
                     ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,ShowModOverlay=ShowModOverlay,ShowAllGameplayHud=ShowAllGameplayHud,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
-                    Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
+                    ProResProfile=ProResProfile,Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
                 if(Preset==RendererPreset.Custom){options.Width=width;options.Height=height;options.BitrateMbps=bitrate;} return true; }
             internal void ApplyTo(RendererSettings s, RenderRequestOptions o)
             { s.BufferPolicy=BufferPolicy;s.UseRustRenderer=UseRustRenderer;s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;s.BitrateMbps=o.BitrateMbps.Value;}
                 s.EndDelaySeconds=o.EndDelaySeconds.Value;s.CaptureAudio=CaptureAudio;s.AudioGainDb=o.AudioGainDb.Value;s.AudioCodec=o.AudioCodec.Value;s.ShowRenderPreview=ShowRenderPreview;s.BgaMode=BgaMode;
                 s.ShowPlanetRings=ShowPlanetRings;s.ShowSongTitle=ShowSongTitle;s.ShowCountdown=ShowCountdown;s.ShowResultText=ShowResultText;s.ShowHitJudgments=ShowHitJudgments;s.ShowModOverlay=ShowModOverlay;s.ShowAllGameplayHud=ShowAllGameplayHud;
-                s.Container=Container;s.FileNameFormat=FileNameFormat;s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }
+                s.ProResProfile=ProResProfile;s.Container=Container;s.FileNameFormat=FileNameFormat;s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }
             private void SetVideoValues(int w,int h,int f,int vf,int b){WidthText=w.ToString(CultureInfo.InvariantCulture);HeightText=h.ToString(CultureInfo.InvariantCulture);
                 FpsText=f.ToString(CultureInfo.InvariantCulture);VideoFpsText=vf.ToString(CultureInfo.InvariantCulture);BitrateText=b.ToString(CultureInfo.InvariantCulture);}
             private static bool TryParseFloat(string value,out float result)=>float.TryParse(value,NumberStyles.Float,CultureInfo.InvariantCulture,out result)||float.TryParse(value,NumberStyles.Float,CultureInfo.CurrentCulture,out result);

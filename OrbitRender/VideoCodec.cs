@@ -28,14 +28,61 @@ namespace OrbitRender
         IntelQsv = 3,
         AmdAmf = 4,
         Vaapi = 5,
-        Vulkan = 6
+        Vulkan = 6,
+        AppleVideoToolbox = 7
+    }
+
+    public enum ProResProfile
+    {
+        Proxy = 0,
+        LT = 1,
+        Standard = 2,
+        HQ = 3,
+        FourFourFourFour = 4,
+        FourFourFourFourXQ = 5
+    }
+
+    internal static class ProResProfiles
+    {
+        internal static ProResProfile Normalize(ProResProfile profile)
+            => Enum.IsDefined(typeof(ProResProfile), profile) ? profile : ProResProfile.HQ;
+
+        internal static bool HasAlpha(ProResProfile profile)
+            => profile == ProResProfile.FourFourFourFour || profile == ProResProfile.FourFourFourFourXQ;
+
+        internal static string DisplayName(ProResProfile profile)
+        {
+            switch (Normalize(profile))
+            {
+                case ProResProfile.Proxy: return "Proxy";
+                case ProResProfile.LT: return "LT";
+                case ProResProfile.Standard: return "Standard";
+                case ProResProfile.FourFourFourFour: return "4444";
+                case ProResProfile.FourFourFourFourXQ: return "4444 XQ";
+                default: return "HQ";
+            }
+        }
+
+        internal static bool TryParse(string value, out ProResProfile profile)
+        {
+            switch ((value ?? string.Empty).Trim().ToLowerInvariant().Replace(" ", ""))
+            {
+                case "proxy": profile = ProResProfile.Proxy; return true;
+                case "lt": profile = ProResProfile.LT; return true;
+                case "standard": profile = ProResProfile.Standard; return true;
+                case "hq": profile = ProResProfile.HQ; return true;
+                case "4444": profile = ProResProfile.FourFourFourFour; return true;
+                case "4444xq": case "xq": profile = ProResProfile.FourFourFourFourXQ; return true;
+                default: profile = ProResProfile.HQ; return false;
+            }
+        }
     }
 
     internal sealed class VideoCodecDefinition
     {
         internal VideoCodecDefinition(VideoCodec codec, string displayName, string softwareEncoder,
             string nvidiaEncoder, string intelEncoder, string amdEncoder, string extension,
-            string vulkanEncoder = null)
+            string vulkanEncoder = null, string appleEncoder = null)
         {
             Codec = codec;
             DisplayName = displayName;
@@ -45,6 +92,7 @@ namespace OrbitRender
             AmdEncoder = amdEncoder;
             ContainerExtension = extension;
             VulkanEncoder = vulkanEncoder;
+            AppleEncoder = appleEncoder;
         }
 
         internal VideoCodec Codec { get; }
@@ -54,10 +102,14 @@ namespace OrbitRender
         internal string IntelEncoder { get; }
         internal string AmdEncoder { get; }
         internal string VulkanEncoder { get; }
+        internal string AppleEncoder { get; }
         internal string ContainerExtension { get; }
 
-        internal string ResolveEncoder(VideoEncoder backend, bool nvidiaGpu, bool intelGpu, bool amdGpu)
+        internal string ResolveEncoder(VideoEncoder backend, bool nvidiaGpu, bool intelGpu, bool amdGpu,
+            bool appleVideoToolbox = false)
         {
+            if ((backend == VideoEncoder.AppleVideoToolbox || (backend == VideoEncoder.Auto && appleVideoToolbox))
+                && !string.IsNullOrEmpty(AppleEncoder)) return AppleEncoder;
             if (Codec == VideoCodec.ProRes || (Codec == VideoCodec.FFV1 && backend == VideoEncoder.Vaapi)) return SoftwareEncoder;
             if (backend == VideoEncoder.Vulkan)
             {
@@ -105,15 +157,19 @@ namespace OrbitRender
             ".mp4");
 
         private static readonly VideoCodecDefinition ProRes = new VideoCodecDefinition(
-            VideoCodec.ProRes, "ProRes 422 HQ (10-bit)", "prores_ks", null, null, null,
-            ".mov");
+            VideoCodec.ProRes, "Apple ProRes", "prores_ks", null, null, null,
+            ".mov", appleEncoder: "prores_videotoolbox");
 
         private static readonly VideoCodecDefinition FFV1 = new VideoCodecDefinition(
             VideoCodec.FFV1, "FFV1 (Lossless)", "ffv1", null, null, null,
             ".mkv", "ffv1_vulkan");
 
-        internal static string PixelFormat(VideoCodec codec, VideoBitDepth depth)
-            => codec == VideoCodec.ProRes ? "yuv422p10le"
+        internal static string PixelFormat(VideoCodec codec, VideoBitDepth depth,
+            ProResProfile proResProfile = ProResProfile.HQ, string encoder = null)
+            => codec == VideoCodec.ProRes
+                ? (string.Equals(encoder, "prores_videotoolbox", StringComparison.OrdinalIgnoreCase)
+                    ? (ProResProfiles.HasAlpha(proResProfile) ? "bgra" : "p210le")
+                    : (ProResProfiles.HasAlpha(proResProfile) ? "yuva444p10le" : "yuv422p10le"))
                 : depth == VideoBitDepth.Ten ? "yuv420p10le" : "yuv420p";
 
         internal static VideoCodecDefinition Get(VideoCodec codec)
@@ -147,6 +203,7 @@ namespace OrbitRender
                     || codec.EndsWith("_qsv", StringComparison.OrdinalIgnoreCase)
                     || codec.EndsWith("_amf", StringComparison.OrdinalIgnoreCase)
                     || codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
+                    || codec.EndsWith("_videotoolbox", StringComparison.OrdinalIgnoreCase)
                     || codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase));
         }
 
@@ -173,6 +230,7 @@ namespace OrbitRender
                 case "prores":
                 case "prores_ks":
                 case "prores422hq":
+                case "prores422":
                     codec = VideoCodec.ProRes;
                     return true;
                 case "ffv1":

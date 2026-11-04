@@ -66,6 +66,21 @@ internal static class ExportWorkflowTests
         var parsedOptions = parseOptions.Invoke(null, parseArguments);
         Assert(parsedOptions != null && (bool)parsedOptions.GetType().GetField("NoPreview", Internal).GetValue(parsedOptions),
             "noPreview was not carried into the render job.");
+        foreach (var profile in new[] { "Proxy", "LT", "Standard", "HQ", "4444", "4444 XQ" })
+        {
+            payload = Newtonsoft.Json.JsonConvert.DeserializeObject(
+                "{\"videoCodec\":\"ProRes\",\"proResProfile\":\"" + profile + "\"}", payloadType);
+            parseArguments = new object[] { payload, null };
+            parsedOptions = parseOptions.Invoke(null, parseArguments);
+            Assert(parsedOptions != null && parseArguments[1] == null, "Valid ProRes API profile rejected: " + profile);
+            var profileSnapshot = Newtonsoft.Json.Linq.JObject.FromObject(Call(parsedOptions, "Snapshot"));
+            Assert((string)profileSnapshot["proResProfile"] == profile, "Job snapshot lost ProRes profile.");
+        }
+        payload = Newtonsoft.Json.JsonConvert.DeserializeObject("{\"proResProfile\":\"invalid\"}", payloadType);
+        parseArguments = new object[] { payload, null };
+        Assert(parseOptions.Invoke(null, parseArguments) == null && parseArguments[1] != null,
+            "Invalid ProRes API profile was accepted.");
+        Assert((string)Get(parseArguments[1], "Field") == "proResProfile", "Profile validation omitted its field.");
         var jobState = assembly.GetType("OrbitRender.Renderer.RpcJobState", true);
         var job = Activator.CreateInstance(jobType, new object[] { "job", "level", true, null });
         Call(job, "SetProgress", 1L, 1L, "finished.mp4");

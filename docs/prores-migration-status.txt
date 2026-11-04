@@ -1,0 +1,59 @@
+main 기반 ProRes 확장 이식 — 2026-11-04
+
+브랜치: feat/prores-profiles-videotoolbox
+기준: origin/main@adb3d96 (2.7.0, upstream/main과 동일)
+작업 위치: /private/tmp/OrbitRender-prores-videotoolbox
+기존 작업 위치: /Users/kgh/dev/src/OrbitRender
+
+최신 main에서 별도 worktree를 생성하고 ProRes 확장분을 새로 이식했다.
+기존 feat/apple-prores-encoding의 커밋과 미커밋 변경은 기존 위치에 보존했다.
+
+초기 이식 범위
+  - Proxy/LT/Standard/HQ/4444/4444 XQ 프로파일. 기존 기본값 HQ 유지.
+  - Apple VideoToolbox 하드웨어 경로와 프로파일별 실제 인코딩 검사.
+  - Vulkan=6을 유지하고 AppleVideoToolbox=7을 추가해 enum 충돌 방지.
+  - 원본의 FFV1/Vulkan 코덱 목록, 메모리 정책, 컨테이너 검증 유지.
+  - 4444 계열 RGBA 캡처 및 소프트웨어/VideoToolbox별 픽셀 포맷.
+  - 하드웨어 실패 후 소프트웨어 전환 시 선택한 프로파일 유지.
+  - 내보내기 창·기본 설정·사용자 프리셋의 프로파일 저장과 복원.
+  - RenderApi v2와 RPC의 proResProfile 옵션 파싱·검증·상태 스냅샷.
+  - 리플레이 웹캠 합성 재인코딩에도 프로파일 전달.
+  - 내보내기 예상 용량과 렌더 시작 시 공간 검사에 프로파일 반영.
+    HQ 추정값은 유지하고 나머지는 보수적인 상대 가중치로 계산한다.
+  - 한국어/영어 안내 및 README, RPC 문서 갱신.
+
+검증 결과
+  - Release 모드 모드 DLL 및 배포 ZIP 빌드 성공.
+  - standalone RendererTests 빌드 성공.
+  - 새 --prores 검사 통과:
+      6종 소프트웨어와 6종 실제 VideoToolbox 출력의 코덱·프로파일·
+      픽셀 포맷·프레임 수, 4444 알파 값 보존, 잘못된 컨테이너 거부,
+      코덱 별칭, Vulkan 매핑, 프로파일별 공간 추정 검사.
+  - 기존 TestProRes 회귀 검사 통과:
+      HQ MOV/MKV, AAC 결합·스트림 복사, 전체 프레임 수 보존.
+  - --user-presets 검사 통과:
+      프로파일 프리셋 저장·복원과 XML, RPC/API 프로파일 검증·스냅샷,
+      기존 내보내기 워크플로·큐·패치 호환성 검사 포함.
+  - git diff --check 통과.
+  - 전체 인코더 회귀 검사는 AV1 인코더 탐색 검사에서 중단됐다.
+    설치된 /opt/homebrew/bin/ffmpeg는 libaom-av1을 제공하지 않는다.
+    ffmpeg -h encoder=libaom-av1에서도 해당 인코더 부재를 확인했다.
+    따라서 전체 테스트 통과로 간주하지 않는다.
+  - standalone 모드 검사에서 UnityEngine.Application의 네이티브 호출
+    경고가 출력됐지만 테스트는 통과했다. 게임 안에서의 검증을 대신하지 않는다.
+
+대표 실행 명령 (이 worktree에서 실행)
+  ORBIT_RENDER_TEST_PRORES_HARDWARE=1 mono Tests/bin/Release/RendererTests.exe \
+    --prores /opt/homebrew/bin/ffmpeg /tmp/prores-test-output-new
+  하드웨어 검사는 VideoToolbox에 접근 가능한 환경에서 실행해야 한다.
+  출력 경로는 기존 영상이 없는 새 디렉터리를 사용한다.
+
+후속 확인·분리 작업
+  - 게임 안에서 내보내기 UI, 실제 장면·리플레이, 하드웨어 실패 시
+    확인 창을 통한 소프트웨어 전환을 확인한다.
+  - 장시간·대용량 파일 및 성능·화질 비교는 별도로 수행한다.
+  - 기존 worktree의 미커밋 MOV faststart 제외와 진행 기반 mux
+    타임아웃 개선은 이번 초기 이식에 포함하지 않았다. 후속 변경으로
+    별도 포팅하고 검증할 수 있도록 원본 작업 상태를 유지했다.
+
+변경은 로컬 브랜치에만 저장한다. 원격 push와 게임 설치는 수행하지 않는다.

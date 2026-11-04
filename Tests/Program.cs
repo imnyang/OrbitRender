@@ -30,6 +30,12 @@ internal static class Program
             if (args.Length == 1 && args[0] == "--tuf-korean-key") { KoreanReplayKeyTests.Run(); return 0; }
             if (args.Length == 1 && args[0] == "--jrp-guard") { JrpGuardTests.Run(); return 0; }
             RenderResourceTests.Run();
+            if (args.Length == 3 && args[0] == "--prores")
+            {
+                Directory.CreateDirectory(args[2]);
+                ProResTests.Run(args[1], args[2]);
+                return 0;
+            }
             if (args.Length == 2 && args[0] == "--encoder-probe")
             {
                 var available = EncoderAvailability.Get(args[1], VideoCodec.FFV1, VideoBitDepth.Eight, VideoContainer.Auto);
@@ -199,6 +205,7 @@ internal static class Program
             Assert(offsetMetadata.Contains("duration=1.000000"), "Selection audio offset/duration mismatch.");
             TestVideoCodecs(args[0], args[1]);
             TestProRes(args[0], args[1]);
+            ProResTests.Run(args[0], args[1]);
             TestFFV1(args[0], args[1]);
             TestOpusAudio(args[0], args[1]);
             TestFlacAudio(args[0], args[1]);
@@ -327,7 +334,8 @@ internal static class Program
         Assert(automatic.Choices.Any(c => c.Codec == VideoCodec.ProRes && c.Encoder == VideoEncoder.Software),
             "Combined Auto dropdown lost ProRes.");
         Assert(automatic.Choices.Where(c => c.Codec == VideoCodec.ProRes)
-            .All(c => c.Encoder == VideoEncoder.Auto || c.Encoder == VideoEncoder.Software),
+            .All(c => c.Encoder == VideoEncoder.Auto || c.Encoder == VideoEncoder.Software
+                || c.Encoder == VideoEncoder.AppleVideoToolbox),
             "ProRes advertised an unsupported hardware backend.");
         Assert(automatic.Choices.Any(c => c.Codec == VideoCodec.FFV1 && c.Encoder == VideoEncoder.Software),
             "Combined Auto dropdown lost FFV1.");

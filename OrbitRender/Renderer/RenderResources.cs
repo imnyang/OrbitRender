@@ -15,7 +15,8 @@ namespace OrbitRender.Renderer
             return (int)Math.Max(1L, Math.Min(16L, budget / frameBytes));
         }
 
-        internal static long VideoBytes(double seconds, int width, int height, int fps, int bitrate, VideoCodec codec)
+        internal static long VideoBytes(double seconds, int width, int height, int fps, int bitrate, VideoCodec codec,
+            ProResProfile proResProfile = ProResProfile.HQ)
         {
             if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds <= 0) return 0;
             double bitsPerSecond;
@@ -25,7 +26,15 @@ namespace OrbitRender.Renderer
                 // 1080p30 target rate for conservative planning, never as an
                 // exact size.
                 case VideoCodec.ProRes:
-                    bitsPerSecond = 440e6 * width / 1920d * height / 1080d * fps / 30d;
+                    // Coarse profile weights preserve the HQ estimate and reserve
+                    // extra space for 4444/alpha. They are not exact bitrates.
+                    proResProfile = ProResProfiles.Normalize(proResProfile);
+                    var weight = proResProfile == ProResProfile.Proxy ? .25
+                        : proResProfile == ProResProfile.LT ? .5
+                        : proResProfile == ProResProfile.Standard ? .75
+                        : proResProfile == ProResProfile.FourFourFourFour ? 2
+                        : proResProfile == ProResProfile.FourFourFourFourXQ ? 3 : 1;
+                    bitsPerSecond = 440e6 * weight * width / 1920d * height / 1080d * fps / 30d;
                     break;
                 // Estimate FFV1 from the raw 8-bit 4:2:0 rate, rounding per frame.
                 // Flat game art often compresses further; this is a conservative estimate.

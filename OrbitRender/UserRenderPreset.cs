@@ -32,6 +32,7 @@ namespace OrbitRender
         public VideoEncoder Encoder = VideoEncoder.Auto;
         public VideoCodec Codec = VideoCodec.H264;
         public VideoBitDepth BitDepth = VideoBitDepth.Eight;
+        public ProResProfile ProResProfile = ProResProfile.HQ;
         public VideoContainer Container = VideoContainer.Auto;
         public string FileNameFormat = OutputFormat.DefaultFileName;
         public bool OpenOutputFolder = true;
@@ -64,6 +65,7 @@ namespace OrbitRender
                 Encoder = settings.Encoder,
                 Codec = settings.Codec,
                 BitDepth = settings.BitDepth,
+                ProResProfile = settings.ProResProfile,
                 Container = settings.Container,
                 FileNameFormat = settings.FileNameFormat,
                 OpenOutputFolder = settings.OpenOutputFolder,
@@ -96,6 +98,7 @@ namespace OrbitRender
             settings.Encoder = Encoder;
             settings.Codec = Codec;
             settings.BitDepth = BitDepth;
+            settings.ProResProfile = ProResProfile;
             settings.Container = Container;
             settings.FileNameFormat = FileNameFormat;
             settings.OpenOutputFolder = OpenOutputFolder;

@@ -25,7 +25,7 @@ namespace OrbitRender
         public RenderProfile(int width, int height, int targetFps, int videoFps, int bitrateMbps, string ffmpegPreset,
             float endDelaySeconds = 2f, string ffmpegCodec = "libx264", VideoCodec videoCodec = VideoCodec.H264,
             VideoBitDepth bitDepth = VideoBitDepth.Eight, VideoContainer container = VideoContainer.Auto,
-            AudioCodec audioCodec = AudioCodec.Auto)
+            AudioCodec audioCodec = AudioCodec.Auto, ProResProfile proResProfile = ProResProfile.HQ)
         {
             Width = width;
             Height = height;
@@ -36,6 +36,7 @@ namespace OrbitRender
             EndDelaySeconds = endDelaySeconds;
             FfmpegCodec = ffmpegCodec;
             VideoCodec = VideoCodecCatalog.Normalize(videoCodec);
+            ProResProfile = ProResProfiles.Normalize(proResProfile);
             BitDepth = VideoCodec == VideoCodec.ProRes ? VideoBitDepth.Ten
                 : VideoCodec == VideoCodec.FFV1 ? VideoBitDepth.Eight
                 : VideoCodecCatalog.Normalize(bitDepth);
@@ -53,7 +54,8 @@ namespace OrbitRender
         public string FfmpegCodec { get; }
         public VideoCodec VideoCodec { get; }
         public VideoBitDepth BitDepth { get; }
-        public string PixelFormat => VideoCodecCatalog.PixelFormat(VideoCodec, BitDepth);
+        public ProResProfile ProResProfile { get; }
+        public string PixelFormat => VideoCodecCatalog.PixelFormat(VideoCodec, BitDepth, ProResProfile, FfmpegCodec);
         public VideoContainer Container { get; }
         public string ContainerExtension => OutputFormat.Extension(Container, VideoCodec);
         public string ContainerMimeType => OutputFormat.MimeType(ContainerExtension);
@@ -155,6 +157,9 @@ namespace OrbitRender
         [Draw("Video bit depth", DrawType.PopupList)]
         public VideoBitDepth BitDepth = VideoBitDepth.Eight;
 
+        [Draw(DrawType.Ignore)]
+        public ProResProfile ProResProfile = ProResProfile.HQ;
+
         // These paths are rendered by the settings window so a Browse button can sit
         // next to each field. UMM's stock Field drawer cannot add a button
         // to the same row.
@@ -231,6 +236,7 @@ namespace OrbitRender
             Encoder = VideoEncoder.Auto;
             Codec = VideoCodec.H264;
             BitDepth = VideoBitDepth.Eight;
+            ProResProfile = ProResProfile.HQ;
             OutputDirectory = string.Empty;
             FileNameFormat = OutputFormat.DefaultFileName;
             Container = VideoContainer.Auto;
@@ -247,7 +253,7 @@ namespace OrbitRender
             int? heightOverride, int? targetFpsOverride, int? videoFpsOverride, int? bitrateOverride, float? endDelayOverride,
             VideoCodec? codecOverride, VideoBitDepth? bitDepthOverride,
             EncoderSpeed? encodingOverride = null, VideoEncoder? encoderOverride = null, VideoContainer? containerOverride = null,
-            AudioCodec? audioCodecOverride = null)
+            AudioCodec? audioCodecOverride = null, ProResProfile? proResProfileOverride = null)
         {
             var preset = presetOverride ?? Preset;
             // A target-FPS override does not turn a built-in resolution preset
@@ -288,10 +294,11 @@ namespace OrbitRender
                 videoFps,
                 bitrateOverride.HasValue ? Clamp(bitrateOverride.Value, MinBitrate, MaxBitrate) : baseProfile.BitrateMbps,
                 GetEncoderPreset(encoding), endDelay, GetEncoderCodec(codecOverride ?? Codec, encoder,
-                    bitDepthOverride ?? BitDepth, containerOverride ?? Container), codecOverride ?? Codec,
+                    bitDepthOverride ?? BitDepth, containerOverride ?? Container, proResProfileOverride ?? ProResProfile), codecOverride ?? Codec,
                 bitDepthOverride ?? BitDepth, containerOverride ?? Container,
                 audioCodecOverride ?? AudioCodecCatalog.CompatibleSelection(AudioCodec,
-                    OutputFormat.Extension(containerOverride ?? Container, codecOverride ?? Codec)));
+                    OutputFormat.Extension(containerOverride ?? Container, codecOverride ?? Codec)),
+                proResProfileOverride ?? ProResProfile);
         }
 
         public override void Save(UnityModManager.ModEntry modEntry)
@@ -361,7 +368,8 @@ namespace OrbitRender
             }
         }
 
-        private string GetEncoderCodec(VideoCodec codec, VideoEncoder encoder, VideoBitDepth depth, VideoContainer container)
+        private string GetEncoderCodec(VideoCodec codec, VideoEncoder encoder, VideoBitDepth depth, VideoContainer container,
+            ProResProfile proResProfile)
         {
             var definition = VideoCodecCatalog.Get(VideoCodecCatalog.Normalize(codec));
             if (encoder == VideoEncoder.Software) return definition.SoftwareEncoder;
@@ -371,14 +379,19 @@ namespace OrbitRender
             var intel = ContainsGpuName(gpu, "Intel");
             var amd = ContainsGpuName(gpu, "AMD") || ContainsGpuName(gpu, "ATI")
                 || ContainsGpuName(gpu, "Radeon");
+            var platform = UnityEngine.Application.platform;
+            var macOS = platform == UnityEngine.RuntimePlatform.OSXPlayer
+                || platform == UnityEngine.RuntimePlatform.OSXEditor;
             if (encoder == VideoEncoder.Auto && Main.Entry != null)
             {
                 var available = Renderer.EncoderAvailability.Get(Renderer.RendererController.ResolveFfmpegExecutable(this),
-                    codec, depth, container);
+                    codec, depth, container, proResProfile);
                 if (available.Complete && available.Encoders.Length > 0)
                 {
                     // Prefer the active GPU, or Vulkan for FFV1, among successful probes.
-                    var preferred = codec == VideoCodec.FFV1
+                    var preferred = codec == VideoCodec.ProRes
+                        ? (macOS ? VideoEncoder.AppleVideoToolbox : VideoEncoder.Software)
+                        : codec == VideoCodec.FFV1
                         ? (Array.IndexOf(available.Encoders, VideoEncoder.Vulkan) >= 0
                             ? VideoEncoder.Vulkan : VideoEncoder.Software)
                         : nvidia ? VideoEncoder.NvidiaNvenc : intel ? VideoEncoder.IntelQsv
@@ -387,7 +400,7 @@ namespace OrbitRender
                         ? preferred : available.Encoders[0];
                 }
             }
-            return definition.ResolveEncoder(encoder, nvidia, intel, amd);
+            return definition.ResolveEncoder(encoder, nvidia, intel, amd, macOS);
         }
 
         private static bool ContainsGpuName(string value, string name)
@@ -411,6 +424,7 @@ namespace OrbitRender
             BitrateMbps = Clamp(BitrateMbps, MinBitrate, MaxBitrate);
             Codec = VideoCodecCatalog.Normalize(Codec);
             BitDepth = VideoCodecCatalog.Normalize(BitDepth);
+            ProResProfile = ProResProfiles.Normalize(ProResProfile);
             if (!Enum.IsDefined(typeof(VideoEncoder), Encoder)) Encoder = VideoEncoder.Auto;
             if (!Enum.IsDefined(typeof(VideoContainer), Container)) Container = VideoContainer.Auto;
             AudioCodec = AudioCodecCatalog.CompatibleSelection(AudioCodec, OutputFormat.Extension(Container, Codec));

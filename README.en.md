@@ -7,9 +7,9 @@ You can configure the resolution, FPS, bitrate, encoder, and more. Instead of re
 ## Features
 
 - **Video Rendering** — Up to 1024 Target FPS, 240 Video FPS, and custom resolutions
-- **Multiple Encoders** — H.264, HEVC, VP9, AV1, ProRes 422 HQ, FFV1 (lossless), with support for NVIDIA NVENC, Intel QSV, AMD AMF, VAAPI, and Vulkan
+- **Multiple Encoders** — H.264, HEVC, VP9, AV1, ProRes, FFV1 (lossless), with support for NVIDIA NVENC, Intel QSV, AMD AMF, VAAPI, Vulkan, and Apple VideoToolbox
 
-ProRes uses the FFmpeg `prores_ks` software encoder with the 10-bit 4:2:2 HQ profile. Select Auto (MOV), MOV, or MKV as the container. The HQ profile replaces the bitrate and encoding speed settings. Capture remains 8-bit RGB; 10-bit output does not increase source precision.
+ProRes supports the `prores_ks` software encoder and available `prores_videotoolbox` Apple hardware encoding. Auto on macOS prefers VideoToolbox after a successful encoding probe. The export dialog's encoding tab offers Proxy, LT, Standard, HQ, 4444, and 4444 XQ; HQ is the default. Select Auto (MOV), MOV, or MKV as the container. The profile replaces bitrate, encoding speed, and bit depth settings and is saved in defaults and user presets. The 422 profiles output 10-bit 4:2:2; 4444 profiles preserve captured alpha. Capture remains 8-bit RGB/RGBA, so the output format does not increase source precision.
 
 FFV1 is a lossless codec that preserves every pixel exactly. It is written to MKV with software encoding; bitrate and encoding speed do not apply. When the FFmpeg build and GPU provide the Vulkan FFV1 encoder (`ffv1_vulkan`), it is offered in the encoder dropdown after an availability probe, and [Auto] prefers it — this path uploads the native RGB surface and preserves chroma resolution exactly. Aligned lossless audio (FLAC) can be selected as well. Files are very large, making it best suited as a master for editing or re-encoding.
 - **Audio Capture** — Capture in-game audio and encode it using AAC or Opus

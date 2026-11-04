@@ -126,9 +126,10 @@ namespace OrbitRender.UI
         }
 
         private static bool encoderDropdownOpen;
-        internal static EncoderAvailability.CombinedResult AvailableEncoders(VideoBitDepth depth, VideoContainer container)
+        internal static EncoderAvailability.CombinedResult AvailableEncoders(VideoBitDepth depth, VideoContainer container,
+            ProResProfile proResProfile = ProResProfile.HQ)
         {
-            return EncoderAvailability.GetCombined(RendererController.ResolveFfmpegExecutable(Main.Settings), depth, container);
+            return EncoderAvailability.GetCombined(RendererController.ResolveFfmpegExecutable(Main.Settings), depth, container, proResProfile);
         }
         internal static string EncoderLabel(EncoderAvailability.Choice choice)
         {
@@ -137,12 +138,12 @@ namespace OrbitRender.UI
                 : EncoderAvailability.Label(choice.Encoder, choice.Codec);
         }
         internal static void DrawEncoder(ref VideoEncoder encoder, ref VideoCodec codec,
-            VideoBitDepth depth, VideoContainer container)
+            VideoBitDepth depth, VideoContainer container, ProResProfile proResProfile = ProResProfile.HQ)
         {
             GUILayout.Label(Localization.Get("video-encoder"));
             if (GUILayout.Button(Localization.Get("refresh-encoders"), GUILayout.Width(180f)))
                 EncoderAvailability.Refresh();
-            var result = AvailableEncoders(depth, container);
+            var result = AvailableEncoders(depth, container, proResProfile);
             if (!result.Complete) { GUILayout.Label(Localization.Get("checking-available-encoders")); return; }
             var choices = result.Choices;
             if (choices.Length == 0) { GUILayout.Label(Localization.Get("no-compatible-encoders")); return; }
@@ -161,6 +162,21 @@ namespace OrbitRender.UI
                 }
         }
         private static bool containerDropdownOpen;
+        internal static readonly ProResProfile[] ProResProfileChoices = {
+            ProResProfile.Proxy, ProResProfile.LT, ProResProfile.Standard, ProResProfile.HQ,
+            ProResProfile.FourFourFourFour, ProResProfile.FourFourFourFourXQ
+        };
+        internal static string[] ProResProfileLabels => Array.ConvertAll(ProResProfileChoices, ProResProfiles.DisplayName);
+
+        internal static ProResProfile DrawProResProfile(ProResProfile value)
+        {
+            GUILayout.Label(Localization.Get("prores-profile"));
+            var index = Array.IndexOf(ProResProfileChoices, ProResProfiles.Normalize(value));
+            var selected = GUILayout.SelectionGrid(index, ProResProfileLabels, 3, GUILayout.Height(60f));
+            GUILayout.Label(Localization.Get("prores-profile-note"));
+            return ProResProfileChoices[selected];
+        }
+
         internal static VideoContainer DrawContainer(VideoContainer value, bool showLabel = true)
         {
             if (showLabel) GUILayout.Label(Localization.Get("output-format"));

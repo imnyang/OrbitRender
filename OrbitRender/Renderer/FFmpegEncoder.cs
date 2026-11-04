@@ -80,13 +80,15 @@ namespace OrbitRender.Renderer
 
         internal FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec, string pixelFormat, RawVideoPixelFormat rawPixelFormat,
-            bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced)
+            bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced,
+            ProResProfile proResProfile = ProResProfile.HQ)
             : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
-                rawPixelFormat, deferStart, bufferPolicy) { }
+                rawPixelFormat, deferStart, bufferPolicy, proResProfile) { }
 
         private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool legacyCrf, bool fastStart, string codec, string pixelFormat,
-            RawVideoPixelFormat rawPixelFormat, bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced)
+            RawVideoPixelFormat rawPixelFormat, bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced,
+            ProResProfile proResProfile = ProResProfile.HQ)
         {
             if (string.IsNullOrWhiteSpace(executable)) throw new FileNotFoundException("FFmpeg executable was not configured.");
             if (LooksLikeFilePath(executable) && !File.Exists(executable))
@@ -95,7 +97,10 @@ namespace OrbitRender.Renderer
                 throw new ArgumentOutOfRangeException();
             if (string.IsNullOrEmpty(preset)) preset = "fast";
             if (string.IsNullOrEmpty(codec)) codec = "libx264";
-            if (string.Equals(codec, "prores_ks", StringComparison.OrdinalIgnoreCase)
+            var isProRes = string.Equals(codec, "prores_ks", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(codec, "prores_videotoolbox", StringComparison.OrdinalIgnoreCase);
+            proResProfile = ProResProfiles.Normalize(proResProfile);
+            if (isProRes
                 && !string.Equals(Path.GetExtension(output), ".mov", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(Path.GetExtension(output), ".mkv", StringComparison.OrdinalIgnoreCase))
                 throw new NotSupportedException("ProRes output requires MOV or MKV.");
@@ -116,7 +121,8 @@ namespace OrbitRender.Renderer
             this.output = output;
             this.fps = fps;
             bool isHardwareEncoder = VideoCodecCatalog.IsHardwareEncoder(codec);
-            if (string.Equals(codec, "prores_ks", StringComparison.OrdinalIgnoreCase)) pixelFormat = "yuv422p10le";
+            if (isProRes) pixelFormat = VideoCodecCatalog.PixelFormat(VideoCodec.ProRes,
+                VideoBitDepth.Ten, proResProfile, codec);
             bool isVaapi = codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase);
             bool isVulkan = codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase);
             var frameByteCount = checked(width * height * BytesPerPixel);
@@ -139,7 +145,7 @@ namespace OrbitRender.Renderer
                     ? "-crf 30 -b:v 0"
                     : "-b:v " + bitrateMbps + "M";
             }
-            var encoderOptions = BuildEncoderOptions(codec, preset, rateControl, isHardwareEncoder, pixelFormat);
+            var encoderOptions = BuildEncoderOptions(codec, preset, rateControl, isHardwareEncoder, pixelFormat, proResProfile);
             process = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable,
                 // RGB conversion needs a small filter pool alongside Unity.
@@ -276,11 +282,15 @@ namespace OrbitRender.Renderer
         }
 
         internal static string BuildEncoderOptions(string codec, string preset, string rateControl,
-            bool isHardwareEncoder, string pixelFormat)
+            bool isHardwareEncoder, string pixelFormat, ProResProfile proResProfile = ProResProfile.HQ)
         {
             var normalized = (codec ?? string.Empty).Trim().ToLowerInvariant();
-            // ProRes HQ sets its own bitrate from the profile and frame size.
-            if (normalized == "prores_ks") return "-c:v prores_ks -profile:v 3 -threads 0";
+            // ProRes sets its own bitrate from the selected profile and frame size.
+            proResProfile = ProResProfiles.Normalize(proResProfile);
+            if (normalized == "prores_ks")
+                return "-c:v prores_ks -profile:v " + (int)proResProfile + " -threads 0";
+            if (normalized == "prores_videotoolbox")
+                return "-c:v prores_videotoolbox -profile:v " + (int)proResProfile + " -allow_sw 0";
             // FFV1 is a frame-intra lossless codec: bitrate and encoder presets
             // do not apply. Level 3 with a fixed slice count enables threaded
             // slice encoding on every supported FFmpeg build.
@@ -346,7 +356,8 @@ namespace OrbitRender.Renderer
         }
 
         internal static bool TryValidateVideo(string executable, int bitrateMbps, string preset, string codec,
-            string pixelFormat, string extension, bool legacyCrf, out string error)
+            string pixelFormat, string extension, bool legacyCrf, out string error,
+            ProResProfile proResProfile = ProResProfile.HQ)
         {
             error = null;
             string output;
@@ -367,7 +378,7 @@ namespace OrbitRender.Renderer
                 // reject tiny 128x128 surfaces before testing any real frame.
                 using (var encoder = new FFmpegEncoder(executable, output, 320, 180, 30,
                     Math.Max(1, bitrateMbps), preset, legacyCrf, false, codec, pixelFormat,
-                    RawVideoPixelFormat.Rgba32))
+                    RawVideoPixelFormat.Rgba32, proResProfile: proResProfile))
                 {
                     var frame = encoder.Rent();
                     frame.Index = 0;
