@@ -669,6 +669,7 @@ namespace OrbitRender.Renderer
             var jrpBpmTexts = new Dictionary<UnityEngine.UI.Graphic, string>();
             foreach (var state in canvases)
             {
+                if (replayOverlays) continue;
                 if (!state.Capture || state.Canvas == null || state.Canvas.name != "JipperResourcePack Overlay") continue;
                 foreach (var text in state.Canvas.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
                 {
