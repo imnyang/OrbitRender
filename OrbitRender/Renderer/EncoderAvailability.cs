@@ -34,10 +34,11 @@ namespace OrbitRender.Renderer
                     .Concat(r.Encoders.Select(e => new Choice(r.Codec, e)))).ToArray();
         }
 
-        internal static CombinedResult GetCombined(string executable, VideoBitDepth depth, VideoContainer container)
+        internal static CombinedResult GetCombined(string executable, VideoBitDepth depth, VideoContainer container,
+            ProResProfile proResProfile = ProResProfile.HQ)
         {
             return new CombinedResult(new[] { VideoCodec.H264, VideoCodec.H265, VideoCodec.VP9, VideoCodec.AV1, VideoCodec.ProRes, VideoCodec.FFV1 }
-                .Select(codec => Get(executable, codec, depth, container)).ToArray());
+                .Select(codec => Get(executable, codec, depth, container, proResProfile)).ToArray());
         }
 
         internal static int SelectionIndex(Choice[] choices, VideoCodec codec, VideoEncoder encoder)
@@ -50,10 +51,13 @@ namespace OrbitRender.Renderer
         private static readonly Dictionary<string, Result> Cache = new Dictionary<string, Result>();
         private static readonly SemaphoreSlim ProbeSlot = new SemaphoreSlim(1, 1);
         internal static void Refresh() { lock (Cache) Cache.Clear(); }
-        internal static Result Get(string executable, VideoCodec codec, VideoBitDepth depth, VideoContainer container)
+        internal static Result Get(string executable, VideoCodec codec, VideoBitDepth depth, VideoContainer container,
+            ProResProfile proResProfile = ProResProfile.HQ)
         {
             var extension = OutputFormat.Extension(container, codec);
-            var key = executable + "|" + codec + "|" + depth + "|" + extension;
+            proResProfile = ProResProfiles.Normalize(proResProfile);
+            var key = executable + "|" + codec + "|"
+                + (codec == VideoCodec.ProRes ? proResProfile.ToString() : depth.ToString()) + "|" + extension;
             lock (Cache)
             {
                 if (Cache.TryGetValue(key, out var cached)) return cached;
@@ -65,15 +69,19 @@ namespace OrbitRender.Renderer
                     {
                     var available = new List<VideoEncoder>();
                     var definition = VideoCodecCatalog.Get(codec);
-                    foreach (var backend in new[] { VideoEncoder.NvidiaNvenc, VideoEncoder.IntelQsv,
-                        VideoEncoder.AmdAmf, VideoEncoder.Vaapi, VideoEncoder.Vulkan, VideoEncoder.Software })
+                    var backends = codec == VideoCodec.ProRes
+                        ? new[] { VideoEncoder.AppleVideoToolbox, VideoEncoder.Software }
+                        : new[] { VideoEncoder.NvidiaNvenc, VideoEncoder.IntelQsv,
+                            VideoEncoder.AmdAmf, VideoEncoder.Vaapi, VideoEncoder.Vulkan, VideoEncoder.Software };
+                    foreach (var backend in backends)
                     {
                         var encoder = definition.ResolveEncoder(backend, false, false, false);
                         if (backend != VideoEncoder.Software && !VideoCodecCatalog.IsHardwareEncoder(encoder)) continue;
                         try
                         {
                             if (FFmpegEncoder.TryValidateVideo(executable, 2, "ultrafast", encoder,
-                                VideoCodecCatalog.PixelFormat(codec, depth), extension, false, out _))
+                                VideoCodecCatalog.PixelFormat(codec, depth, proResProfile, encoder), extension, false,
+                                out _, proResProfile))
                                 available.Add(backend);
                         }
                         catch { /* A failed probe must never advertise an encoder. */ }
@@ -95,6 +103,7 @@ namespace OrbitRender.Renderer
                 : backend == VideoEncoder.AmdAmf ? "AMD AMF"
                 : backend == VideoEncoder.Vaapi ? "VAAPI"
                 : backend == VideoEncoder.Vulkan ? "Vulkan (GPU)"
+                : backend == VideoEncoder.AppleVideoToolbox ? "Apple VideoToolbox"
                 : "Software (fallback)";
             return name + " (" + definition.DisplayName + ")";
         }

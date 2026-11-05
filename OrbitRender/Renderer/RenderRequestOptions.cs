@@ -35,6 +35,7 @@ namespace OrbitRender.Renderer
         public string FileNameFormat;
         public VideoCodec? VideoCodec;
         public VideoBitDepth? BitDepth;
+        public ProResProfile? ProResProfile;
         public bool? OpenOutputFolder;
         public int? SelectionStartTile;
         public int? SelectionEndTile;

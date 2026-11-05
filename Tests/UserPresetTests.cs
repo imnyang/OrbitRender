@@ -60,14 +60,16 @@ internal static class UserPresetTests
             Set(source, "CaptureAudio", false);
             Set(source, "FileNameFormat", "{level}/BGA_{id}");
             Set(source, "Encoder", Enum.Parse(settingsType.GetField("Encoder").FieldType, "Software"));
+            Set(source, "Codec", Enum.Parse(settingsType.GetField("Codec").FieldType, "ProRes"));
+            Set(source, "ProResProfile", Enum.Parse(settingsType.GetField("ProResProfile").FieldType, "FourFourFourFourXQ"));
             var resolveProfile = settingsType.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
                 .Single(method => method.Name == "ResolveProfile" && method.GetParameters().Length == 0);
             var resolvedProfile = resolveProfile.Invoke(source, null);
             Assert((float)resolvedProfile.GetType().GetProperty("EndDelaySeconds").GetValue(resolvedProfile) == 3600f,
                 "Built-in preset ignored the saved end delay.");
             var resolveOverrides = settingsType.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
-                .Single(method => method.Name == "ResolveProfile" && method.GetParameters().Length == 13);
-            var overrides = new object[13];
+                .Single(method => method.Name == "ResolveProfile" && method.GetParameters().Length == 14);
+            var overrides = new object[14];
             overrides[0] = Enum.Parse(settingsType.GetField("Preset").FieldType, "Preview");
             overrides[6] = 7f;
             resolvedProfile = resolveOverrides.Invoke(source, overrides);
@@ -81,6 +83,7 @@ internal static class UserPresetTests
             Assert(Call(storeType, "Save", null, library, "  BGA  ", source, null) == null, "Save failed.");
             var items = (System.Collections.IList)Get(library, "UserPresets");
             var preset = items[0];
+            Assert(Get(preset, "ProResProfile").ToString() == "FourFourFourFourXQ", "Preset lost ProRes profile.");
             Assert((string)Get(preset, "Name") == "BGA", "Name was not trimmed.");
             Assert((int)Get(preset, "Width") == 2560 && (int)Get(preset, "Height") == 1440,
                 "Built-in output dimensions were not captured.");

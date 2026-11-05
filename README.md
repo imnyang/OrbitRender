@@ -9,9 +9,9 @@ OrbitRender는 A Dance of Fire and Ice(ADOFAI)의 커스텀 레벨을 영상으�
 ## 주요 기능
 
 - **영상 렌더링** — 최대 1024 Target FPS, 240 Video FPS 및 사용자 지정 해상도
-- **다양한 인코더** — H.264, HEVC, VP9, AV1, ProRes 422 HQ, FFV1 (무손실) 및 NVIDIA NVENC, Intel QSV, AMD AMF, VAAPI, Vulkan 지원
+- **다양한 인코더** — H.264, HEVC, VP9, AV1, ProRes, FFV1 (무손실) 및 NVIDIA NVENC, Intel QSV, AMD AMF, VAAPI, Vulkan, Apple VideoToolbox 지원
 
-ProRes는 FFmpeg `prores_ks` 소프트웨어 인코더로 10-bit 4:2:2 HQ 영상을 출력합니다. 컨테이너는 자동(MOV), MOV 또는 MKV를 선택하세요. 비트레이트와 인코딩 속도 설정 대신 HQ 프로파일을 사용합니다. 원본 캡처는 8-bit RGB이므로 10-bit 출력이 원본의 정밀도를 늘리지는 않습니다.
+ProRes는 `prores_ks` 소프트웨어 인코더와 사용 가능한 `prores_videotoolbox` Apple 하드웨어 인코더를 지원합니다. macOS의 자동 선택은 실제 인코딩 검사에 통과한 VideoToolbox를 우선합니다. 내보내기 창의 인코딩 탭에서 Proxy, LT, Standard, HQ, 4444, 4444 XQ를 선택할 수 있으며 기본값은 HQ입니다. 컨테이너는 자동(MOV), MOV 또는 MKV를 선택하세요. 비트레이트·인코딩 속도·비트 깊이 대신 프로파일을 사용하며, 프로파일은 기본 설정과 사용자 프리셋에 저장됩니다. 422 계열은 10-bit 4:2:2를 출력하고 4444 계열은 캡처된 알파를 보존합니다. 원본 캡처는 8-bit RGB/RGBA이므로 출력 포맷이 원본의 정밀도를 늘리지는 않습니다.
 
 FFV1은 모든 픽셀이 그대로 보존되는 무손실 코덱입니다. 소프트웨어 인코딩으로 MKV에 기록되며 비트레이트와 인코딩 속도 설정이 적용되지 않습니다. FFmpeg 빌드와 GPU가 Vulkan FFV1 인코더(`ffv1_vulkan`)를 제공하면 사용 가능 여부 확인을 통과한 뒤 선택지에 나타나고, 자동 선택은 이를 우선합니다 — 이 경로는 RGB 표면을 그대로 업로드해 크로마 정보까지 완전히 보존합니다. 오디오도 FLAC(무손실)을 선택할 수 있습니다. 파일이 매우 크므로 편집·재인코딩용 마스터 영상으로 사용하는 것이 좋습니다.
 - **오디오 캡처** — 게임 오디오를 함께 캡처하고 AAC 또는 Opus로 인코딩

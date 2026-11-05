@@ -295,7 +295,8 @@ namespace OrbitRender.Renderer
                 requestOptions?.VideoCodec ?? rpcOptions?.VideoCodec,
                 requestOptions?.BitDepth ?? rpcOptions?.BitDepth,
                 requestOptions?.Encoding,
-                requestOptions?.Encoder, requestOptions?.Container, requestOptions?.AudioCodec ?? rpcOptions?.AudioCodec);
+                requestOptions?.Encoder, requestOptions?.Container, requestOptions?.AudioCodec ?? rpcOptions?.AudioCodec,
+                requestOptions?.ProResProfile ?? rpcOptions?.ProResProfile);
             Clock = new RenderClock(profile.TargetFps);
             AudioSchedulePatch.ResetRuntimeState();
             Message = Localization.FormatWithCurrentCulture("preparing-render", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps, profile.FfmpegCodec);
@@ -339,7 +340,7 @@ namespace OrbitRender.Renderer
                     {
                         var success = FFmpegEncoder.TryValidateVideo(executable, checkProfile.BitrateMbps,
                             checkProfile.FfmpegPreset, checkProfile.FfmpegCodec, checkProfile.PixelFormat,
-                            checkProfile.ContainerExtension, !captureAudioForRun, out var error);
+                            checkProfile.ContainerExtension, !captureAudioForRun, out var error, checkProfile.ProResProfile);
                         encoderPreflightResults.Enqueue(new EncoderPreflightResult(success, error));
                     }
                     catch (Exception ex)
@@ -407,7 +408,7 @@ namespace OrbitRender.Renderer
             var definition = VideoCodecCatalog.Get(profile.VideoCodec);
             profile = new RenderProfile(profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps,
                 profile.FfmpegPreset, profile.EndDelaySeconds, definition.SoftwareEncoder,
-                profile.VideoCodec, profile.BitDepth, profile.Container, profile.AudioCodec);
+                profile.VideoCodec, profile.BitDepth, profile.Container, profile.AudioCodec, profile.ProResProfile);
             encoderFallbackPending = false;
             encoderFallbackReason = null;
             State = RenderState.Preparing;
@@ -577,9 +578,12 @@ namespace OrbitRender.Renderer
             MaximizeRenderPerformance();
             encoder = new FFmpegEncoder(FFmpegPath, partialPath, profile.Width, profile.Height,
                 profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset, !captureAudioForRun,
-                profile.FfmpegCodec, profile.PixelFormat, FrameCapture.SelectRawPixelFormat(),
+                profile.FfmpegCodec, profile.PixelFormat,
+                profile.VideoCodec == VideoCodec.ProRes && ProResProfiles.HasAlpha(profile.ProResProfile)
+                    ? RawVideoPixelFormat.Rgba32 : FrameCapture.SelectRawPixelFormat(),
                 deferStart: useRustRendererForRun
-                    && NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled, bufferPolicy: bufferPolicyForRun);
+                    && NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled, bufferPolicy: bufferPolicyForRun,
+                proResProfile: profile.ProResProfile);
             if (editor != null)
             {
                 Main.Entry.Logger.Log("[Render] Preparing editor render: playMode=" + editor.playMode
@@ -1201,6 +1205,10 @@ namespace OrbitRender.Renderer
             var encoding = webcam == null ? new[] { "-c:v", "copy" }
                 : new[] { "-c:v", compositionCodec,
                     "-b:v", profile.BitrateMbps + "M", "-pix_fmt", profile.VideoCodec == VideoCodec.ProRes ? "yuv422p10le" : profile.PixelFormat };
+            if (webcam != null && profile.VideoCodec == VideoCodec.ProRes)
+                encoding = new[] { "-c:v", compositionCodec, "-profile:v", ((int)profile.ProResProfile).ToString(),
+                    compositionCodec == "prores_videotoolbox" ? "-allow_sw" : "-threads",
+                    "0", "-pix_fmt", profile.PixelFormat };
             var composedPath = Path.ChangeExtension(output, ".composed" + profile.ContainerExtension);
             var plan = TUFReplayRenderer.Media.MediaCompositionPlan.Create(input, composedPath, profile.Width, profile.Height,
                 profile.VideoFps, CapturedFrames * 1000000d / profile.VideoFps, timeline,
@@ -1415,7 +1423,7 @@ namespace OrbitRender.Renderer
         private void CheckRenderStorage(double audioSeconds)
         {
             var bytes = RenderResources.VideoBytes(TotalFrames / (double)profile.VideoFps,
-                profile.Width, profile.Height, profile.VideoFps, profile.BitrateMbps, profile.VideoCodec);
+                profile.Width, profile.Height, profile.VideoFps, profile.BitrateMbps, profile.VideoCodec, profile.ProResProfile);
             var required = RenderResources.RequiredBytes(bytes, audioSeconds, captureAudioForRun,
                 audio != null ? audio.SampleRate : 48000, audio != null ? audio.Channels : 8);
             var free = RenderResources.FreeBytes(Path.GetDirectoryName(OutputPath));

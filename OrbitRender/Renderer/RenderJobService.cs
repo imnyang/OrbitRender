@@ -88,6 +88,7 @@ namespace OrbitRender.Renderer
         public bool? ShowModOverlay;
         public VideoCodec? VideoCodec;
         public VideoBitDepth? BitDepth;
+        public ProResProfile? ProResProfile;
 
         public bool HasValues
         {
@@ -98,7 +99,7 @@ namespace OrbitRender.Renderer
                     || ShowPlanetRings.HasValue
                     || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
                     || ShowHitJudgments.HasValue || ShowModOverlay.HasValue
-                    || VideoCodec.HasValue || BitDepth.HasValue;
+                    || VideoCodec.HasValue || BitDepth.HasValue || ProResProfile.HasValue;
             }
         }
 
@@ -124,7 +125,8 @@ namespace OrbitRender.Renderer
                 showHitJudgments = ShowHitJudgments,
                 showModOverlay = ShowModOverlay,
                 videoCodec = VideoCodec.HasValue ? VideoCodec.Value.ToString() : null,
-                bitDepth = BitDepth.HasValue ? (int)(BitDepth.Value == VideoBitDepth.Ten ? 10 : 8) : (int?)null
+                bitDepth = BitDepth.HasValue ? (int)(BitDepth.Value == VideoBitDepth.Ten ? 10 : 8) : (int?)null,
+                proResProfile = ProResProfile.HasValue ? ProResProfiles.DisplayName(ProResProfile.Value) : null
             };
         }
     }
@@ -190,6 +192,7 @@ namespace OrbitRender.Renderer
         [JsonProperty("videoCodec")] public string VideoCodec { get; set; }
         [JsonProperty("codec")] public string Codec { get; set; }
         [JsonProperty("bitDepth")] public int? BitDepth { get; set; }
+        [JsonProperty("proResProfile")] public string ProResProfile { get; set; }
         [JsonProperty("captureAudio")] public bool? CaptureAudio { get; set; }
         [JsonProperty("audio")] public bool? Audio { get; set; }
     }
@@ -692,6 +695,16 @@ namespace OrbitRender.Renderer
                 }
                 bitDepth = payload.BitDepth.Value == 10 ? VideoBitDepth.Ten : VideoBitDepth.Eight;
             }
+            ProResProfile? proResProfile = null;
+            if (!string.IsNullOrWhiteSpace(payload.ProResProfile))
+            {
+                if (!ProResProfiles.TryParse(payload.ProResProfile, out var parsedProfile))
+                {
+                    error = InvalidOption("proResProfile", "Proxy, LT, Standard, HQ, 4444, or 4444 XQ");
+                    return null;
+                }
+                proResProfile = parsedProfile;
+            }
             AudioCodec? audioCodec = null;
             if (!string.IsNullOrWhiteSpace(payload.AudioCodec))
             {
@@ -731,7 +744,8 @@ namespace OrbitRender.Renderer
                 ShowHitJudgments = payload.ShowHitJudgments,
                 ShowModOverlay = payload.ShowModOverlay,
                 VideoCodec = videoCodec,
-                BitDepth = bitDepth
+                BitDepth = bitDepth,
+                ProResProfile = proResProfile
             };
             return options.HasValues ? options : null;
         }
