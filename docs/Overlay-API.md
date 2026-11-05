@@ -24,13 +24,13 @@ TUFReplay
                  ├─ 게임에 입력/판정 적용
                  └─ OverlayApi
                       ├─ OnReplayClock(videoSeconds, ticks)
-                      ├─ OnReplayInput(keyCode, down, ticks)
+                      ├─ OnReplayKey(keyCode, nativeKey, down, ticks)
                       └─ 캡처 캔버스 / 전후 콜백
                            └─ 키뷰어·HUD 오버레이
 ```
 
-- 시간은 리플레이 **영상 타임라인** 기준입니다. `VideoTicks`와 `OnReplayClock`/`OnReplayInput`의 `ticks`는 `TimeSpan.TicksPerSecond`(1초 = 10,000,000) 단위라 `Stopwatch` 기반 표시기와 그대로 맞출 수 있습니다.
-- `OnReplayInput`의 `ticks`는 해당 입력이 발생한 시각이며, `ApplyInput` 동안에만 이벤트 시각으로 갱신된 뒤 프레임 시각으로 돌아갑니다.
+- 시간은 리플레이 **영상 타임라인** 기준입니다. `VideoTicks`와 `OnReplayClock`/`OnReplayKey`의 `ticks`는 `TimeSpan.TicksPerSecond`(1초 = 10,000,000) 단위라 `Stopwatch` 기반 표시기와 그대로 맞출 수 있습니다.
+- `OnReplayKey`의 `ticks`는 해당 입력이 발생한 시각이며, `ApplyInput` 동안에만 이벤트 시각으로 갱신된 뒤 프레임 시각으로 돌아갑니다.
 - JRP 리플레이 입력과 시간은 provider가 처리합니다. 일반 레벨 렌더에서는 provider가 없는 JRP 버전의 플레이 횟수를 보호합니다.
 
 ## OrbitRender 표면
@@ -40,7 +40,7 @@ namespace OrbitRender
 {
     public static class OverlayApi
     {
-        public const int ApiVersion = 1;   // 계약이 깨질 때 증가
+        public const int ApiVersion = 2;   // 계약이 깨질 때 증가
 
         public static bool IsRendering { get; }
         public static bool IsReplay { get; }
@@ -71,7 +71,8 @@ namespace OrbitRender
 | `void OnBeforeOverlayCapture(bool replay)` | 매 프레임 HUD 렌더 직전 |
 | `void OnAfterOverlayCapture(bool replay)` | 매 프레임 HUD 렌더 직후 |
 | `void OnReplayClock(double videoSeconds, long ticks)` | 리플레이 타임라인 갱신(매 프레임) |
-| `void OnReplayInput(string keyCode, bool down, long ticks)` | 리플레이 렌더 중 기록된 키 입력 |
+| `void OnReplayKey(KeyCode keyCode, int? nativeKey, bool down, long ticks)` | 리플레이 렌더 중 기록된 키 입력 (API 2) |
+| `void OnReplayInput(string keyCode, bool down, long ticks)` | API 1 호환용 입력 콜백 |
 
 - `GetOverlayCanvases()`가 반환한 캔버스는 OrbitRender가 직접 캡처합니다. `showModOverlay` 설정과 무관하게 동작합니다.
 - 일반적인 provider의 레이아웃은 해당 모드가 관리합니다. JipperResourcePack은 리플레이 캡처 전후에 레인 깊이를 보정·복원하고, OrbitRender는 일반 레벨 렌더 전용 배치를 적용합니다.
@@ -110,13 +111,16 @@ public static class OrbitRenderAPI
             _replayTicks = ticks;                    // 표시기 시계를 영상 시간으로
         }
 
-        public void OnReplayInput(string keyCode, bool down, long ticks)
+        public void OnReplayKey(KeyCode keyCode, int? nativeKey, bool down, long ticks)
         {
-            if (Enum.TryParse(keyCode, out KeyCode code))
-                KeyViewer.Instance.ApplyReplayKey(code, down, ticks);
+            KeyViewer.Instance.ApplyReplayKey(keyCode, nativeKey, down, ticks);
         }
     }
 }
 ```
 
-실제 적용 예시는 JipperResourcePack의 `KeyViewerContents/OtherModApi/OrbitRenderAPI.cs`와 LineKeyViewer의 `OrbitRenderAPI.cs`를 참고하세요. 두 파일 모두 상대 모드 타입을 전혀 참조하지 않습니다.
+실제 적용 예시는 JipperResourcePack의 `OtherModApi/OrbitRenderAPI.cs`와 LineKeyViewer의 `OrbitRenderAPI.cs`를 참고하세요. 두 파일 모두 상대 모드 타입을 전혀 참조하지 않습니다.
+
+### API 2 입력 호환성
+
+`OnReplayKey`가 있으면 delegate로 호출하고, 없으면 기존 `OnReplayInput`으로 전달합니다. 두 콜백을 동시에 호출하지 않습니다. `nativeKey`는 녹화 플랫폼의 실제 native key code가 있을 때만 전달합니다. 현재 녹화 형식은 키 이름만 저장하므로 `null`을 전달하며, 원래 native code를 복구할 수 없습니다. Native code 기록과 플랫폼 정보가 추가되기 전까지 한국어 자판의 RAlt 등 native 전용 바인딩의 완전한 재현은 보장되지 않습니다.

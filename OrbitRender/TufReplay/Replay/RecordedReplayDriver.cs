@@ -249,7 +249,7 @@ public sealed class RecordedReplayDriver : IRenderReplayDriver, IRenderOverlaySy
       ApplyingInputEvent = true;
       currentVideoTimeUs = ReplayToVideoTimeUs(input.TimeUs);
       OrbitRender.OverlayApi.UpdateClock(currentVideoTimeUs / 1_000_000d);
-      OrbitRender.OverlayApi.DispatchReplayInput(code.ToString(), input.Down, checked(currentVideoTimeUs * 10));
+      OrbitRender.OverlayApi.DispatchReplayInput(code, null, input.Down, checked(currentVideoTimeUs * 10));
       overlays?.Apply(input, code);
       InputEvent?.Invoke(input);
     }

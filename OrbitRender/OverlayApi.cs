@@ -19,14 +19,15 @@ namespace OrbitRender
     ///   void OnBeforeOverlayCapture(bool replay)
     ///   void OnAfterOverlayCapture(bool replay)
     ///   void OnReplayClock(double videoSeconds, long ticks)
-    ///   void OnReplayInput(string keyCode, bool down, long ticks)
+    ///   void OnReplayInput(string keyCode, bool down, long ticks) // Legacy fallback
+    ///   void OnReplayKey(KeyCode key, int? nativeKey, bool down, long ticks)
     ///
     /// Every member must be used from Unity's main thread.
     /// </summary>
     public static class OverlayApi
     {
         /// <summary>Bumped when the provider contract changes incompatibly.</summary>
-        public const int ApiVersion = 1;
+        public const int ApiVersion = 2;
 
         private static readonly Dictionary<string, Entry> entries =
             new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
@@ -132,10 +133,10 @@ namespace OrbitRender
             foreach (var entry in entries.Values) entry.InvokeClock(VideoSeconds, VideoTicks);
         }
 
-        internal static void DispatchReplayInput(string key, bool down, long ticks)
+        internal static void DispatchReplayInput(KeyCode key, int? nativeKey, bool down, long ticks)
         {
-            if (!IsRendering || !IsReplay || string.IsNullOrEmpty(key)) return;
-            foreach (var entry in entries.Values) entry.InvokeInput(key, down, ticks);
+            if (!IsRendering || !IsReplay || (key == KeyCode.None && !nativeKey.HasValue)) return;
+            foreach (var entry in entries.Values) entry.InvokeInput(key, nativeKey, down, ticks);
         }
 
         internal static void BeforeOverlayCapture(bool replay)
@@ -161,6 +162,7 @@ namespace OrbitRender
             internal readonly string Id;
             private readonly object instance;
             private readonly MethodInfo canvases, begin, sessionEnd, before, after, input, clock;
+            private readonly Action<KeyCode, int?, bool, long> replayKey;
 
             internal Entry(string id, object provider)
             {
@@ -172,7 +174,12 @@ namespace OrbitRender
                 sessionEnd = Find(type, "OnRenderSessionEnd");
                 before = Find(type, "OnBeforeOverlayCapture");
                 after = Find(type, "OnAfterOverlayCapture");
-                input = Find(type, "OnReplayInput");
+                var typedInput = type.GetMethod("OnReplayKey", BindingFlags.Public | BindingFlags.Instance,
+                    null, new[] { typeof(KeyCode), typeof(int?), typeof(bool), typeof(long) }, null);
+                if (typedInput != null)
+                    replayKey = (Action<KeyCode, int?, bool, long>) Delegate.CreateDelegate(
+                        typeof(Action<KeyCode, int?, bool, long>), provider, typedInput);
+                input = replayKey == null ? Find(type, "OnReplayInput") : null;
                 clock = Find(type, "OnReplayClock");
             }
 
@@ -205,8 +212,16 @@ namespace OrbitRender
 
             internal void InvokeSessionEnd() => Invoke(sessionEnd, "OnRenderSessionEnd", Array.Empty<object>());
 
-            internal void InvokeInput(string key, bool down, long ticks)
-                => Invoke(input, "OnReplayInput", new object[] { key, down, ticks });
+            internal void InvokeInput(KeyCode key, int? nativeKey, bool down, long ticks)
+            {
+                if (replayKey != null)
+                {
+                    try { replayKey(key, nativeKey, down, ticks); }
+                    catch (Exception ex) { LogError(Id, "OnReplayKey", ex); }
+                }
+                else if (input != null)
+                    Invoke(input, "OnReplayInput", new object[] { key.ToString(), down, ticks });
+            }
 
             internal void InvokeClock(double seconds, long ticks)
                 => Invoke(clock, "OnReplayClock", new object[] { seconds, ticks });
