@@ -35,6 +35,8 @@ FFmpeg is not included in the mod distribution.
 
 Open a custom level in the ADOFAI editor, then select `File → Export Video` or press `F6`.
 
+For six seconds after audio capture ends, OrbitRender checks whether the live audio clock has resumed. If it stalls, OrbitRender doubles the game's audio buffer up to 2048 samples and shows the game's buffer-change notification. This setting is saved by the game, so a buffer raised for a Bluetooth device stays raised when switching back to wired audio. Pauses and frames longer than 0.2 seconds are excluded from detection.
+
 The default output folder is `~/Videos/A Dance of Fire and Ice/OrbitRender`. Enter an **Output folder** or choose one with Browse in the F6 export dialog or OrbitRender's basic settings in Unity Mod Manager. Both use the same setting; clear the field to use the default.
 
 Export settings show estimated video size, temporary storage requirements and available disk space. Storage is checked again once playback timing is known. ProRes estimates are conservative, not guaranteed sizes.

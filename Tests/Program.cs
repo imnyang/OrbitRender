@@ -14,6 +14,7 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 1 && args[0] == "--audio-device-recovery") { AudioDeviceRecoveryTests.Run(); return 0; }
             if (args.Length == 1 && args[0] == "--process-stress")
             {
                 Console.Error.Write(new string('e', 256 * 1024));

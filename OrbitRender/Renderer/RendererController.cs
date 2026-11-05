@@ -1585,6 +1585,7 @@ namespace OrbitRender.Renderer
         }
         private void Update()
         {
+            UpdateAudioDeviceRecovery();
             if (pendingRecoveryManifest != null && !Busy)
             {
                 var manifest = pendingRecoveryManifest;
@@ -2107,6 +2108,7 @@ namespace OrbitRender.Renderer
         }
         private void Cleanup()
         {
+            var capturedAudio = audio != null;
             useGUILayout = true;
             TryCleanup(() => replaySession?.End(State));
             replaySession = null;
@@ -2174,6 +2176,35 @@ namespace OrbitRender.Renderer
             // replay cannot write persistent records on Hide/Show.
             TryCleanup(OverlayApi.EndSession);
             if (editorRecoveryRoutine == null) { TryCleanup(() => jrpRenderGuard?.Dispose()); jrpRenderGuard = null; }
+            if (capturedAudio && !shuttingDown)
+                audioDeviceRecovery.Begin(Time.realtimeSinceStartupAsDouble, AudioSettings.dspTime);
+        }
+
+        private readonly AudioDeviceRecovery audioDeviceRecovery = new AudioDeviceRecovery();
+
+        private void UpdateAudioDeviceRecovery()
+        {
+            if (saved != null || shuttingDown)
+            {
+                audioDeviceRecovery.Cancel();
+                return;
+            }
+            if (!audioDeviceRecovery.Update(Time.realtimeSinceStartupAsDouble, AudioSettings.dspTime,
+                AudioListener.pause || editorRecoveryRoutine != null || !Application.isFocused,
+                Persistence.audioBufferSize)) return;
+            try
+            {
+                var buffer = System.Math.Min(2048, System.Math.Max(64, Persistence.audioBufferSize * 2));
+                Persistence.audioBufferSize = buffer;
+                Main.Entry.Logger.Log("[Audio] Live DSP clock stalled after capture; increased audio buffer to " + buffer + ".");
+                if (Notification.instance != null) Notification.instance.ShowAudioBufferChange(buffer);
+                audioDeviceRecovery.Rebase(Time.realtimeSinceStartupAsDouble, AudioSettings.dspTime);
+            }
+            catch (Exception ex)
+            {
+                audioDeviceRecovery.Cancel();
+                Main.Entry.Logger.Log("[Audio] Could not recover the live audio device: " + ex.Message);
+            }
         }
 
         private void SuspendSkyHook()
