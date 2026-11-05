@@ -43,6 +43,7 @@ internal static class ExportWorkflowTests
             "FFV1 compatibility validation failed.");
         Assert(Compatible("AV1", "Ts") != null && Compatible("VP9", "Ts") != null
             && Compatible("H265", "Ts") == null, "MPEG-TS compatibility validation failed.");
+        CheckProResBitrate(assembly);
 
         var pathsEqual = assembly.GetType("OrbitRender.Renderer.RendererController", true)
             .GetMethod("PathsEqual", Internal);
@@ -151,5 +152,63 @@ internal static class ExportWorkflowTests
         Call(queue, "Complete", Enum.Parse(stateType, "Completed"), "fifth.mp4", null);
         Assert(!(bool)Get(queue, "IsRunning") && !(bool)Get(queue, "HasPending"), "Completed queue kept running.");
         Console.WriteLine("PASS: inline validation boundaries/culture/tab targets and queue snapshots, order, single dispatch, pause/resume, map changes, failure/cancellation.");
+    }
+
+    private static void CheckProResBitrate(Assembly assembly)
+    {
+        var settingsType = assembly.GetType("OrbitRender.RendererSettings", true);
+        var draftType = assembly.GetType("OrbitRender.UI.ExportVideoDialog+Draft", true);
+        var settings = Activator.CreateInstance(settingsType);
+        var codecType = settingsType.GetField("Codec").FieldType;
+        var h264 = Enum.Parse(codecType, "H264");
+        var proRes = Enum.Parse(codecType, "ProRes");
+        Set(settings, "Preset", Enum.Parse(settingsType.GetField("Preset").FieldType, "Custom"));
+        var draft = draftType.GetMethod("From", Internal).Invoke(null, new[] { settings });
+        bool HasError(string field)
+        {
+            foreach (var error in (IList)Call(draft, "ValidationErrors"))
+                if ((string)error.GetType().GetField("Field", Internal).GetValue(error) == field) return true;
+            return false;
+        }
+        object CreateOptions()
+        {
+            var arguments = new object[] { null, null };
+            Assert((bool)draftType.GetMethod("TryCreateOptions", Internal).Invoke(draft, arguments),
+                "Valid export draft was rejected.");
+            return arguments[0];
+        }
+
+        foreach (var text in new[] { "", "invalid", "0", "-1", "201", "2147483648" })
+        {
+            Set(draft, "Codec", h264);
+            Set(draft, "BitrateText", text);
+            Assert(HasError("bitrate"), "H264 accepted an invalid bitrate: " + text);
+            Set(draft, "Codec", proRes);
+            Assert(((IList)Call(draft, "ValidationErrors")).Count == 0,
+                "Hidden ProRes bitrate blocked export: " + text);
+            var options = CreateOptions();
+            var bitrate = (int)options.GetType().GetField("BitrateMbps").GetValue(options);
+            Assert(bitrate >= 1 && bitrate <= 200, "ProRes passed an invalid bitrate to shared encoder plumbing.");
+            Assert(int.Parse((string)Get(draft, "EffectiveBitrateText"), CultureInfo.InvariantCulture) == bitrate,
+                "Storage/queue bitrate differs from the validated render request.");
+            Set(settings, "BitrateMbps", 48);
+            Call(draft, "ApplyTo", settings, options);
+            Assert((int)settingsType.GetField("BitrateMbps").GetValue(settings) == 48,
+                "Saving ProRes replaced the saved bitrate for other codecs.");
+            Assert((string)draftType.GetField("BitrateText", Internal).GetValue(draft) == text,
+                "ProRes rewrote the user's bitrate input.");
+            Set(draft, "Codec", h264);
+            Assert(HasError("bitrate"), "Switching back to H264 lost bitrate validation.");
+        }
+        Set(draft, "BitrateText", "72");
+        Assert(!HasError("bitrate"), "Valid H264 bitrate was rejected.");
+        var h264Options = CreateOptions();
+        Assert((int)h264Options.GetType().GetField("BitrateMbps").GetValue(h264Options) == 72,
+            "H264 request ignored the entered bitrate.");
+        Set(draft, "Codec", proRes);
+        Set(draft, "WidthText", "321");
+        Set(draft, "FpsText", "14");
+        Assert(HasError("width") && HasError("ingame-fps"), "ProRes skipped unrelated export validation.");
+        Console.WriteLine("PASS: Custom H264-to-ProRes bitrate transitions, safe request/queue defaults, saved bitrate preservation and unrelated validation.");
     }
 }
