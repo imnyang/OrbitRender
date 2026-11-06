@@ -186,8 +186,15 @@ namespace OrbitRender.Renderer
             Refresh();
             using (var process = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true,
+                // The native encoder writes a bare H.264 elementary stream with
+                // no VUI color description. Inject BT.709 limited-range metadata
+                // while copying so the container and bitstream agree with the
+                // conversion used by the FFmpeg path.
                 Arguments = "-hide_banner -loglevel error -nostdin -n -fflags +genpts -r " + fps + " -f h264 -i \"" + elementaryPath
-                    + "\" -map 0:v:0 -c:v copy -an" + FFmpegEncoder.ContainerOptions(output) + " \"" + output + "\""
+                    + "\" -map 0:v:0 -c:v copy -an -bsf:v "
+                    + "h264_metadata=video_full_range_flag=0:colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"
+                    + FFmpegEncoder.ColorMetadataOptions(false) + FFmpegEncoder.ContainerOptions(output)
+                    + " \"" + output + "\""
             } })
             {
                 process.Start();

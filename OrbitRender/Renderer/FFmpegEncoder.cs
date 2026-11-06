@@ -18,6 +18,13 @@ namespace OrbitRender.Renderer
         private const double MinAudioGainDb = -60.0;
         private const double MaxAudioGainDb = 12.0;
         private const int HardwareFilterThreads = 2;
+        // Always deliver HD video with the BT.709 matrix and limited range, and
+        // tag both the frames and the container. Without this, swscale converts
+        // the captured sRGB frames with BT.601 coefficients while players
+        // assume BT.709 for HD, so the same file looks redder/oranger on
+        // different machines. Tagging is what makes the render deterministic.
+        private const string Bt709VideoFilter =
+            "scale=out_color_matrix=bt709:out_range=tv,setparams=range=tv:colorspace=bt709:color_primaries=bt709:color_trc=bt709";
         internal sealed class Frame
         {
             public readonly byte[] Bytes;
@@ -125,6 +132,7 @@ namespace OrbitRender.Renderer
                 VideoBitDepth.Ten, proResProfile, codec);
             bool isVaapi = codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase);
             bool isVulkan = codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase);
+            bool fullRangeOutput = isVulkan || IsRgbPixelFormat(pixelFormat);
             var frameByteCount = checked(width * height * BytesPerPixel);
             FrameByteCount = frameByteCount;
             // Readback and encoding share this pool. Respect the selected CPU
@@ -160,6 +168,7 @@ namespace OrbitRender.Renderer
                     + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf "
                     + BuildVideoFilter(codec, pixelFormat) + " "
                     + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : isVulkan ? "vulkan" : pixelFormat)
+                    + ColorMetadataOptions(fullRangeOutput)
                     // The raw-video demuxer supplies the same target time base
                     // used by the render clock, so the encoded stream inherits
                     // the requested constant frame rate without resampling.
@@ -276,9 +285,32 @@ namespace OrbitRender.Renderer
                 // is not in its table. BGRA also maps to a universally regular
                 // Vulkan storage format (R8G8B8A8).
                 return "vflip,format=bgra,hwupload";
-            return codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
-                ? "vflip,format=" + (pixelFormat == "yuv420p10le" ? "p010le" : "nv12") + ",hwupload"
-                : "vflip";
+            if (codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase))
+                return "vflip," + Bt709VideoFilter + ",format="
+                    + (pixelFormat == "yuv420p10le" ? "p010le" : "nv12") + ",hwupload";
+            // Packed RGB outputs such as ProRes 4444 with alpha must not pass
+            // through a YUV matrix conversion: that would discard or flatten
+            // the alpha plane. Their pixels are already full-range RGB.
+            return IsRgbPixelFormat(pixelFormat) ? "vflip" : "vflip," + Bt709VideoFilter;
+        }
+
+        private static bool IsRgbPixelFormat(string pixelFormat)
+        {
+            return string.Equals(pixelFormat, "bgra", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(pixelFormat, "rgba", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(pixelFormat, "rgb24", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(pixelFormat, "rgb32", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(pixelFormat, "gbrp", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(pixelFormat, "gbrp10le", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static string ColorMetadataOptions(bool fullRange)
+        {
+            // RGB surfaces (Vulkan FFV1 / ProRes alpha) are full range; encoded
+            // YUV is always limited range. The matrix and primaries are BT.709
+            // for both so players do not have to guess.
+            return " -color_range " + (fullRange ? "pc" : "tv")
+                + " -colorspace bt709 -color_primaries bt709 -color_trc bt709";
         }
 
         internal static string BuildEncoderOptions(string codec, string preset, string rateControl,

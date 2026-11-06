@@ -121,6 +121,12 @@ internal static class Program
                 EncodeTransportVariant(args[0], rgbTransport, RawVideoPixelFormat.Rgb24);
                 AssertTransportEquivalent(args[0], rgbaTransport, rgbTransport, args[1]);
             }
+            var colorMetadata = Probe(ResolveProbe(args[0]),
+                "-v error -select_streams v:0 -show_entries stream=color_range,color_space,color_transfer,color_primaries"
+                + " -of default=noprint_wrappers=1 \"" + fast + "\"");
+            Assert(colorMetadata.Contains("color_range=tv") && colorMetadata.Contains("color_space=bt709")
+                && colorMetadata.Contains("color_transfer=bt709") && colorMetadata.Contains("color_primaries=bt709"),
+                "Rendered video is missing BT.709 limited-range metadata: " + colorMetadata);
             var customFpsVideo = Path.Combine(args[1], "video-24.mp4");
             const int customVideoFps = 24;
             Encode(args[0], customFpsVideo, false, customVideoFps);
@@ -617,6 +623,15 @@ internal static class Program
             == "-c:v ffv1_vulkan", "Vulkan FFV1 encoder options were wrong.");
         Assert(FFmpegEncoder.BuildVideoFilter("ffv1_vulkan", "yuv420p") == "vflip,format=bgra,hwupload",
             "Vulkan FFV1 video filter was wrong.");
+        Assert(FFmpegEncoder.BuildVideoFilter("libx264", "yuv420p")
+                .Contains("out_color_matrix=bt709") && FFmpegEncoder.BuildVideoFilter("h264_vaapi", "yuv420p")
+                .Contains("out_color_matrix=bt709"), "Software/VAAPI renders must convert with the BT.709 matrix.");
+        Assert(FFmpegEncoder.BuildVideoFilter("prores_videotoolbox", "bgra") == "vflip",
+            "Packed RGB output must not pass through a YUV conversion.");
+        Assert(FFmpegEncoder.ColorMetadataOptions(false).Contains("-color_range tv")
+            && FFmpegEncoder.ColorMetadataOptions(false).Contains("-colorspace bt709")
+            && FFmpegEncoder.ColorMetadataOptions(true).Contains("-color_range pc"),
+            "Video color metadata options were wrong.");
         foreach (var extension in new[] { ".mp4", ".ts", ".mov" })
             Assert(!FFmpegEncoder.TryValidateVideo(ffmpeg, 2, "fast", "ffv1", "yuv420p",
                 extension, false, out _), "Unsupported FFV1 container was accepted: " + extension);
@@ -649,7 +664,7 @@ internal static class Program
         var decodedHash = FrameMd5(ffmpeg, "-an -i \"" + video + "\" -f framemd5 -");
         var referenceHash = FrameMd5(ffmpeg,
             "-an -f rawvideo -pixel_format rgb24 -video_size 320x180 -framerate 30 -i \"" + source
-            + "\" -vf vflip -pix_fmt yuv420p -f framemd5 -");
+            + "\" -vf \"vflip,scale=out_color_matrix=bt709:out_range=tv\" -pix_fmt yuv420p -f framemd5 -");
         Assert(decodedHash == referenceHash, "FFV1 output was not bit-exact lossless.");
         Console.WriteLine("PASS: FFV1 lossless MKV, Auto selection, container guard and bit-exact decode.");
 

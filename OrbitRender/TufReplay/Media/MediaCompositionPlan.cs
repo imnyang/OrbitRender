@@ -124,6 +124,11 @@ public sealed class MediaCompositionPlan
         if (audio == null) plan.Arguments.Add("-an");
         else plan.Arguments.AddRange(new[] { "-map", audio == "0:a:0" ? audio : "[" + audio + "]" });
         plan.Arguments.AddRange(videoEncoding ?? new[] { "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p" });
+        // Replay composition re-encodes the recorded game video when camera or
+        // note overlays are present. Explicit metadata keeps the result tagged
+        // like the direct render instead of relying on the encoder default.
+        plan.Arguments.AddRange(new[] { "-color_range", "tv", "-colorspace", "bt709",
+            "-color_primaries", "bt709", "-color_trc", "bt709" });
         string extension = Path.GetExtension(output).ToLowerInvariant();
         bool webm = extension == ".webm";
         plan.Arguments.AddRange(new[] { "-r", N(fps), "-t", N(durationUs / 1e6) });
