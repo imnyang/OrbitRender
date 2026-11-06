@@ -27,6 +27,15 @@ namespace OrbitRender
             }
         }
 
+        internal static bool IsSpanish
+        {
+            get
+            {
+                try { return RDString.language == SystemLanguage.Spanish; }
+                catch { return false; }
+            }
+        }
+
         // Resolve the catalog directory explicitly once the mod entry exists.
         // The assembly-location fallback also makes early static initializers
         // safe before Main.Load has assigned Main.Entry.
@@ -45,7 +54,7 @@ namespace OrbitRender
         {
             if (string.IsNullOrEmpty(id)) return string.Empty;
 
-            var culture = IsKorean ? "ko" : "en";
+            var culture = IsKorean ? "ko" : IsSpanish ? "es" : "en";
             var catalog = GetCatalog(culture);
             string value;
             if (catalog.TryGetValue(id, out value)) return value;
