@@ -53,6 +53,8 @@ Use **Add to queue** or the **Queue** tab to register full-map or selection rend
 
 Render error dialogs offer **Copy diagnostic information** to copy the error, output settings, encoder, system/GPU details and file paths to the clipboard. Reports are not sent automatically.
 
+To control rendering from another mod, see the [C# API documentation](docs/CSharp-API.md) (Korean). Replay renders are requested by TUFReplay, and overlay and key-viewer mods integrate through TUFReplay's `ReplayApi`, not OrbitRender ([Overlay API notice](docs/Overlay-API.md), Korean).
+
 ## License
 
 OrbitRender is licensed under the GNU General Public License v3.0 (`GPL-3.0-only`) with an additional linking exception for A Dance of Fire and Ice and its associated runtime components.
