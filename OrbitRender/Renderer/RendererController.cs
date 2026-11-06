@@ -1728,8 +1728,8 @@ namespace OrbitRender.Renderer
             var configured = settings.ResolveFfmpegExecutable(Main.Entry.Path);
             if (!string.IsNullOrEmpty(configured)) return configured;
 
-            var bundled = FfmpegInstaller.GetBundledExecutable(Main.Entry.Path);
-            if (!string.IsNullOrEmpty(bundled) && File.Exists(bundled)) return bundled;
+            var shared = FfmpegInstaller.GetInstalledExecutable();
+            if (!string.IsNullOrEmpty(shared) && File.Exists(shared)) return shared;
 
             var windows = Application.platform == RuntimePlatform.WindowsPlayer
                 || Application.platform == RuntimePlatform.WindowsEditor;

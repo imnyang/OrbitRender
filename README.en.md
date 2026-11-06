@@ -27,7 +27,7 @@ Supports Windows, macOS, and Linux.
 2. Extract the archive and place the mod folder in `A Dance of Fire and Ice/Mods/`.
 3. Launch the game with Unity Mod Manager installed.
 
-FFmpeg is required for rendering. If FFmpeg is not installed, OrbitRender will ask whether you want to install it automatically on the first launch. You can also specify the path to an existing FFmpeg executable in the settings.
+FFmpeg is required for rendering. If FFmpeg is not installed, OrbitRender will ask whether you want to install it automatically on the first launch and install it into `A Dance of Fire and Ice/ffmpeg/<platform>/`. Files in an existing `Mods/OrbitRender/FFmpeg/` or `Mods/TUFReplay/FFmpeg/` folder are verified and copied into the shared location without deleting the originals. A manually configured FFmpeg executable path takes precedence.
 
 FFmpeg is not included in the mod distribution.
 

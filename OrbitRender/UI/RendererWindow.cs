@@ -16,6 +16,8 @@ namespace OrbitRender.UI
         private static Button pauseQueue;
         private static Text state, title, detail, percent, frames, speed, eta, hint, path, elapsedLabel;
         private static Image progress;
+        private static GameObject installerActions;
+        private static Button installerConfirm, installerDecline;
         private static int mode;
         private static RenderState builtRenderState;
         private static bool builtShowProgress;
@@ -50,6 +52,8 @@ namespace OrbitRender.UI
             canvasObject = null; backdropObject = null; panelObject = null; metrics = null; preview = null;
             state = title = detail = percent = frames = speed = eta = hint = path = elapsedLabel = null;
             progress = null; mode = 0;
+            installerActions = null;
+            installerConfirm = installerDecline = null;
             pauseQueue = null;
         }
 
@@ -287,42 +291,73 @@ namespace OrbitRender.UI
 
         private static void BuildFfmpegPrompt()
         {
-            var card = Card(760f, FfmpegInstaller.IsDownloading ? 270f : 238f);
-            var width = card.GetComponent<RectTransform>().rect.width - 48f;
-            state = At(card.transform, string.Empty, 15, 24, 18, width, 24, UguiFactory.Accent);
+            var scale = Mathf.Min(1f, Screen.width / 400f, Screen.height / 460f);
+            canvasObject.GetComponent<CanvasScaler>().scaleFactor = Mathf.Max(.1f, scale);
+            var card = Card(560f, 320f);
+            card.GetComponent<RectTransform>().SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal,
+                Mathf.Min(560f, Screen.width / Mathf.Max(.1f, scale) - 40f));
+            var width = card.GetComponent<RectTransform>().rect.width - 56f;
+            state = At(card.transform, string.Empty, 24, 28, 28, width, 34, UguiFactory.Foreground);
             state.fontStyle = FontStyle.Bold;
-            title = At(card.transform, string.Empty, 13, 24, 52, width, 40, UguiFactory.Foreground);
-            title.fontStyle = FontStyle.Bold;
-            detail = At(card.transform, string.Empty, 11, 24, 100, width, 52, UguiFactory.Muted);
-            var track = UguiFactory.Image(card.transform, "Progress track", UguiFactory.Backdrop);
-            UguiFactory.Anchor(track.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(24f, -174f), new Vector2(-24f, -162f));
+            title = At(card.transform, string.Empty, 15, 28, 76, width, 60, UguiFactory.Foreground);
+            detail = At(card.transform, string.Empty, 13, 28, 148, width, 60, UguiFactory.Muted);
+            var track = UguiFactory.Image(card.transform, "Progress track", UguiFactory.Control);
             progress = UguiFactory.ProgressFill(track.transform);
-            percent = At(card.transform, string.Empty, 11, 24, 182, width * .52f, 20, UguiFactory.Muted);
-            path = At(card.transform, string.Empty, 11, 24 + width * .52f, 182, width * .48f, 20, UguiFactory.Muted);
-            AtButton(card.transform, Localization.Get("install-ffmpeg"), FfmpegInstaller.ConfirmInstall, true, 24, 176, 310, 34);
-            AtButton(card.transform, Localization.Get("not-now"), FfmpegInstaller.DeclineInstall, false, 350, 176, 160, 34);
+            percent = At(card.transform, string.Empty, 13, 28, 0, width * .45f, 24, UguiFactory.Foreground);
+            path = At(card.transform, string.Empty, 13, 28 + width * .45f, 0, width * .55f, 24,
+                UguiFactory.Muted, TextAnchor.UpperRight);
+            installerActions = UguiFactory.New(card.transform, "Installer actions", typeof(RectTransform));
+            UguiFactory.Stretch(installerActions.GetComponent<RectTransform>());
+            installerDecline = AtButton(installerActions.transform, Localization.Get("not-now"),
+                FfmpegInstaller.DeclineInstall, false, 28, 0, (width - 12f) * .4f, 44);
+            installerConfirm = AtButton(installerActions.transform, Localization.Get("install-ffmpeg"),
+                FfmpegInstaller.ConfirmInstall, true, 28 + (width - 12f) * .4f + 12f, 0,
+                (width - 12f) * .6f, 44);
+            var events = UnityEngine.EventSystems.EventSystem.current;
+            if (events != null) events.SetSelectedGameObject(installerConfirm.gameObject);
         }
 
         private static void UpdateFfmpeg()
         {
+            // A partially built prompt can happen if UI construction was interrupted
+            // by a scene change. Rebuild on the next frame instead of throwing from
+            // LateUpdate every frame.
+            if (canvasObject == null || panelObject == null || state == null || title == null
+                || detail == null || progress == null || percent == null || path == null
+                || installerActions == null || installerConfirm == null || installerDecline == null)
+            {
+                Hide();
+                return;
+            }
             canvasObject.SetActive(true);
             var downloading = FfmpegInstaller.IsDownloading;
             var waiting = FfmpegInstaller.IsAwaitingConsent;
-            panelObject.GetComponent<RectTransform>().SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,
-                downloading ? 270f : 238f);
             state.text = waiting ? Localization.Get("ffmpeg-installation") : Localization.Get("installing-ffmpeg");
             title.text = waiting ? Localization.Get("orbitrender-needs-ffmpeg-to-export-videos-download-the")
                 : Localization.Get("downloading-ffmpeg-for-this-platform-the-renderer-will");
             detail.text = waiting ? Localization.Get("the-download-comes-from-the-ffmpeg-build-provider-and-i")
                 : FfmpegInstaller.StatusMessage;
+            title.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, title.preferredHeight);
+            var detailTop = 76f + title.preferredHeight + 16f;
+            detail.rectTransform.anchoredPosition = new Vector2(28f, -detailTop);
+            detail.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, detail.preferredHeight);
+            var footerTop = detailTop + detail.preferredHeight + 28f;
+            panelObject.GetComponent<RectTransform>().SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,
+                footerTop + 44f + 28f);
+            installerDecline.GetComponent<RectTransform>().anchoredPosition = new Vector2(28f, -footerTop);
+            var confirmRect = installerConfirm.GetComponent<RectTransform>();
+            confirmRect.anchoredPosition = new Vector2(confirmRect.anchoredPosition.x, -footerTop);
+            UguiFactory.Anchor(progress.transform.parent.GetComponent<RectTransform>(),
+                new Vector2(0f, 1f), new Vector2(1f, 1f),
+                new Vector2(28f, -footerTop - 6f), new Vector2(-28f, -footerTop));
+            percent.rectTransform.anchoredPosition = new Vector2(28f, -footerTop - 18f);
+            path.rectTransform.anchoredPosition = new Vector2(path.rectTransform.anchoredPosition.x, -footerTop - 18f);
             progress.transform.parent.gameObject.SetActive(downloading);
             percent.gameObject.SetActive(downloading); path.gameObject.SetActive(downloading);
-            var buttons = panelObject.GetComponentsInChildren<Button>(true);
-            foreach (var button in buttons) button.gameObject.SetActive(waiting);
+            installerActions.SetActive(waiting);
+            if (waiting && Input.GetKeyDown(KeyCode.Escape)) FfmpegInstaller.DeclineInstall();
             if (!downloading) return;
-            UguiFactory.SetProgress(progress, FfmpegInstaller.HasDownloadSize ? (float)FfmpegInstaller.Progress
-                : Mathf.PingPong(Time.unscaledTime, 1f));
+            UguiFactory.SetProgress(progress, (float)FfmpegInstaller.Progress);
             percent.text = FfmpegInstaller.HasDownloadSize
                 ? Localization.FormatWithCurrentCulture("ffmpeg-progress-percent", FfmpegInstaller.Progress * 100d)
                 : Localization.Get("ffmpeg-progress-waiting-for-size");
