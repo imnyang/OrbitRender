@@ -203,6 +203,10 @@ internal static class HostedReplayContractTests
             Refused(() => HostedReplayRequest.Parse(Json(new { levelPath = level, gameInputOffsetMs = "12" })), "render_request_invalid", "gameInputOffsetMs");
             Refused(() => HostedReplayRequest.Parse(Json(new { levelPath = level, gameInputOffsetMs = 0, startTile = -1 })), "render_start_tile_invalid", "startTile");
             Refused(() => HostedReplayRequest.Parse(Json(new { levelPath = level, gameInputOffsetMs = 0, startTile = 1.5 })), "render_request_invalid", "startTile");
+            Refused(() => HostedReplayRequest.Parse("{\"levelPath\":" + JsonConvert.ToString(level) + ",\"gameInputOffsetMs\":0,\"startTile\":99999999999999999999999}"),
+                "render_request_invalid", "startTile");
+            Refused(() => HostedReplayRequest.Parse("{\"levelPath\":" + JsonConvert.ToString(level) + ",\"gameInputOffsetMs\":0,\"wonTimeUs\":99999999999999999999999}"),
+                "render_request_invalid", "wonTimeUs");
             Refused(() => HostedReplayRequest.Parse(Json(new { levelPath = level, gameInputOffsetMs = 0, wonTimeUs = -1 })), "render_request_invalid", "wonTimeUs");
             Refused(() => HostedReplayRequest.Parse(Json(new { levelPath = level, gameInputOffsetMs = 0, levelFileSha256 = "bad" })), "level_fingerprint_invalid", "levelFileSha256");
             Refused(() => HostedReplayRequest.Parse(Json(new { levelPath = level, gameInputOffsetMs = 0, warnings = "x" })), "render_request_invalid", "warnings");

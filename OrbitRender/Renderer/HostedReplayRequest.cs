@@ -186,7 +186,12 @@ namespace OrbitRender.Renderer
             if (token == null || token.Type == JTokenType.Null) return 0;
             if (token.Type != JTokenType.Integer)
                 throw new RenderRequestException(InvalidCode, "startTile must be a whole number.", "startTile");
-            long value = (long)token;
+            long value;
+            try { value = (long)token; }
+            catch (OverflowException exception)
+            {
+                throw new RenderRequestException(InvalidCode, "startTile is too large.", "startTile", innerException: exception);
+            }
             if (value < 0)
                 throw new RenderRequestException(RenderErrorCodes.StartTileInvalid, "startTile must not be negative.", "startTile");
             if (value > int.MaxValue)
