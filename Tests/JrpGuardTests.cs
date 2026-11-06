@@ -1,6 +1,10 @@
 using System;
 using System.Runtime.CompilerServices;
 using OrbitRender.Renderer;
+
+// JrpRenderGuard logs through the mod entry; the test run needs only a stand-in.
+namespace OrbitRender { internal static class Main { internal static TestEntry Entry = new TestEntry(); } }
+namespace OrbitRender { internal sealed class TestEntry { internal TestLogger Logger = new TestLogger(); } internal sealed class TestLogger { internal void Log(string text) {} } }
 namespace JipperResourcePack.OverlayContents
 {
     public static class PlayCount

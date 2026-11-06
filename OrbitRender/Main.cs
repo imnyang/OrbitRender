@@ -23,8 +23,6 @@ namespace OrbitRender
         internal static bool IsBatchMode { get; private set; }
         private static Harmony harmony;
         private static GameObject host;
-        private static bool replayKeyCompatibilityReady;
-        private static int replayKeyCompatibilityCheckPending;
 
         internal static int MainThreadId { get; private set; } = -1;
         internal static bool IsMainThread => MainThreadId == Thread.CurrentThread.ManagedThreadId;
@@ -47,9 +45,6 @@ namespace OrbitRender
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<RendererController>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
-                replayKeyCompatibilityReady = false;
-                Interlocked.Exchange(ref replayKeyCompatibilityCheckPending, 1);
-                AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
                 Enabled = true;
                 if (IsBatchMode) RpcEnabled = true;
                 StartRpcServer();
@@ -76,20 +71,7 @@ namespace OrbitRender
                     entry.OnGUI = mod => ModSettingsWindow.Draw();
                     entry.OnSaveGUI = mod => Settings?.Save(mod);
                 }
-                entry.OnUpdate = (mod, deltaTime) =>
-                {
-                    UpdateManager.PumpMainThread();
-                    if (Enabled && !replayKeyCompatibilityReady
-                        && Interlocked.Exchange(ref replayKeyCompatibilityCheckPending, 0) != 0)
-                    {
-                        try { replayKeyCompatibilityReady = OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.TryInstallWhenAvailable(); }
-                        catch (Exception ex)
-                        {
-                            replayKeyCompatibilityReady = true;
-                            mod.Logger.Error("[Replay] Could not install keyboard compatibility: " + ex);
-                        }
-                    }
-                };
+                entry.OnUpdate = (mod, deltaTime) => UpdateManager.PumpMainThread();
                 entry.OnUnload = mod =>
                 {
                     ExportVideoDialog.CloseDialog();
@@ -97,8 +79,6 @@ namespace OrbitRender
                     AudioPreview.Stop();
                     RendererController.Instance?.StopAndClean();
                     OrbitRender.Patches.RenderTimingPatches.Remove();
-                    OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.Remove();
-                    AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
                     StopRpcServer();
                     SceneManager.sceneLoaded -= OnSceneLoaded;
                     UnityEngine.Object.Destroy(host);
@@ -111,17 +91,11 @@ namespace OrbitRender
             }
             catch (Exception ex)
             {
-                AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
                 if (host != null) UnityEngine.Object.Destroy(host);
                 harmony?.UnpatchAll(entry.Info.Id);
                 entry.Logger.Error("[System] Load failed: " + ex);
                 return false;
             }
-        }
-
-        private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
-        {
-            Interlocked.Exchange(ref replayKeyCompatibilityCheckPending, 1);
         }
 
         private static void ReadCommandLineOptions()

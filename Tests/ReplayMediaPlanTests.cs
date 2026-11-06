@@ -31,6 +31,14 @@ internal static class ReplayMediaPlanTests
             3000000, new RenderTimeline(1000000, 1, null), camera, "camera.mp4", mic, "mic.wav", audioDelayUs: 40000);
         if (!delayed.FilterGraph.Contains("+0.875/TB") || !delayed.FilterGraph.Contains("volume=2,adelay=988:all=1"))
             throw new Exception("A delayed game audio track must move the microphone, not the webcam.");
+        // Recorded microseconds follow conductor songposition, which already includes original pitch.
+        var originalPitch = new RenderTimeline(1_000_000, 1.5, 6_000_000);
+        if (originalPitch.ReplayToOutput(3_000_000) != 3_000_000) throw new Exception("Original pitch must be applied exactly once.");
+        if (originalPitch.ReplayToOutput(6_500_000) != 5_500_000) throw new Exception("The clear tail must return to rate one.");
+        if (originalPitch.OutputToReplay(5_500_000) != 6_500_000) throw new Exception("The clear tail inverse mapping is wrong.");
+        var doubleSpeed = new RenderTimeline(1_000_000, 3, 6_000_000);
+        if (doubleSpeed.ReplayToOutput(3_000_000) != 2_000_000) throw new Exception("Requested speed must multiply original pitch.");
+        if (doubleSpeed.OutputToReplay(500_000) != -1_500_000) throw new Exception("The countdown must be before recording zero.");
         Console.WriteLine("Replay media composition planning tests passed.");
     }
 }

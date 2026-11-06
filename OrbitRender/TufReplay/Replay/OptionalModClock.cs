@@ -35,13 +35,14 @@ internal sealed class OptionalModClock : IDisposable
     internal static string PendingWork => active?.clock.Work.PendingDescription ?? "";
     private static double Seconds => active?.clock.Seconds ?? 0;
 
-    private OptionalModClock(RecordedReplayDriver driver)
+    private OptionalModClock(Func<long> videoTimeUs)
     {
-        if (driver == null) throw new ArgumentNullException(nameof(driver));
+        if (videoTimeUs == null) throw new ArgumentNullException(nameof(videoTimeUs));
         // The engine retains its last clock after a render. Preparation happens
-        // before ReplayHooks.Activate, so consulting that global clock here can
-        // expose the previous run's end time to warmed overlay input listeners.
-        // Bind this session to its own driver from the first rewritten call.
+        // before the replay host installs its hooks, so consulting that global
+        // clock here can expose the previous run's end time to warmed overlay
+        // input listeners. Bind this session to its own time source from the
+        // first rewritten call.
         // Pair UTC and stopwatch origins after the other host clock reads.
         // DateTime.Now can resolve local timezone data, leaving a measurable
         // gap that persistent event converters retain on the next render.
@@ -49,13 +50,18 @@ internal sealed class OptionalModClock : IDisposable
         timestampOrigin = Stopwatch.GetTimestamp();
         DateTime utcOrigin = DateTime.UtcNow;
         localOrigin = utcOrigin.ToLocalTime();
-        clock = new OverlayVideoClock(utcOrigin, () => driver.CurrentVideoTimeUs / 1e6);
+        clock = new OverlayVideoClock(utcOrigin, () => videoTimeUs() / 1e6);
     }
 
-    internal static OptionalModClock Begin(RecordedReplayDriver driver, Action<string> warning)
+    /// <summary>
+    /// Starts the overlay clock for one replay render. <paramref name="videoTimeUs"/>
+    /// is the replay host's video time, in microseconds from output frame zero.
+    /// Only time is virtualized: overlays that read input see live input.
+    /// </summary>
+    internal static OptionalModClock Begin(Func<long> videoTimeUs, Action<string> warning)
     {
         if (active != null) throw new InvalidOperationException("A shared overlay clock is already active.");
-        var runtime = new OptionalModClock(driver); active = runtime;
+        var runtime = new OptionalModClock(videoTimeUs); active = runtime;
         try
         {
             runtime.Configure();
@@ -129,14 +135,6 @@ internal sealed class OptionalModClock : IDisposable
         foreach (var pair in new[] { ("GetTimestamp", nameof(Timestamp)), ("StartNew", nameof(NewWatch)), ("Start", nameof(StartWatch)), ("Stop", nameof(StopWatch)), ("Reset", nameof(ResetWatch)), ("Restart", nameof(RestartWatch)) })
             Register(AccessTools.Method(typeof(Stopwatch), pair.Item1, Type.EmptyTypes), typeof(OptionalModClock), pair.Item2);
         Add(typeof(DateTime), "Now", nameof(LocalNow)); Add(typeof(DateTime), "UtcNow", nameof(UtcNow));
-        Register(AccessTools.Method(typeof(Input), "GetKey", new[] { typeof(KeyCode) }), typeof(SharedOverlayInput), nameof(SharedOverlayInput.Held));
-        Register(AccessTools.Method(typeof(Input), "GetKeyDown", new[] { typeof(KeyCode) }), typeof(SharedOverlayInput), nameof(SharedOverlayInput.Down));
-        Register(AccessTools.Method(typeof(Input), "GetKeyUp", new[] { typeof(KeyCode) }), typeof(SharedOverlayInput), nameof(SharedOverlayInput.Up));
-        Register(AccessTools.PropertyGetter(typeof(Application), "isFocused"), typeof(SharedOverlayInput), nameof(SharedOverlayInput.Focused));
-        Add(typeof(scrController), "gameworld", nameof(GameWorld)); Add(typeof(scrConductor), "isGameWorld", nameof(ConductorWorld));
-        Add(typeof(scnEditor), "playMode", nameof(EditorPlayback));
-        Register(AccessTools.Field(typeof(scrController), "gameworld"), typeof(OptionalModClock), nameof(GameWorld));
-        Register(AccessTools.Field(typeof(scnEditor), "playMode"), typeof(OptionalModClock), nameof(EditorPlayback));
         Register(AccessTools.Method(typeof(RectTransformUtility), "WorldToScreenPoint", new[] { typeof(Camera), typeof(Vector3) }), typeof(OptionalModClock), nameof(WorldToScreen));
         void Add(Type type, string property, string replacement) => Register(AccessTools.PropertyGetter(type, property), typeof(OptionalModClock), replacement);
     }
@@ -199,9 +197,6 @@ internal sealed class OptionalModClock : IDisposable
     private static void StopWatch(Stopwatch watch) { if (active != null) { var state = active.State(watch); lock (state) { state.Elapsed = WatchSeconds(watch); state.Running = false; } } watch.Stop(); }
     private static void ResetWatch(Stopwatch watch) { if (active != null) { var state = active.State(watch); lock (state) { state.Elapsed = 0; state.Running = false; } } watch.Reset(); }
     private static void RestartWatch(Stopwatch watch) { if (active != null) { var state = active.State(watch); lock (state) { state.Elapsed = 0; state.Started = Seconds; state.Running = true; } } watch.Restart(); }
-    private static bool GameWorld(scrController controller) => ReplayHooks.Current != null || controller.gameworld;
-    private static bool ConductorWorld(scrConductor conductor) => ReplayHooks.Current != null || conductor.isGameWorld;
-    private static bool EditorPlayback(scnEditor editor) => ReplayHooks.Current != null || editor.playMode;
     private static Vector2 WorldToScreen(Camera camera, Vector3 world) => RectTransformUtility.WorldToScreenPoint(
         active == null || camera != null ? camera : RendererController.Instance?.OverlayCamera, world);
     private static int ScreenWidth() => active == null ? Screen.width : RendererController.Instance?.OverlayWidth ?? Screen.width;
