@@ -46,6 +46,12 @@ namespace OrbitRender.Renderer
         internal void EnqueueRpcRender(RpcRenderRequest request) { LastJob = request.Job; }
         internal void EnqueueRpcCancel(RpcCancelRequest request) { }
     }
+
+    // The real adapter needs Unity; IPC jobs never carry one.
+    internal sealed class HostedReplayDriver
+    {
+        internal HostedReplayRequest Request => null;
+    }
 }
 
 internal static class Program

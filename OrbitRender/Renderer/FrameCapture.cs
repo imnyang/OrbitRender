@@ -145,6 +145,7 @@ namespace OrbitRender.Renderer
         private readonly int height;
         private readonly bool replayOverlays;
         private readonly bool captureOverlays;
+        private readonly HostedReplayDriver replayHost;
         private readonly scrCamera gameCamera;
         private readonly float originalZoomSize;
         private readonly Vector2 originalOffset;
@@ -202,10 +203,12 @@ namespace OrbitRender.Renderer
             public int Layer;
         }
 
-        public FrameCapture(FFmpegEncoder encoder, int width, int height,
-            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false, bool replayOverlays = false)
+        internal FrameCapture(FFmpegEncoder encoder, int width, int height,
+            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false, bool replayOverlays = false,
+            HostedReplayDriver replayHost = null)
         {
             this.replayOverlays = replayOverlays;
+            this.replayHost = replayHost;
             captureOverlays = showModOverlay;
             manualGameplay = manualGameplay || replayOverlays;
             this.encoder = encoder;
@@ -244,11 +247,12 @@ namespace OrbitRender.Renderer
                 if (captureCanvases != null)
                     foreach (var canvas in captureCanvases)
                         if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
-                // Explicit overlay providers participate only when the user
-                // enabled Mod Overlay (or when a replay render forces it).
+                // Explicit overlay canvases participate only when the user
+                // enabled Mod Overlay (or when a replay render forces it). In a
+                // replay the host collects them from overlay and key-viewer mods.
                 if (showModOverlay)
                 {
-                    foreach (var canvas in OverlayApi.CaptureCanvases())
+                    foreach (var canvas in replayHost != null ? replayHost.CaptureCanvases() : OverlayApi.CaptureCanvases())
                         if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
                     foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                         if (IsModOverlay(canvas, replayOverlays)) captureCanvasSet.Add(canvas);
@@ -683,7 +687,11 @@ namespace OrbitRender.Renderer
                     property.SetValue(text, value.Substring(0, kps), null);
                 }
             }
-            if (captureOverlays) OverlayApi.BeforeOverlayCapture(replayOverlays);
+            if (captureOverlays)
+            {
+                if (replayHost != null) replayHost.BeforeCapture();
+                else OverlayApi.BeforeOverlayCapture(replayOverlays);
+            }
             try
             {
                 if (replayOverlays)
@@ -696,7 +704,11 @@ namespace OrbitRender.Renderer
             }
             finally
             {
-                if (captureOverlays) OverlayApi.AfterOverlayCapture(replayOverlays);
+                if (captureOverlays)
+                {
+                    if (replayHost != null) replayHost.AfterCapture();
+                    else OverlayApi.AfterOverlayCapture(replayOverlays);
+                }
                 foreach (var pair in jrpBpmTexts)
                     if (pair.Key != null) pair.Key.GetType().GetProperty("text")?.SetValue(pair.Key, pair.Value, null);
                 foreach (var position in jrpPositions)
