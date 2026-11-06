@@ -255,8 +255,12 @@ namespace OrbitRender.Renderer
                     if (replayHost != null)
                         foreach (var canvas in replayHost.CaptureCanvases())
                             if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
+                    // Only the host's mods get the recorded keys. Other key viewers
+                    // would show nothing, or the keys pressed during the render, so
+                    // a hosted replay finds mod canvases the way a normal render does.
+                    bool keyViewersFollowInput = replayOverlays && replayHost == null;
                     foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                        if (IsModOverlay(canvas, replayOverlays)) captureCanvasSet.Add(canvas);
+                        if (IsModOverlay(canvas, keyViewersFollowInput)) captureCanvasSet.Add(canvas);
                 }
                 if (captureCanvasSet.Count > 0)
                     CreateHudOverlay(captureCanvasSet);

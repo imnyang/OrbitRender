@@ -7,6 +7,7 @@
 TUFReplay가 리플레이를 진행하고 OrbitRender는 렌더링만 합니다. 오버레이·키뷰어 모드는 **TUFReplay의 `ReplayApi`**로 연동하세요. TUFReplay가 녹화된 입력과 상태를 전달하고, 모드의 캔버스를 모아 OrbitRender가 캡처하도록 넘깁니다. 연동 방법은 TUFReplay의 `ReplayApi` 문서를 참고하세요.
 
 - `ReplayApi`를 쓰지 않는 오버레이·키뷰어 모드는 리플레이 렌더에서 지원하지 않습니다. 녹화된 키 입력을 SkyHook 이벤트나 `Input.GetKey`로 주입하지 않습니다.
+- 그래서 리플레이 렌더도 일반 렌더와 같은 기준으로 모드 캔버스를 자동으로 찾습니다. RainingKeys, AdofaiTweaks 키뷰어처럼 키 입력을 보여 주는 캔버스는 빠지고, `ReplayApi` 모드가 넘긴 캔버스는 이름과 관계없이 들어갑니다.
 - OrbitRender는 오버레이 모드의 시간(`Time`, `Stopwatch`, `DateTime`)만 영상 타임라인에 맞춥니다.
 
 ## 일반 렌더
