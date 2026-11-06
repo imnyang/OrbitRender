@@ -55,7 +55,7 @@ ADOFAI 에디터에서 커스텀 레벨을 열고 `File → Export Video`를 선
 
 렌더 오류 창의 **오류 진단 정보 복사**는 실패 내용, 출력 설정, 인코더, 시스템·GPU 정보와 파일 경로를 클립보드에 복사합니다. 외부로 자동 전송하지 않습니다.
 
-다른 모드에서 렌더링을 제어하려면 [C# API 문서](docs/CSharp-API.md)를 참고하세요.
+다른 모드에서 렌더링을 제어하려면 [C# API 문서](docs/CSharp-API.md)를 참고하세요. 리플레이 렌더는 TUFReplay가 요청하며, 키뷰어·오버레이 모드는 OrbitRender가 아니라 TUFReplay의 `ReplayApi`로 연동합니다([Overlay API 안내](docs/Overlay-API.md)).
 
 ## 빌드
 
