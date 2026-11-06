@@ -522,10 +522,8 @@ namespace OrbitRender.Renderer
         {
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
-            // Replay overlays belong to the host; OverlayApi serves normal renders only.
-            if (replayRequest == null) OverlayApi.BeginSession(false, profile.Width, profile.Height, profile.VideoFps);
-            jrpRenderGuard = replayRequest != null || OverlayApi.IsRegistered("JipperResourcePack")
-                ? null : JrpRenderGuard.Begin();
+            // Replay overlays, JRP included, belong to the replay host.
+            jrpRenderGuard = replayRequest != null ? null : JrpRenderGuard.Begin();
             RenderTimingPatches.Apply();
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
@@ -2176,9 +2174,6 @@ namespace OrbitRender.Renderer
                 if (!preserveRecovery && !string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
             TryCleanup(RestoreSkyHook);
-            // Providers keep ownership through the game restore above so a
-            // replay cannot write persistent records on Hide/Show.
-            TryCleanup(OverlayApi.EndSession);
             if (editorRecoveryRoutine == null) { TryCleanup(() => jrpRenderGuard?.Dispose()); jrpRenderGuard = null; }
             if (capturedAudio && !shuttingDown)
                 audioDeviceRecovery.Begin(Time.realtimeSinceStartupAsDouble, AudioSettings.dspTime);
