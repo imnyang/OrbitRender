@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using OrbitRender;
 using UnityEngine;
 
@@ -30,6 +31,25 @@ OverlayApi.EndSession();
 OverlayApi.DispatchReplayInput(KeyCode.RightAlt, null, true, 104);
 Check(modern.Calls == 3, "No input after end");
 Console.WriteLine("Overlay API contract checks passed.");
+var stateful = new Stateful();
+OverlayApi.Register("stateful", stateful);
+const string recordedState = "{\"Attempt\":12,\"KeyTotal\":345}";
+OverlayApi.BeginSession(true, 1, 1, 60,
+    new Dictionary<string, string> { ["stateful"] = recordedState });
+Check(stateful.Json == recordedState && stateful.Calls == 1 && stateful.BeginBeforeState,
+    "Recorded state follows begin and precedes canvas enumeration");
+OverlayApi.EndSession();
+OverlayApi.BeginSession(true, 1, 1, 60);
+Check(stateful.Json == null && stateful.Calls == 2, "Older bundles receive null instead of previous session state");
+OverlayApi.EndSession();
+OverlayApi.BeginSession(false, 1, 1, 60);
+Check(stateful.Calls == 2, "Normal rendering never receives replay state");
+OverlayApi.EndSession();
+OverlayApi.Register("bad-state", new BadState());
+OverlayApi.BeginSession(true, 1, 1, 60);
+Check(stateful.Calls == 3, "State callback errors are isolated");
+OverlayApi.EndSession();
+Console.WriteLine("Recorded overlay state contract checks passed.");
 static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 
 public class Modern {
@@ -43,6 +63,19 @@ public class Legacy {
 }
 public class Throwing {
     public void OnReplayKey(KeyCode key, int? native, bool down, long ticks) { throw new Exception("Provider error"); }
+}
+public class Stateful {
+    public string Json; public int Calls; public bool BeginBeforeState;
+    private bool begun, applied;
+    public void OnRenderSessionBegin(bool replay) { begun = true; applied = false; }
+    public void OnReplayState(string json) { BeginBeforeState = begun; Json = json; Calls++; applied = true; }
+    public Canvas[] GetOverlayCanvases() {
+        if (OverlayApi.IsReplay && !applied) throw new Exception("Canvases read before state");
+        return Array.Empty<Canvas>();
+    }
+}
+public class BadState {
+    public void OnReplayState(string json) { throw new Exception("Invalid provider state"); }
 }
 namespace UnityEngine {
     public enum KeyCode { None, RightAlt }

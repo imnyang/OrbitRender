@@ -518,7 +518,8 @@ namespace OrbitRender.Renderer
         {
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
-            OverlayApi.BeginSession(replayBundle != null, profile.Width, profile.Height, profile.VideoFps);
+            OverlayApi.BeginSession(replayBundle != null, profile.Width, profile.Height, profile.VideoFps,
+                replayBundle?.Manifest.OverlayStates);
             jrpRenderGuard = replayBundle != null || OverlayApi.IsRegistered("JipperResourcePack")
                 ? null : JrpRenderGuard.Begin();
             RenderTimingPatches.Apply();

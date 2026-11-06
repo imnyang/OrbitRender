@@ -21,6 +21,7 @@ namespace OrbitRender
     ///   void OnReplayClock(double videoSeconds, long ticks)
     ///   void OnReplayInput(string keyCode, bool down, long ticks) // Legacy fallback
     ///   void OnReplayKey(KeyCode key, int? nativeKey, bool down, long ticks)
+    ///   void OnReplayState(string json) // Recorded provider state, or null for older recordings
     ///
     /// Every member must be used from Unity's main thread.
     /// </summary>
@@ -97,7 +98,8 @@ namespace OrbitRender
         internal static bool IsProviderCanvas(Canvas canvas)
             => canvas != null && providerCanvases.Contains(canvas.rootCanvas ?? canvas);
 
-        internal static void BeginSession(bool replay, int width, int height, int videoFps)
+        internal static void BeginSession(bool replay, int width, int height, int videoFps,
+            IReadOnlyDictionary<string, string> replayStates = null)
         {
             IsRendering = true;
             IsReplay = replay;
@@ -109,6 +111,13 @@ namespace OrbitRender
             // Let providers prepare before enumerating their canvases; a
             // provider may expose different elements for replay renders.
             foreach (var entry in entries.Values) entry.InvokeBool("OnRenderSessionBegin", replay);
+            if (replay)
+                foreach (var entry in entries.Values)
+                {
+                    string state = null;
+                    replayStates?.TryGetValue(entry.Id, out state);
+                    entry.InvokeReplayState(state);
+                }
             CaptureCanvases();
         }
 
@@ -161,7 +170,7 @@ namespace OrbitRender
         {
             internal readonly string Id;
             private readonly object instance;
-            private readonly MethodInfo canvases, begin, sessionEnd, before, after, input, clock;
+            private readonly MethodInfo canvases, begin, sessionEnd, before, after, input, clock, replayState;
             private readonly Action<KeyCode, int?, bool, long> replayKey;
 
             internal Entry(string id, object provider)
@@ -181,6 +190,8 @@ namespace OrbitRender
                         typeof(Action<KeyCode, int?, bool, long>), provider, typedInput);
                 input = replayKey == null ? Find(type, "OnReplayInput") : null;
                 clock = Find(type, "OnReplayClock");
+                replayState = type.GetMethod("OnReplayState", BindingFlags.Public | BindingFlags.Instance,
+                    null, new[] { typeof(string) }, null);
             }
 
             private static MethodInfo Find(Type type, string name)
@@ -211,6 +222,9 @@ namespace OrbitRender
             }
 
             internal void InvokeSessionEnd() => Invoke(sessionEnd, "OnRenderSessionEnd", Array.Empty<object>());
+
+            internal void InvokeReplayState(string json)
+                => Invoke(replayState, "OnReplayState", new object[] { json });
 
             internal void InvokeInput(KeyCode key, int? nativeKey, bool down, long ticks)
             {
