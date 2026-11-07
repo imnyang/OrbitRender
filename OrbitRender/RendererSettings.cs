@@ -121,6 +121,15 @@ namespace OrbitRender
         public bool UseRustRenderer = false;
 
         [Draw(DrawType.Ignore)]
+        public bool DiagnosticTiming = false;
+
+        [Draw(DrawType.Ignore)]
+        public bool SettleFastPath = false;
+
+        [Draw(DrawType.Ignore)]
+        public bool SampleGameplayAtOutputFrames = false;
+
+        [Draw(DrawType.Ignore)]
         public OrbitRender.Renderer.FrameBufferPolicy BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
 
         [Draw("BGA mode (hide tiles, planets & hit sounds)", DrawType.Toggle)]
@@ -223,6 +232,9 @@ namespace OrbitRender
             AudioCodec = AudioCodec.Auto;
             ShowRenderPreview = true;
             UseRustRenderer = false;
+            DiagnosticTiming = false;
+            SettleFastPath = false;
+            SampleGameplayAtOutputFrames = false;
             BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
             BgaMode = false;
             ShowPlanetRings = true;
@@ -398,6 +410,10 @@ namespace OrbitRender
                         : amd ? VideoEncoder.AmdAmf : VideoEncoder.Software;
                     encoder = Array.IndexOf(available.Encoders, preferred) >= 0
                         ? preferred : available.Encoders[0];
+                    // HEVC VideoToolbox is an explicit choice: adding a backend
+                    // must not change Auto's existing compression or quality.
+                    if (codec == VideoCodec.H265 && encoder == VideoEncoder.AppleVideoToolbox)
+                        encoder = VideoEncoder.Software;
                 }
             }
             return definition.ResolveEncoder(encoder, nvidia, intel, amd, macOS);

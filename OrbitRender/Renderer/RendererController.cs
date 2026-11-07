@@ -64,6 +64,7 @@ namespace OrbitRender.Renderer
         internal Texture RenderPreviewTexture => capture != null ? capture.PreviewTexture : null;
         internal bool ShowPreviewForRun => showPreviewForRun;
         private readonly System.Diagnostics.Stopwatch renderTimer = new System.Diagnostics.Stopwatch();
+        private RenderPerformanceDiagnostics performanceDiagnostics;
         public double GenerationFps => renderTimer.Elapsed.TotalSeconds > 0 ? CapturedFrames / renderTimer.Elapsed.TotalSeconds : 0;
         public double ElapsedSeconds => renderTimer.Elapsed.TotalSeconds;
         public double TotalRenderSeconds => totalRenderTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -153,6 +154,9 @@ namespace OrbitRender.Renderer
         private float audioGainDbForRun;
         private bool showPreviewForRun;
         private bool useRustRendererForRun;
+        private bool diagnosticTimingForRun;
+        private bool settleFastPathForRun;
+        private bool sampleGameplayAtOutputFramesForRun;
         private FrameBufferPolicy bufferPolicyForRun;
         private string outputDirectoryForRun;
         // True when the caller passed this render's folder, rather than OrbitRender's own setting.
@@ -273,6 +277,10 @@ namespace OrbitRender.Renderer
             useRustRendererForRun = requestOptions?.UseRustRenderer ?? settings.UseRustRenderer;
             bufferPolicyForRun = requestOptions?.BufferPolicy ?? settings.BufferPolicy;
             var rpcOptions = activeRpcJob != null ? activeRpcJob.Options : null;
+            diagnosticTimingForRun = requestOptions?.DiagnosticTiming ?? rpcOptions?.DiagnosticTiming ?? settings.DiagnosticTiming;
+            settleFastPathForRun = requestOptions?.SettleFastPath ?? rpcOptions?.SettleFastPath ?? settings.SettleFastPath;
+            sampleGameplayAtOutputFramesForRun = requestOptions?.SampleGameplayAtOutputFrames
+                ?? rpcOptions?.SampleGameplayAtOutputFrames ?? settings.SampleGameplayAtOutputFrames;
             bgaModeForRun = requestOptions?.BgaMode ?? rpcOptions?.BgaMode ?? settings.BgaMode;
             showPlanetRingsForRun = requestOptions?.ShowPlanetRings ?? rpcOptions?.ShowPlanetRings
                 ?? settings.ShowPlanetRings;
@@ -520,6 +528,10 @@ namespace OrbitRender.Renderer
         }
         private IEnumerator Run()
         {
+            performanceDiagnostics = diagnosticTimingForRun ? new RenderPerformanceDiagnostics() : null;
+            RenderPerformanceDiagnostics.Current = performanceDiagnostics;
+            var diagnostics = performanceDiagnostics;
+            var diagnosticPreparationStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
             // Replay overlays, JRP included, belong to the replay host.
@@ -717,6 +729,7 @@ namespace OrbitRender.Renderer
             // again only when the export dialog returns after cleanup.
             useGUILayout = false;
             preparationTicks = System.Diagnostics.Stopwatch.GetTimestamp() - preparationStartTicks;
+            if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.Preparation, diagnosticPreparationStart);
             renderTimer.Start();
             ApplyFramePacing();
             Message = Localization.FormatWithCurrentCulture("rendering-summary", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps);
@@ -743,8 +756,17 @@ namespace OrbitRender.Renderer
                     var gameFrameStart = System.Diagnostics.Stopwatch.GetTimestamp();
                     yield return null;
                     yield return EndOfFrame;
-                    if (replaySession != null)
+                    if (diagnostics != null)
                     {
+                        diagnostics.Record(RenderPerformanceStage.Simulation, gameFrameStart);
+                        diagnostics.Increment(RenderPerformanceCounter.SimulationFrames);
+                    }
+                    if (replaySession != null && !(replayDriver?.CanSkipOverlayRefresh(
+                        settleFastPathForRun, simulationFrameIndex, Clock.Time) ?? false))
+                    {
+                        var diagnosticSettleStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+                        if (diagnostics != null && replaySession.OverlayWorkSettled)
+                            diagnostics.Increment(RenderPerformanceCounter.SettledBeforeYield);
                         float previousTimeScale = Time.timeScale;
                         long deadline = System.Diagnostics.Stopwatch.GetTimestamp() + 2 * System.Diagnostics.Stopwatch.Frequency;
                         overlayRefreshOnly = true;
@@ -758,12 +780,14 @@ namespace OrbitRender.Renderer
                                     if (cancellation || State != RenderState.Rendering) yield break;
                                     if (System.Diagnostics.Stopwatch.GetTimestamp() >= deadline)
                                         throw new InvalidOperationException("Replay overlay input did not settle: " + replaySession.OverlayPendingWork);
+                                    if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.SettleFrames);
                                     yield return null;
                                     yield return EndOfFrame;
                                     replaySession.OverlayRefreshFrameCompleted();
                                 }
                                 long revision = replaySession.OverlayWorkRevision;
                                 if (cancellation || State != RenderState.Rendering) yield break;
+                                if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.SettleFrames);
                                 yield return null;
                                 yield return EndOfFrame;
                                 replaySession.OverlayRefreshFrameCompleted();
@@ -772,9 +796,13 @@ namespace OrbitRender.Renderer
                                     throw new InvalidOperationException("Replay overlay input did not settle before the next frame.");
                             }
                         }
-                        finally { overlayRefreshOnly = false; Time.timeScale = previousTimeScale; }
+                        finally
+                        {
+                            overlayRefreshOnly = false; Time.timeScale = previousTimeScale;
+                            if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.Settle, diagnosticSettleStart);
+                        }
                     }
-                    capture.RenderGameplayFrame();
+                    capture.RenderGameplayFrame(!sampleGameplayAtOutputFramesForRun || Clock.FrameIndex == desiredSimulationFrame);
                     if (level == null || (editor != null ? editor.customLevel : ADOBase.customLevel) != level || ADOBase.controller == null || ADOBase.conductor == null)
                         throw new InvalidOperationException("The level was unloaded during rendering.");
                     gameFrameTicks += System.Diagnostics.Stopwatch.GetTimestamp() - gameFrameStart;
@@ -804,6 +832,7 @@ namespace OrbitRender.Renderer
                     lastCapturedSimulationIndex = Clock.FrameIndex;
                     CaptureWaitSeconds = capture.BackpressureSeconds;
                     CapturedFrames++;
+                    if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.OutputFrames);
                 }
                 timelineFrame++;
                 timelineFramesForRun = timelineFrame;
@@ -892,6 +921,7 @@ namespace OrbitRender.Renderer
                         Main.Entry.Logger.Log("[Render] Muxing concurrently encoded " + profile.AudioCodec + " audio (gain="
                             + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB).");
+                        var muxStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
                         try { FFmpegEncoder.MuxPreencodedAudio(FFmpegPath, partialPath, audioEncodedPath, muxPath, profile.AudioCodec); }
                         catch (Exception ex)
                         {
@@ -899,6 +929,7 @@ namespace OrbitRender.Renderer
                             if (File.Exists(muxPath)) File.Delete(muxPath);
                             preencodedAudio = false;
                         }
+                        finally { if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.Mux, muxStart); }
                     }
                     if (!preencodedAudio)
                     {
@@ -911,8 +942,13 @@ namespace OrbitRender.Renderer
                             Main.Entry.Logger.Log("[Replay] Delaying render audio by the recorded input offset: "
                                 + (ReplayAudioDelaySeconds * 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
                                 + " ms.");
-                        FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
-                            audioGainDbForRun, profile.AudioCodec, ReplayAudioDelaySeconds);
+                        var muxStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+                        try
+                        {
+                            FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
+                                audioGainDbForRun, profile.AudioCodec, ReplayAudioDelaySeconds);
+                        }
+                        finally { if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.Mux, muxStart); }
                     }
                     if (HasReplayMedia()) ComposeReplayMedia(muxPath, OutputPath, true);
                     else File.Move(muxPath, OutputPath);
@@ -1203,12 +1239,8 @@ namespace OrbitRender.Renderer
                 || profile.FfmpegCodec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase)
                 ? VideoCodecCatalog.Get(profile.VideoCodec).SoftwareEncoder : profile.FfmpegCodec;
             var encoding = webcam == null ? new[] { "-c:v", "copy" }
-                : new[] { "-c:v", compositionCodec,
-                    "-b:v", profile.BitrateMbps + "M", "-pix_fmt", profile.VideoCodec == VideoCodec.ProRes ? "yuv422p10le" : profile.PixelFormat };
-            if (webcam != null && profile.VideoCodec == VideoCodec.ProRes)
-                encoding = new[] { "-c:v", compositionCodec, "-profile:v", ((int)profile.ProResProfile).ToString(),
-                    compositionCodec == "prores_videotoolbox" ? "-allow_sw" : "-threads",
-                    "0", "-pix_fmt", profile.PixelFormat };
+                : FFmpegEncoder.BuildCompositionVideoArguments(compositionCodec, profile.FfmpegPreset,
+                    profile.BitrateMbps, profile.PixelFormat, profile.ProResProfile);
             var composedPath = Path.ChangeExtension(output, ".composed" + profile.ContainerExtension);
             var plan = TUFReplayRenderer.Media.MediaCompositionPlan.Create(input, composedPath, profile.Width, profile.Height,
                 profile.VideoFps, CapturedFrames * 1000000d / profile.VideoFps, timeline,
@@ -1229,13 +1261,23 @@ namespace OrbitRender.Renderer
                 Arguments = string.Join(" ", plan.Arguments.Select(QuoteFfmpegArgument))
             } })
             {
-                process.Start();
-                var errors = process.StandardError.ReadToEndAsync();
-                var progressOutput = process.StandardOutput.ReadToEndAsync();
-                process.WaitForExit();
-                progressOutput.GetAwaiter().GetResult();
-                if (process.ExitCode != 0) { RenderRecovery.DeleteTemporary(composedPath); throw new IOException("Replay media composition failed: " + errors.GetAwaiter().GetResult()); }
-                File.Move(composedPath, output);
+                var diagnostics = RenderPerformanceDiagnostics.Current;
+                var composeStarted = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+                try
+                {
+                    process.Start();
+                    var errors = process.StandardError.ReadToEndAsync();
+                    var progressOutput = process.StandardOutput.ReadToEndAsync();
+                    process.WaitForExit();
+                    progressOutput.GetAwaiter().GetResult();
+                    if (process.ExitCode != 0) { RenderRecovery.DeleteTemporary(composedPath); throw new IOException("Replay media composition failed: " + errors.GetAwaiter().GetResult()); }
+                    File.Move(composedPath, output);
+                }
+                finally
+                {
+                    if (diagnostics != null) diagnostics.Record(webcam != null
+                        ? RenderPerformanceStage.WebcamCompose : RenderPerformanceStage.MediaCompose, composeStarted);
+                }
             }
         }
 
@@ -2005,6 +2047,9 @@ namespace OrbitRender.Renderer
             report.AppendLine("Audio: " + captureAudioForRun + "; gain " + audioGainDbForRun
                 + "; codec " + (profile != null ? profile.AudioCodec.ToString() : ""));
             report.AppendLine("BGA: " + bgaModeForRun + "; Rust requested: " + useRustRendererForRun + "; buffers: " + bufferPolicyForRun);
+            report.AppendLine("Performance options: diagnosticTiming=" + diagnosticTimingForRun
+                + "; settleFastPath=" + settleFastPathForRun
+                + "; sampleGameplayAtOutputFrames=" + sampleGameplayAtOutputFramesForRun);
             report.AppendLine("Queue: " + (Queue.Active != null ? Queue.Active.Label : "none"));
             report.AppendLine("Encoder fallback: " + encoderFallbackReason);
             report.AppendLine("Recovery: " + (recoveryManifest ?? (preserveRecovery ? OutputPath + RenderRecovery.Suffix : "none")));
@@ -2012,10 +2057,24 @@ namespace OrbitRender.Renderer
             return report.ToString();
         }
 
+        private readonly ProgressUpdateCadence rpcProgressCadence = new ProgressUpdateCadence(System.Diagnostics.Stopwatch.Frequency);
+        private RpcRenderJob publishedRpcJob;
+        private RenderState publishedRpcState;
+        private bool publishedRpcLoading;
+        private string publishedRpcMessage;
+
         private void UpdateRpcJob()
         {
             var job = activeRpcJob;
             if (job == null) return;
+            var loading = rpcLoadRoutine != null;
+            var changed = job != publishedRpcJob || State != publishedRpcState
+                || loading != publishedRpcLoading || Message != publishedRpcMessage;
+            var terminal = rpcLoadRoutine == null && routine == null && !Busy &&
+                (State == RenderState.Completed || State == RenderState.Cancelled || State == RenderState.Failed);
+            if (!rpcProgressCadence.ShouldPublish(System.Diagnostics.Stopwatch.GetTimestamp(), changed || terminal)) return;
+            publishedRpcJob = job; publishedRpcState = State;
+            publishedRpcLoading = loading; publishedRpcMessage = Message;
             job.SetProgress(CapturedFrames, TotalFrames, OutputPath);
             if (rpcLoadRoutine != null) job.SetState(RpcJobState.Loading);
             else if (State == RenderState.AwaitingConfirmation) job.SetState(RpcJobState.AwaitingConfirmation, EncoderFallbackReason);
@@ -2050,6 +2109,8 @@ namespace OrbitRender.Renderer
         private void WaitForAudioFrame(long simulationFrameIndex)
         {
             if (!captureAudioForRun || !audioRealtimePacing || audioPacingOrigin <= 0.0) return;
+            var diagnostics = performanceDiagnostics;
+            var diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
             var target = audioPacingOrigin + simulationFrameIndex / (double)profile.TargetFps;
             while (!cancellation)
             {
@@ -2062,6 +2123,7 @@ namespace OrbitRender.Renderer
                 if (milliseconds > 0) System.Threading.Thread.Sleep(milliseconds);
                 else System.Threading.Thread.Yield();
             }
+            if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioRealtimePacing, diagnosticStart);
         }
         private void Fail(Exception ex)
         {
@@ -2109,6 +2171,20 @@ namespace OrbitRender.Renderer
         }
         private void Cleanup()
         {
+            var diagnostics = performanceDiagnostics;
+            var diagnosticCleanupStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+            string diagnosticMetadata = diagnostics != null
+                ? string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Video: {0}x{1}; simulation FPS={2}; video FPS={3}; codec={4}; preset={5}; raw={6}\n"
+                    + "Graphics: {7}; device={8}; async readback supported={9}; native backend={10}\n"
+                    + "Audio: sample rate={11}; channels={12}; captured sample frames={13}; realtime pacing={14}; mode={15}\n"
+                    + "Options: diagnosticTiming={16}; settleFastPath={17}; sampleGameplayAtOutputFrames={18}",
+                    profile?.Width, profile?.Height, profile?.TargetFps, profile?.VideoFps,
+                    profile?.FfmpegCodec, profile?.FfmpegPreset, encoder?.RawPixelFormat,
+                    SystemInfo.graphicsDeviceType, SystemInfo.graphicsDeviceName, SystemInfo.supportsAsyncGPUReadback,
+                    encoder?.NativeBackend != null, audio?.SampleRate, audio?.Channels, audio?.SampleFrames,
+                    audioRealtimePacing, audio?.CaptureMode ?? "disabled", diagnosticTimingForRun,
+                    settleFastPathForRun, sampleGameplayAtOutputFramesForRun) : null;
             var capturedAudio = audio != null;
             useGUILayout = true;
             TryCleanup(() => replaySession?.End(State));
@@ -2177,6 +2253,25 @@ namespace OrbitRender.Renderer
             if (editorRecoveryRoutine == null) { TryCleanup(() => jrpRenderGuard?.Dispose()); jrpRenderGuard = null; }
             if (capturedAudio && !shuttingDown)
                 audioDeviceRecovery.Begin(Time.realtimeSinceStartupAsDouble, AudioSettings.dspTime);
+            if (diagnostics != null)
+            {
+                performanceDiagnostics = null;
+                RenderPerformanceDiagnostics.Current = null;
+                diagnostics.Record(RenderPerformanceStage.Cleanup, diagnosticCleanupStart);
+                try
+                {
+                    // A failure during scene preparation can occur before the
+                    // output name/directory exists. Preserve those measurements
+                    // in the system temp directory and print its exact path.
+                    var diagnosticPath = !string.IsNullOrEmpty(OutputPath) ? OutputPath + ".performance.txt"
+                        : Path.Combine(Path.GetTempPath(), "OrbitRender-" + Guid.NewGuid().ToString("N") + ".performance.txt");
+                    diagnostics.WriteReport(diagnosticPath,
+                        RenderPerformanceDiagnostics.ResolveReportStatus(State.ToString(), cancellation), CapturedFrames,
+                        profile?.VideoFps ?? 0, diagnosticMetadata);
+                    Main.Entry.Logger.Log("[Render] Performance diagnostics: " + diagnosticPath);
+                }
+                catch (Exception ex) { Main.Entry.Logger.Error("[Render] Could not write performance diagnostics: " + ex.Message); }
+            }
         }
 
         private readonly AudioDeviceRecovery audioDeviceRecovery = new AudioDeviceRecovery();

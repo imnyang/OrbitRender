@@ -21,6 +21,9 @@ namespace OrbitRender.Renderer
         public bool? ShowRenderPreview;
         public bool? NoPreview;
         public bool? UseRustRenderer;
+        public bool? DiagnosticTiming;
+        public bool? SettleFastPath;
+        public bool? SampleGameplayAtOutputFrames;
         public FrameBufferPolicy? BufferPolicy;
         public bool? BgaMode;
         public bool? ShowPlanetRings;

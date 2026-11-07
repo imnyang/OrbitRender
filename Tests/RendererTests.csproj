@@ -8,6 +8,9 @@
  </PropertyGroup>
  <ItemGroup>
   <Compile Include="RenderPerformanceDiagnosticsTests.cs"/><Compile Include="..\OrbitRender\Renderer\RenderPerformanceDiagnostics.cs"/>
+  <Compile Include="CaptureCacheTests.cs"/><Compile Include="..\OrbitRender\Renderer\CaptureRevisionCache.cs"/>
+  <Compile Include="EncoderPerformanceTests.cs"/>
+  <Compile Include="RenderPerformancePolicyTests.cs"/><Compile Include="..\OrbitRender\Renderer\ReplaySettlePolicy.cs"/><Compile Include="..\OrbitRender\Renderer\ProgressUpdateCadence.cs"/>
   <Reference Include="mscorlib"><Private>false</Private></Reference>
   <Reference Include="0Harmony"><HintPath>../packages/0Harmony.dll</HintPath><Private>true</Private></Reference>
   <Reference Include="System.Xml"><Private>false</Private></Reference>
