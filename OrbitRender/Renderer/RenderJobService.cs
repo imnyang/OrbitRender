@@ -104,6 +104,9 @@ namespace OrbitRender.Renderer
     {
         public string OutputDirectory;
         public bool? NoPreview;
+        public bool? DiagnosticTiming;
+        public bool? SettleFastPath;
+        public bool? SampleGameplayAtOutputFrames;
         public RendererPreset? Preset;
         public int? Width;
         public int? Height;
@@ -129,6 +132,7 @@ namespace OrbitRender.Renderer
             get
             {
                 return OutputDirectory != null || NoPreview.HasValue || Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
+                    || DiagnosticTiming.HasValue || SettleFastPath.HasValue || SampleGameplayAtOutputFrames.HasValue
                     || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
                     || ShowPlanetRings.HasValue
                     || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
@@ -142,6 +146,9 @@ namespace OrbitRender.Renderer
             return new
             {
                 preset = Preset.HasValue ? Preset.Value.ToString() : null,
+                diagnosticTiming = DiagnosticTiming,
+                settleFastPath = SettleFastPath,
+                sampleGameplayAtOutputFrames = SampleGameplayAtOutputFrames,
                 width = Width,
                 height = Height,
                 targetFps = TargetFps,
@@ -202,6 +209,9 @@ namespace OrbitRender.Renderer
     internal sealed class RpcRenderPayload
     {
         [JsonProperty("noPreview")] public bool? NoPreview { get; set; }
+        [JsonProperty("diagnosticTiming")] public bool? DiagnosticTiming { get; set; }
+        [JsonProperty("settleFastPath")] public bool? SettleFastPath { get; set; }
+        [JsonProperty("sampleGameplayAtOutputFrames")] public bool? SampleGameplayAtOutputFrames { get; set; }
         [JsonProperty("levelPath")] public string LevelPath { get; set; }
         // Recording bundles are no longer rendered here; read only to refuse them clearly.
         [JsonProperty("replayManifestPath")] public string ReplayManifestPath { get; set; }
@@ -274,6 +284,7 @@ namespace OrbitRender.Renderer
                 // Job state only moves forward. A late callback from a finished
                 // render must not resurrect a terminal job for the caller.
                 if (IsTerminalState(state) && !IsTerminalState(value)) return;
+                if (state == value && message == info) return;
                 state = value;
                 message = info;
                 updatedUtc = DateTime.UtcNow;
@@ -284,6 +295,8 @@ namespace OrbitRender.Renderer
         {
             lock (sync)
             {
+                if (capturedFrames == captured && totalFrames == total
+                    && (string.IsNullOrEmpty(output) || outputPath == output)) return;
                 capturedFrames = captured;
                 totalFrames = total;
                 if (!string.IsNullOrEmpty(output)) outputPath = output;
@@ -724,6 +737,9 @@ namespace OrbitRender.Renderer
             var options = new RpcRenderOptions
             {
                 NoPreview = payload.NoPreview,
+                DiagnosticTiming = payload.DiagnosticTiming,
+                SettleFastPath = payload.SettleFastPath,
+                SampleGameplayAtOutputFrames = payload.SampleGameplayAtOutputFrames,
                 Preset = preset,
                 Width = payload.Width,
                 Height = payload.Height,
