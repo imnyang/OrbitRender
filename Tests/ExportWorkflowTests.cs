@@ -44,6 +44,7 @@ internal static class ExportWorkflowTests
         Assert(Compatible("AV1", "Ts") != null && Compatible("VP9", "Ts") != null
             && Compatible("H265", "Ts") == null, "MPEG-TS compatibility validation failed.");
         CheckProResBitrate(assembly);
+        CheckGameplayRenderedBeforeOverlayFrames(assembly);
 
         var pathsEqual = assembly.GetType("OrbitRender.Renderer.RendererController", true)
             .GetMethod("PathsEqual", Internal);
@@ -152,6 +153,34 @@ internal static class ExportWorkflowTests
         Call(queue, "Complete", Enum.Parse(stateType, "Completed"), "fifth.mp4", null);
         Assert(!(bool)Get(queue, "IsRunning") && !(bool)Get(queue, "HasPending"), "Completed queue kept running.");
         Console.WriteLine("PASS: inline validation boundaries/culture/tab targets and queue snapshots, order, single dispatch, pause/resume, map changes, failure/cancellation.");
+    }
+
+    // A replay's overlay-only frames run with Time.timeScale 0, so Time.deltaTime is 0
+    // in them. Camera Filter Pack filters advance their clock by Time.deltaTime while
+    // their camera renders, so rendering the gameplay cameras there froze them.
+    private static void CheckGameplayRenderedBeforeOverlayFrames(Assembly assembly)
+    {
+        var controller = assembly.GetType("OrbitRender.Renderer.RendererController", true);
+        MethodBase run = null;
+        foreach (var type in controller.GetNestedTypes(BindingFlags.NonPublic))
+            if (type.Name.StartsWith("<Run>d__", StringComparison.Ordinal))
+                run = type.GetMethod("MoveNext", Internal);
+        Assert(run != null, "The render coroutine was not found.");
+        var members = (IEnumerable)assembly.GetType("TUFReplayRenderer.Replay.ManagedInstructionReader", true)
+            .GetMethod("Members", Internal).Invoke(null, new object[] { run });
+        int index = 0, gameplayRender = -1, overlayFrames = -1;
+        foreach (MemberInfo member in members)
+        {
+            if (gameplayRender < 0 && member.Name == "RenderGameplayFrame"
+                && member.DeclaringType?.FullName == "OrbitRender.Renderer.FrameCapture")
+                gameplayRender = index;
+            if (overlayFrames < 0 && member.Name == "overlayRefreshOnly" && member.DeclaringType == controller)
+                overlayFrames = index;
+            index++;
+        }
+        Assert(gameplayRender >= 0 && overlayFrames >= 0, "The replay frame loop was not found.");
+        Assert(gameplayRender < overlayFrames,
+            "Gameplay cameras render after the replay's overlay-only frames, where Time.deltaTime is 0.");
     }
 
     private static void CheckProResBitrate(Assembly assembly)
