@@ -108,7 +108,10 @@ namespace OrbitRender
         internal string ResolveEncoder(VideoEncoder backend, bool nvidiaGpu, bool intelGpu, bool amdGpu,
             bool appleVideoToolbox = false)
         {
-            if ((backend == VideoEncoder.AppleVideoToolbox || (backend == VideoEncoder.Auto && appleVideoToolbox))
+            // Keep Auto's existing codec choices. HEVC VideoToolbox is an
+            // explicit speed/quality trade-off; only ProRes already used it automatically.
+            if ((backend == VideoEncoder.AppleVideoToolbox
+                || (backend == VideoEncoder.Auto && appleVideoToolbox && Codec == VideoCodec.ProRes))
                 && !string.IsNullOrEmpty(AppleEncoder)) return AppleEncoder;
             if (Codec == VideoCodec.ProRes || (Codec == VideoCodec.FFV1 && backend == VideoEncoder.Vaapi)) return SoftwareEncoder;
             if (backend == VideoEncoder.Vulkan)
@@ -148,7 +151,7 @@ namespace OrbitRender
             ".mp4");
         private static readonly VideoCodecDefinition H265 = new VideoCodecDefinition(
             VideoCodec.H265, "H.265 / HEVC", "libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf",
-            ".mp4");
+            ".mp4", appleEncoder: "hevc_videotoolbox");
         private static readonly VideoCodecDefinition VP9 = new VideoCodecDefinition(
             VideoCodec.VP9, "VP9", "libvpx-vp9", null, null, null,
             ".webm");
@@ -170,7 +173,10 @@ namespace OrbitRender
                 ? (string.Equals(encoder, "prores_videotoolbox", StringComparison.OrdinalIgnoreCase)
                     ? (ProResProfiles.HasAlpha(proResProfile) ? "bgra" : "p210le")
                     : (ProResProfiles.HasAlpha(proResProfile) ? "yuva444p10le" : "yuv422p10le"))
-                : depth == VideoBitDepth.Ten ? "yuv420p10le" : "yuv420p";
+                : depth == VideoBitDepth.Ten
+                    ? (string.Equals(encoder, "hevc_videotoolbox", StringComparison.OrdinalIgnoreCase)
+                        ? "p010le" : "yuv420p10le")
+                    : "yuv420p";
 
         internal static VideoCodecDefinition Get(VideoCodec codec)
         {

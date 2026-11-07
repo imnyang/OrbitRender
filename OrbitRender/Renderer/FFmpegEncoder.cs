@@ -37,6 +37,7 @@ namespace OrbitRender.Renderer
         private readonly BlockingCollection<Frame> work;
         private readonly StringBuilder stderr = new StringBuilder();
         private readonly Process process;
+        private readonly RenderPerformanceDiagnostics diagnostics = RenderPerformanceDiagnostics.Current;
         private Thread writer;
         private bool started;
         private readonly RawVideoPixelFormat rawPixelFormat;
@@ -120,7 +121,7 @@ namespace OrbitRender.Renderer
                 && (codec.IndexOf("vp9", StringComparison.OrdinalIgnoreCase) >= 0
                     || codec.IndexOf("av1", StringComparison.OrdinalIgnoreCase) >= 0))
                 throw new NotSupportedException("MPEG-TS output requires H.264 or H.265 video.");
-            if (!string.Equals(pixelFormat, "yuv420p10le", StringComparison.OrdinalIgnoreCase)) pixelFormat = "yuv420p";
+            pixelFormat = NormalizePixelFormat(codec, pixelFormat, proResProfile);
             if (!Enum.IsDefined(typeof(RawVideoPixelFormat), rawPixelFormat))
                 rawPixelFormat = RawVideoPixelFormat.Rgba32;
             this.rawPixelFormat = rawPixelFormat;
@@ -128,8 +129,6 @@ namespace OrbitRender.Renderer
             this.output = output;
             this.fps = fps;
             bool isHardwareEncoder = VideoCodecCatalog.IsHardwareEncoder(codec);
-            if (isProRes) pixelFormat = VideoCodecCatalog.PixelFormat(VideoCodec.ProRes,
-                VideoBitDepth.Ten, proResProfile, codec);
             bool isVaapi = codec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase);
             bool isVulkan = codec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase);
             bool fullRangeOutput = isVulkan || IsRgbPixelFormat(pixelFormat);
@@ -140,19 +139,7 @@ namespace OrbitRender.Renderer
             var bufferCount = RenderResources.BufferCount(frameByteCount, bufferPolicy);
             free = new BlockingCollection<Frame>(bufferCount);
             work = new BlockingCollection<Frame>(bufferCount);
-            var bufferSizeMbps = Math.Max(1, bitrateMbps * 2);
-            var rateControl = legacyCrf && string.Equals(codec, "libx264", StringComparison.OrdinalIgnoreCase)
-                ? "-crf 18"
-                : "-b:v " + bitrateMbps + "M -maxrate " + bitrateMbps + "M -bufsize " + bufferSizeMbps + "M";
-            if (string.Equals(codec, "libaom-av1", StringComparison.OrdinalIgnoreCase))
-            {
-                // libaom-av1 does not accept x264-style CBR flags. Use a target
-                // bitrate for audio renders and capped CRF for video-only
-                // renders so the existing quality/bitrate intent is retained.
-                rateControl = legacyCrf
-                    ? "-crf 30 -b:v 0"
-                    : "-b:v " + bitrateMbps + "M";
-            }
+            var rateControl = BuildRateControl(codec, bitrateMbps, legacyCrf);
             var encoderOptions = BuildEncoderOptions(codec, preset, rateControl, isHardwareEncoder, pixelFormat, proResProfile);
             process = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable,
@@ -218,7 +205,9 @@ namespace OrbitRender.Renderer
                     {
                         var writeStart = Stopwatch.GetTimestamp();
                         stream.Write(frame.Bytes, 0, frame.Bytes.Length);
-                        Interlocked.Add(ref writeTicks, Stopwatch.GetTimestamp() - writeStart);
+                        var elapsed = Stopwatch.GetTimestamp() - writeStart;
+                        Interlocked.Add(ref writeTicks, elapsed);
+                        if (diagnostics != null) diagnostics.RecordTicks(RenderPerformanceStage.EncoderPipeWrite, elapsed);
                         Interlocked.Increment(ref written);
                     }
                     if (frame.RepeatCount > 1) Interlocked.Add(ref repeatedFrames, frame.RepeatCount - 1);
@@ -257,13 +246,18 @@ namespace OrbitRender.Renderer
         }
         public Frame Rent()
         {
-            var timeout = Stopwatch.StartNew();
-            while (true)
+            var startedAt = Stopwatch.GetTimestamp();
+            try
             {
-                Check();
-                if (free.TryTake(out var frame, 100)) return frame;
-                if (timeout.Elapsed.TotalSeconds > 30) throw new TimeoutException("FFmpeg stopped consuming frames.");
+                while (true)
+                {
+                    Check();
+                    if (free.TryTake(out var frame, 100)) return frame;
+                    if ((Stopwatch.GetTimestamp() - startedAt) / (double)Stopwatch.Frequency > 30)
+                        throw new TimeoutException("FFmpeg stopped consuming frames.");
+                }
             }
+            finally { if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.EncoderBufferWait, startedAt); }
         }
 
         private static string NvencPreset(string preset)
@@ -331,10 +325,16 @@ namespace OrbitRender.Renderer
             // rejects bitrate/preset/threads arguments entirely.
             if (normalized.EndsWith("_vulkan", StringComparison.Ordinal))
                 return "-c:v " + normalized;
-            var tenBitHevc = string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
+            var tenBitHevc = (string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
+                    || string.Equals(pixelFormat, "p010le", StringComparison.Ordinal))
                 && (normalized == "libx265" || normalized == "hevc_nvenc"
-                    || normalized == "hevc_qsv" || normalized == "hevc_amf" || normalized == "hevc_vaapi");
+                    || normalized == "hevc_qsv" || normalized == "hevc_amf" || normalized == "hevc_vaapi"
+                    || normalized == "hevc_videotoolbox");
             var profile = tenBitHevc ? " -profile:v main10" : string.Empty;
+            if (normalized == "hevc_videotoolbox")
+                // VideoToolbox has no x264-style preset. Refuse its implicit
+                // software encoder so the existing preflight/fallback UI is authoritative.
+                return "-c:v hevc_videotoolbox -allow_sw 0 " + rateControl + profile;
             if (normalized.EndsWith("_vaapi", StringComparison.Ordinal))
                 // Leave driver-specific rate-control/quality selection on auto.
                 // VAAPI does not accept x264/NVENC preset names.
@@ -371,6 +371,40 @@ namespace OrbitRender.Renderer
                 + (string.Equals(preset, "ultrafast", StringComparison.OrdinalIgnoreCase)
                     && (normalized == "libx264" || normalized == "libx265")
                     ? " -tune zerolatency " : " ") + rateControl + profile;
+        }
+
+        private static string BuildRateControl(string codec, int bitrateMbps, bool legacyCrf)
+        {
+            if (string.Equals(codec, "libaom-av1", StringComparison.OrdinalIgnoreCase))
+                return legacyCrf ? "-crf 30 -b:v 0" : "-b:v " + bitrateMbps + "M";
+            if (legacyCrf && string.Equals(codec, "libx264", StringComparison.OrdinalIgnoreCase)) return "-crf 18";
+            return "-b:v " + bitrateMbps + "M -maxrate " + bitrateMbps
+                + "M -bufsize " + Math.Max(1, bitrateMbps * 2) + "M";
+        }
+
+        internal static string NormalizePixelFormat(string codec, string pixelFormat,
+            ProResProfile proResProfile = ProResProfile.HQ)
+        {
+            if (string.Equals(codec, "prores_ks", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(codec, "prores_videotoolbox", StringComparison.OrdinalIgnoreCase))
+                return VideoCodecCatalog.PixelFormat(VideoCodec.ProRes, VideoBitDepth.Ten, proResProfile, codec);
+            var tenBit = string.Equals(pixelFormat, "yuv420p10le", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(pixelFormat, "p010le", StringComparison.OrdinalIgnoreCase);
+            return tenBit ? (string.Equals(codec, "hevc_videotoolbox", StringComparison.OrdinalIgnoreCase)
+                ? "p010le" : "yuv420p10le") : "yuv420p";
+        }
+
+        internal static string[] BuildCompositionVideoArguments(string codec, string preset, int bitrateMbps,
+            string pixelFormat, ProResProfile proResProfile = ProResProfile.HQ)
+        {
+            // These are generated option tokens only; file paths are added and
+            // quoted separately by MediaCompositionPlan. Reuse the first-pass
+            // backend mapping so webcam composition retains the selected speed,
+            // bitrate, profile, lossless mode and bit depth.
+            pixelFormat = NormalizePixelFormat(codec, pixelFormat, proResProfile);
+            return (BuildEncoderOptions(codec, preset, BuildRateControl(codec, bitrateMbps, false),
+                VideoCodecCatalog.IsHardwareEncoder(codec), pixelFormat, proResProfile)
+                + " -pix_fmt " + pixelFormat).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         }
 
         private static string QsvPreset(string preset)
@@ -480,6 +514,7 @@ namespace OrbitRender.Renderer
             Check();
             work.Add(frame);
             var depth = work.Count;
+            if (diagnostics != null) diagnostics.ObserveQueue(RenderPerformanceQueue.Encoder, depth);
             while (true)
             {
                 var previous = Volatile.Read(ref peakQueueDepth);
@@ -489,15 +524,20 @@ namespace OrbitRender.Renderer
         }
         public void Finish(long expectedFrames)
         {
-            if (NativeBackend != null) { NativeBackend.Finish(expectedFrames, executable, output, fps); return; }
-            Check();
-            work.CompleteAdding();
-            if (!writer.Join(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg input did not finish."); }
-            if (failure != null) throw new IOException("FFmpeg input failed: " + ErrorText(), failure);
-            if (!process.WaitForExit(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg did not finalize the video."); }
-            process.WaitForExit(); // Drain asynchronous stderr events after process exit.
-            if (process.ExitCode != 0) throw new IOException("FFmpeg exited (" + process.ExitCode + "): " + ErrorText());
-            if (WrittenFrames != expectedFrames) throw new IOException("Encoded frame count does not match the render clock.");
+            var startedAt = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+            try
+            {
+                if (NativeBackend != null) { NativeBackend.Finish(expectedFrames, executable, output, fps); return; }
+                Check();
+                work.CompleteAdding();
+                if (!writer.Join(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg input did not finish."); }
+                if (failure != null) throw new IOException("FFmpeg input failed: " + ErrorText(), failure);
+                if (!process.WaitForExit(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg did not finalize the video."); }
+                process.WaitForExit(); // Drain asynchronous stderr events after process exit.
+                if (process.ExitCode != 0) throw new IOException("FFmpeg exited (" + process.ExitCode + "): " + ErrorText());
+                if (WrittenFrames != expectedFrames) throw new IOException("Encoded frame count does not match the render clock.");
+            }
+            finally { if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.EncoderDrain, startedAt); }
         }
         private void AbortProcess() { try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { } }
         internal static string ContainerOptions(string output)
