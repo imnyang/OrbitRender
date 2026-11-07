@@ -43,7 +43,7 @@ namespace OrbitRender.UI
 
         internal static void Open(scnEditor owner)
         {
-            if (owner == null || Main.Settings == null) return;
+            if (!Main.IsEditorScene || owner == null || Main.Settings == null) return;
             Close();
             editor = owner;
             draft = Draft.From(Main.Settings);

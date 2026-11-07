@@ -54,7 +54,7 @@ namespace OrbitRender.Renderer
         public RenderState State { get; private set; }
         public RenderClock Clock { get; private set; } = new RenderClock();
         public string Message { get; private set; } = Localization.Get("open-a-custom-level-then-render");
-        public string ToastText { get; private set; } = Localization.Get("open-a-custom-level-then-press-f6-to-render");
+        public string ToastText { get; private set; } = string.Empty;
         public string ProgressPercentText { get; private set; } = "";
         public string ProgressText { get; private set; } = "";
         public string EtaText { get; private set; } = "";
@@ -1567,7 +1567,8 @@ namespace OrbitRender.Renderer
             else if (State == RenderState.Idle)
             {
                 Message = Localization.Get("open-a-custom-level-then-render");
-                ToastText = Localization.Get("open-a-custom-level-then-press-f6-to-render");
+                ToastText = Localization.Format("open-a-custom-level-then-press-f6-to-render",
+                    Main.Settings == null ? "F6" : Main.Settings.FormatExportHotkey());
             }
 
             var uiStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1610,11 +1611,13 @@ namespace OrbitRender.Renderer
                 if (!recoveryRunning) UpdateForceCancelKey();
                 return;
             }
+            if (OrbitRender.UI.ExportVideoDialog.IsOpen) return;
             escapeHeldAt = -1;
             forceCancelTriggered = false;
             if (!Main.IsBatchMode
                 && (OrbitRender.UI.CompletionScreen.BlocksInput || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen)) return;
-            if (!Main.IsBatchMode && Input.GetKeyDown(KeyCode.F6) && Main.Enabled && ADOBase.editor != null
+            if (!Main.IsBatchMode && Main.IsEditorScene && Main.Settings != null && Main.Settings.IsExportHotkeyDown()
+                && Main.Enabled && ADOBase.editor != null
                 && !OrbitRender.UI.ExportVideoDialog.IsOpen)
             {
                 FfmpegInstaller.CheckForExport();

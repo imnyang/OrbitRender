@@ -91,6 +91,8 @@ namespace OrbitRender.UI
                 GUILayout.Label(Localization.Get("encoding"));
                 DrawEncodingSettings();
                 GUILayout.Space(8f);
+                DrawHotkeySettings();
+                GUILayout.Space(8f);
                 GUILayout.Label(Localization.Get("render-options"));
                 Settings.ShowRenderPreview = DrawLocalizedToggle(
                     Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
@@ -119,6 +121,49 @@ namespace OrbitRender.UI
             GUILayout.Label("Credit");
             GUILayout.Label(Localization.Format("credit-author", Entry.Info.Author));
             GUILayout.EndVertical();
+        }
+
+        private static void DrawHotkeySettings()
+        {
+            GUILayout.Label(Localization.Get("export-hotkey"));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.Format("export-hotkey-current", Settings.WaitingForExportHotkey
+                ? Localization.Get("press-a-key") : Settings.FormatExportHotkey()));
+            if (GUILayout.Button(Settings.WaitingForExportHotkey
+                ? Localization.Get("cancel") : Localization.Get("change-key"), GUILayout.Width(110f)))
+                Settings.WaitingForExportHotkey = !Settings.WaitingForExportHotkey;
+            GUILayout.EndHorizontal();
+            if (Settings.WaitingForExportHotkey)
+            {
+                var current = Event.current;
+                if (current != null && current.type == EventType.KeyDown)
+                {
+                    if (current.keyCode == KeyCode.Escape) Settings.WaitingForExportHotkey = false;
+                    else Settings.CaptureExportHotkey(current.keyCode);
+                    current.Use();
+                }
+            }
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.Get("hotkey-modifier"), GUILayout.ExpandWidth(false));
+            var modifierIndex = Settings.ExportHotkeyModifier == KeyCode.None ? 0
+                : Settings.ExportHotkeyModifier == KeyCode.LeftControl ? 1
+                : Settings.ExportHotkeyModifier == KeyCode.LeftAlt ? 2 : 3;
+            modifierIndex = GUILayout.SelectionGrid(modifierIndex,
+                new[] { Localization.Get("none"), "Ctrl + Shift", "Alt", "Shift" }, 4);
+            Settings.ExportHotkeyModifier = modifierIndex == 0 ? KeyCode.None
+                : modifierIndex == 1 ? KeyCode.LeftControl
+                : modifierIndex == 2 ? KeyCode.LeftAlt : KeyCode.LeftShift;
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.Get("hotkey-key"), GUILayout.ExpandWidth(false));
+            var keys = new[] { KeyCode.E, KeyCode.F6, KeyCode.F7, KeyCode.F8, KeyCode.F9, KeyCode.F10,
+                KeyCode.F11, KeyCode.F12, KeyCode.K, KeyCode.R };
+            var labels = new[] { "E", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "K", "R" };
+            var selected = Array.IndexOf(keys, Settings.ExportHotkey);
+            if (selected < 0) selected = 0;
+            Settings.ExportHotkey = keys[GUILayout.SelectionGrid(selected, labels, 5)];
+            GUILayout.EndHorizontal();
+            GUILayout.Label(Localization.Format("export-hotkey-current", Settings.FormatExportHotkey()));
         }
 
         private static void DrawRenderSettings()

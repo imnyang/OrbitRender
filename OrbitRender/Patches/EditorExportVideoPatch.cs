@@ -68,6 +68,7 @@ namespace OrbitRender.Patches
 
         private static void ExportVideo(scnEditor editor)
         {
+            if (!Main.IsEditorScene) return;
             var renderer = RendererController.Instance;
             if (renderer == null)
             {

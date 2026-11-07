@@ -27,6 +27,18 @@ namespace OrbitRender
         internal static int MainThreadId { get; private set; } = -1;
         internal static bool IsMainThread => MainThreadId == Thread.CurrentThread.ManagedThreadId;
 
+        internal static bool IsEditorScene
+        {
+            get
+            {
+                var editor = ADOBase.editor;
+                return SceneManager.GetActiveScene().name == "scnEditor"
+                    && editor != null && !editor.playMode
+                    && (ADOBase.controller == null || !ADOBase.controller.isActiveAndEnabled
+                        || ADOBase.controller.playerOne == null);
+            }
+        }
+
         public static bool Load(UnityModManager.ModEntry entry)
         {
             Entry = entry;

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using UnityModManagerNet;
+using UnityEngine;
 
 namespace OrbitRender
 {
@@ -65,9 +66,22 @@ namespace OrbitRender
 
     public sealed class RendererSettings : UnityModManager.ModSettings, IDrawable
     {
+        private const int CurrentSettingsVersion = 1;
         [Draw(DrawType.Ignore)]
         public System.Collections.Generic.List<UserRenderPreset> UserPresets =
             new System.Collections.Generic.List<UserRenderPreset>();
+
+        [Draw(DrawType.Ignore)]
+        public int SettingsVersion = CurrentSettingsVersion;
+
+        [Draw(DrawType.Ignore)]
+        public KeyCode ExportHotkey = KeyCode.F6;
+
+        [Draw(DrawType.Ignore)]
+        public KeyCode ExportHotkeyModifier = KeyCode.None;
+
+        [Draw(DrawType.Ignore)]
+        public bool WaitingForExportHotkey;
 
         private const int MinWidth = 320;
         private const int MaxWidth = 3840;
@@ -186,6 +200,9 @@ namespace OrbitRender
 
         public void OnChange()
         {
+            if (!Enum.IsDefined(typeof(KeyCode), ExportHotkey) || ExportHotkey == KeyCode.None)
+                ExportHotkey = KeyCode.F6;
+            if (!Enum.IsDefined(typeof(KeyCode), ExportHotkeyModifier)) ExportHotkeyModifier = KeyCode.None;
             if (!Enum.IsDefined(typeof(OrbitRender.Renderer.FrameBufferPolicy), BufferPolicy))
                 BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
             // Selecting a built-in preset also copies its resolution and
@@ -207,6 +224,39 @@ namespace OrbitRender
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
             EndDelaySeconds = Math.Max(0f, EndDelaySeconds);
             AudioGainDb = ClampAudioGainDb(AudioGainDb);
+        }
+
+        internal bool IsExportHotkeyDown()
+        {
+            var modifiers = ExportHotkeyModifier;
+            if (modifiers != KeyCode.None && !UnityEngine.Input.GetKey(modifiers)) return false;
+            if (modifiers == KeyCode.LeftControl
+                && !UnityEngine.Input.GetKey(KeyCode.LeftShift) && !UnityEngine.Input.GetKey(KeyCode.RightShift)) return false;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl))
+                if (modifiers != KeyCode.LeftControl && ExportHotkey != KeyCode.LeftControl && ExportHotkey != KeyCode.RightControl) return false;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift))
+                if (modifiers != KeyCode.LeftControl && modifiers != KeyCode.LeftShift
+                    && ExportHotkey != KeyCode.LeftShift && ExportHotkey != KeyCode.RightShift) return false;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftAlt) || UnityEngine.Input.GetKey(KeyCode.RightAlt))
+                if (modifiers != KeyCode.LeftAlt && ExportHotkey != KeyCode.LeftAlt && ExportHotkey != KeyCode.RightAlt) return false;
+            return UnityEngine.Input.GetKeyDown(ExportHotkey);
+        }
+
+        internal string FormatExportHotkey()
+        {
+            var modifier = ExportHotkeyModifier == KeyCode.LeftControl ? "Ctrl + Shift"
+                : ExportHotkeyModifier == KeyCode.LeftAlt ? "Alt"
+                : ExportHotkeyModifier == KeyCode.LeftShift ? "Shift" : string.Empty;
+            return string.IsNullOrEmpty(modifier) ? ExportHotkey.ToString() : modifier + " + " + ExportHotkey;
+        }
+
+        internal void CaptureExportHotkey(KeyCode key)
+        {
+            if (key == KeyCode.None || key == KeyCode.Escape || key == KeyCode.LeftControl
+                || key == KeyCode.RightControl || key == KeyCode.LeftShift || key == KeyCode.RightShift
+                || key == KeyCode.LeftAlt || key == KeyCode.RightAlt) return;
+            ExportHotkey = key;
+            WaitingForExportHotkey = false;
         }
 
         internal void ResetToDefaults()
@@ -304,12 +354,23 @@ namespace OrbitRender
         public override void Save(UnityModManager.ModEntry modEntry)
         {
             Normalize();
+            SettingsVersion = CurrentSettingsVersion;
             Save(this, modEntry);
         }
 
         public static RendererSettings Load(UnityModManager.ModEntry modEntry)
         {
-            var settings = UnityModManager.ModSettings.Load<RendererSettings>(modEntry) ?? new RendererSettings();
+            var loaded = UnityModManager.ModSettings.Load<RendererSettings>(modEntry);
+            var settings = loaded ?? new RendererSettings();
+            // Existing installs have a settings file but no hotkey fields.
+            // Keep their long-standing F6 binding during the migration.
+            if (loaded != null && settings.SettingsVersion < CurrentSettingsVersion)
+            {
+                settings.ExportHotkey = KeyCode.F6;
+                settings.ExportHotkeyModifier = KeyCode.None;
+                settings.SettingsVersion = CurrentSettingsVersion;
+                settings.Save(modEntry);
+            }
             settings.Normalize();
             return settings;
         }
