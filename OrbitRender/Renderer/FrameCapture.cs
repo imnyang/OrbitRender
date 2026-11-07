@@ -145,6 +145,7 @@ namespace OrbitRender.Renderer
         private readonly int height;
         private readonly bool replayOverlays;
         private readonly bool captureOverlays;
+        private readonly HostedReplayDriver replayHost;
         private readonly scrCamera gameCamera;
         private readonly float originalZoomSize;
         private readonly Vector2 originalOffset;
@@ -202,10 +203,12 @@ namespace OrbitRender.Renderer
             public int Layer;
         }
 
-        public FrameCapture(FFmpegEncoder encoder, int width, int height,
-            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false, bool replayOverlays = false)
+        internal FrameCapture(FFmpegEncoder encoder, int width, int height,
+            IEnumerable<Canvas> captureCanvases = null, bool showModOverlay = false, bool replayOverlays = false,
+            HostedReplayDriver replayHost = null)
         {
             this.replayOverlays = replayOverlays;
+            this.replayHost = replayHost;
             captureOverlays = showModOverlay;
             manualGameplay = manualGameplay || replayOverlays;
             this.encoder = encoder;
@@ -244,14 +247,20 @@ namespace OrbitRender.Renderer
                 if (captureCanvases != null)
                     foreach (var canvas in captureCanvases)
                         if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
-                // Explicit overlay providers participate only when the user
-                // enabled Mod Overlay (or when a replay render forces it).
+                // Mod overlays participate only when the user enabled Mod
+                // Overlay (or when a replay render forces it). In a replay the
+                // host also returns the canvases of overlay and key-viewer mods.
                 if (showModOverlay)
                 {
-                    foreach (var canvas in OverlayApi.CaptureCanvases())
-                        if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
+                    if (replayHost != null)
+                        foreach (var canvas in replayHost.CaptureCanvases())
+                            if (canvas != null) captureCanvasSet.Add(canvas.rootCanvas ?? canvas);
+                    // Only the host's mods get the recorded keys. Other key viewers
+                    // would show nothing, or the keys pressed during the render, so
+                    // a hosted replay finds mod canvases the way a normal render does.
+                    bool keyViewersFollowInput = replayOverlays && replayHost == null;
                     foreach (var canvas in UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                        if (IsModOverlay(canvas, replayOverlays)) captureCanvasSet.Add(canvas);
+                        if (IsModOverlay(canvas, keyViewersFollowInput)) captureCanvasSet.Add(canvas);
                 }
                 if (captureCanvasSet.Count > 0)
                     CreateHudOverlay(captureCanvasSet);
@@ -683,7 +692,7 @@ namespace OrbitRender.Renderer
                     property.SetValue(text, value.Substring(0, kps), null);
                 }
             }
-            if (captureOverlays) OverlayApi.BeforeOverlayCapture(replayOverlays);
+            if (captureOverlays) replayHost?.BeforeCapture();
             try
             {
                 if (replayOverlays)
@@ -696,7 +705,7 @@ namespace OrbitRender.Renderer
             }
             finally
             {
-                if (captureOverlays) OverlayApi.AfterOverlayCapture(replayOverlays);
+                if (captureOverlays) replayHost?.AfterCapture();
                 foreach (var pair in jrpBpmTexts)
                     if (pair.Key != null) pair.Key.GetType().GetProperty("text")?.SetValue(pair.Key, pair.Value, null);
                 foreach (var position in jrpPositions)

@@ -106,8 +106,11 @@ namespace OrbitRender.Renderer
         private string fileNameFormatForRun;
         private SavedState saved;
         private JrpRenderGuard jrpRenderGuard;
-        private TUFReplayRenderer.Contracts.RecordingBundle replayBundle;
-        private TUFReplayRenderer.Replay.RecordedReplayDriver replayDriver;
+        // The hosted replay request and the host adapter bound when its job was created.
+        private HostedReplayRequest replayRequest;
+        private HostedReplayDriver replayHost;
+        // Set where the replay starts driving the render, as the recorded driver was.
+        private HostedReplayDriver replayDriver;
         private TUFReplayRenderer.Replay.OptionalModClock replayOverlayClock;
         private RenderReplaySession replaySession;
         private int replayFrameUnityIndex = -1;
@@ -216,9 +219,10 @@ namespace OrbitRender.Renderer
 
         private void PrepareRenderRequest(RenderRequestOptions requestOptions)
         {
-            replayBundle = string.IsNullOrWhiteSpace(requestOptions?.ReplayManifestPath)
-                ? null : TUFReplayRenderer.Contracts.RecordingBundle.Load(requestOptions.ReplayManifestPath);
-            if (replayBundle != null) { replayBundle.ValidateLevelHash(); TUFReplayRenderer.Media.SelectedMediaFiles.Validate(replayBundle, null); }
+            replayHost = requestOptions?.HostedReplay;
+            replayRequest = replayHost?.Request;
+            // The host validates the level hash; media can still vanish while the job waits.
+            replayRequest?.ValidateMedia();
             replayMusicScheduled = false;
             if (!Main.IsBatchMode) OrbitRender.UI.AudioPreview.Stop();
             if (!Main.IsBatchMode && FfmpegInstaller.IsDownloading)
@@ -282,7 +286,7 @@ namespace OrbitRender.Renderer
                 ?? settings.ShowHitJudgments;
             showModOverlayForRun = requestOptions?.ShowModOverlay ?? rpcOptions?.ShowModOverlay
                 ?? settings.ShowModOverlay;
-            showGameplayHudForRun = replayBundle != null || (requestOptions?.ShowAllGameplayHud ?? settings.ShowAllGameplayHud);
+            showGameplayHudForRun = replayRequest != null || (requestOptions?.ShowAllGameplayHud ?? settings.ShowAllGameplayHud);
             fileNameFormatForRun = requestOptions?.FileNameFormat ?? settings.FileNameFormat;
             profile = settings.ResolveProfile(
                 requestOptions?.Preset ?? rpcOptions?.Preset,
@@ -518,16 +522,14 @@ namespace OrbitRender.Renderer
         {
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
-            OverlayApi.BeginSession(replayBundle != null, profile.Width, profile.Height, profile.VideoFps,
-                replayBundle?.Manifest.OverlayStates);
-            jrpRenderGuard = replayBundle != null || OverlayApi.IsRegistered("JipperResourcePack")
-                ? null : JrpRenderGuard.Begin();
+            // Replay overlays, JRP included, belong to the replay host.
+            jrpRenderGuard = replayRequest != null ? null : JrpRenderGuard.Begin();
             RenderTimingPatches.Apply();
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
             ValidateLoadedLevel();
-            if (replayBundle != null && !PathsEqual(level.levelPath, replayBundle.ResolveLevelPath()))
-                throw new InvalidOperationException("Open the level referenced by the replay bundle before rendering.");
+            if (replayRequest != null && !PathsEqual(level.levelPath, replayRequest.LevelPath))
+                throw new InvalidOperationException("Open the level referenced by the replay before rendering.");
             ValidateSelection();
             LogRenderChain("before render preparation", level);
             string invalidReason = null;
@@ -548,7 +550,7 @@ namespace OrbitRender.Renderer
             var directory = outputDirectoryForRun ?? settings.ResolveOutputDirectory();
             Directory.CreateDirectory(directory);
             string name;
-            if (replayBundle != null)
+            if (replayRequest != null)
             {
                 var now = DateTime.Now;
                 var mapName = OutputFormat.ReplayNamedDirectory(level.levelData?.song);
@@ -561,7 +563,7 @@ namespace OrbitRender.Renderer
                     { replayDirectory = null; }
                 }
                 name = replayDirectory == null
-                    ? OutputFormat.ReplayFileName(replayBundle.ResolveLevelPath(), replayBundle.Manifest.Level.FileSha256, now, outputDirectoryChosenForRun)
+                    ? OutputFormat.ReplayFileName(replayRequest.LevelPath, replayRequest.LevelFileSha256, now, outputDirectoryChosenForRun)
                     : Path.Combine(replayFolder, OutputFormat.ReplayFileStem(now));
             }
             else name = OutputFormat.FileName(fileNameFormatForRun,
@@ -575,7 +577,7 @@ namespace OrbitRender.Renderer
             saved = new SavedState();
             SuspendSkyHook();
             PrepareAudioConfiguration();
-            if (replayBundle == null) OverrideInputOffsetForRender();
+            if (replayRequest == null) OverrideInputOffsetForRender();
             MaximizeRenderPerformance();
             encoder = new FFmpegEncoder(FFmpegPath, partialPath, profile.Width, profile.Height,
                 profile.VideoFps, profile.BitrateMbps, profile.FfmpegPreset, !captureAudioForRun,
@@ -607,16 +609,17 @@ namespace OrbitRender.Renderer
             // Volume-driven tile colors need live song audio even in video-only renders.
             AudioListener.pause = false;
             Persistence.skipIntroBehavior = SkipIntroBehavior.Off;
-            GCS.checkpointNum = replayBundle != null ? replayBundle.Manifest.Replay.StartTile : 0;
+            GCS.checkpointNum = replayRequest != null ? replayRequest.StartTile : 0;
             RDC.auto = false; // Preserve the normal countdown, avoiding the editor's fast-takeoff shortcut.
             // Keep the separate hit-judgment option available when the HUD is hidden.
             RDC.noHud = !showGameplayHudForRun && !showHitJudgmentsForRun;
             RDC.noAutoHud = !showGameplayHudForRun;
             yield return null;
-            if (replayBundle != null)
+            if (replayRequest != null)
             {
-                replayDriver = new TUFReplayRenderer.Replay.RecordedReplayDriver(replayBundle, endDelaySeconds: profile.EndDelaySeconds);
-                replayOverlayClock = TUFReplayRenderer.Replay.OptionalModClock.Begin(replayDriver, message => Main.Entry.Logger.Log("[Replay] " + message));
+                replayDriver = replayHost;
+                replayOverlayClock = TUFReplayRenderer.Replay.OptionalModClock.Begin(replayDriver.VideoTimeSource,
+                    message => Main.Entry.Logger.Log("[Replay] " + message));
                 replayDriver.PrepareBeforeRender();
             }
             // Decode the complete clip before gameplay starts. Replacing or
@@ -629,7 +632,7 @@ namespace OrbitRender.Renderer
             {
                 // A single selected floor makes editor.Play use the game's
                 // checkpoint/Scrub path, including its effect reconstruction.
-                var startTile = replayBundle != null ? replayBundle.Manifest.Replay.StartTile : selectionStartTileForRun ?? 0;
+                var startTile = replayRequest != null ? replayRequest.StartTile : selectionStartTileForRun ?? 0;
                 editor.SelectFloor(editor.floors.First(f => f != null && f.seqID == startTile), cameraJump: false);
                 CameraFilterPatch.ResetRuntimeState();
                 editor.Play();
@@ -638,7 +641,7 @@ namespace OrbitRender.Renderer
             else
             {
                 level.ResetScene();
-                var startTile = replayBundle != null ? replayBundle.Manifest.Replay.StartTile : 0;
+                var startTile = replayRequest != null ? replayRequest.StartTile : 0;
                 if (!level.Play(startTile)) throw new InvalidOperationException("Custom Level playback could not start.");
                 // The official preparation coroutine warms filters over two frames.
                 int preparationFrames = 0;
@@ -682,8 +685,9 @@ namespace OrbitRender.Renderer
             LogRenderChain("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun, showGameplayHudForRun);
-            if (replayDriver == null && showGameplayHudForRun && editor != null)
-                TUFReplayRenderer.Replay.ReplayHitErrorMeter.Activate(null);
+            // Replay renders use the same meter path as editor renders with the full HUD.
+            if (showGameplayHudForRun && (replayDriver != null || editor != null))
+                TUFReplayRenderer.Replay.ReplayHitErrorMeter.Activate();
             if (replayDriver != null)
             {
                 var context = new RenderReplayContext(Clock, profile.Width, profile.Height, profile.VideoFps,
@@ -694,7 +698,7 @@ namespace OrbitRender.Renderer
             var renderCanvases = showGameplayHudForRun
                 ? defaultText.CaptureCanvases.Concat(TUFReplayRenderer.Replay.ReplayHitErrorMeter.CaptureCanvases())
                 : defaultText.CaptureCanvases;
-            capture = new FrameCapture(encoder, profile.Width, profile.Height, renderCanvases, showModOverlayForRun || showGameplayHudForRun, showGameplayHudForRun);
+            capture = new FrameCapture(encoder, profile.Width, profile.Height, renderCanvases, showModOverlayForRun || showGameplayHudForRun, showGameplayHudForRun, replayDriver);
             if (useRustRendererForRun)
                 capture.TryEnableNative(profile);
             encoder.Check();
@@ -1179,27 +1183,22 @@ namespace OrbitRender.Renderer
         // Replays keep the recorded input offset so judgments match the run.
         // ADOFAI draws the planets one input offset behind the song it mixes,
         // so all output audio starts that much later to stay on the picture.
-        private double ReplayAudioDelaySeconds => replayBundle != null
-            ? replayBundle.Manifest.Replay.GameInputOffsetMs / 1000d : 0.0;
+        private double ReplayAudioDelaySeconds => replayRequest != null
+            ? replayRequest.GameInputOffsetMs / 1000d : 0.0;
 
-        private bool HasReplayMedia()
-        {
-            var media = replayBundle?.Manifest.Media;
-            return media?["webcam"] is Newtonsoft.Json.Linq.JObject || media?["microphone"] is Newtonsoft.Json.Linq.JObject;
-        }
+        private bool HasReplayMedia() => replayRequest?.HasMedia == true;
 
         private void ComposeReplayMedia(string input, string output, bool hasGameAudio)
         {
-            var media = replayBundle.Manifest.Media;
-            var webcam = media["webcam"] as Newtonsoft.Json.Linq.JObject;
-            var microphone = media["microphone"] as Newtonsoft.Json.Linq.JObject;
-            string cameraPath = webcam == null ? null : replayBundle.ResolveFile((string)webcam["path"]);
-            string microphonePath = microphone == null ? null : replayBundle.ResolveFile((string)microphone["path"]);
+            var webcam = replayRequest.MediaEntry("webcam");
+            var microphone = replayRequest.MediaEntry("microphone");
+            string cameraPath = replayRequest.MediaPath("webcam");
+            string microphonePath = replayRequest.MediaPath("microphone");
             Main.Entry.Logger.Log("[Replay] Media settings: webcam offset=" + (webcam?["offsetMs"]?.ToString() ?? "n/a")
                 + " ms, microphone latency=" + (microphone?["latencyUs"]?.ToString() ?? "n/a")
                 + " us, microphone gain=" + (microphone?["volume"]?.ToString() ?? "n/a") + ".");
             var timeline = new TUFReplayRenderer.Media.RenderTimeline(replayDriver.GameplayStartVideoTimeUs ?? 0,
-                replayDriver.GameplayRate, replayBundle.Manifest.Replay.WonTimeUs);
+                replayDriver.GameplayRate, replayRequest.WonTimeUs);
             var compositionCodec = profile.FfmpegCodec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
                 || profile.FfmpegCodec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase)
                 ? VideoCodecCatalog.Get(profile.VideoCodec).SoftwareEncoder : profile.FfmpegCodec;
@@ -1901,7 +1900,7 @@ namespace OrbitRender.Renderer
 
             job.SetState(RpcJobState.Preparing);
             rpcLoadRoutine = null;
-            StartRender(new RenderRequestOptions { ReplayManifestPath = job.ReplayManifestPath });
+            StartRender(new RenderRequestOptions { HostedReplay = job.HostedReplay });
         }
 
         private static void OpenLevelEditorScene()
@@ -2074,14 +2073,15 @@ namespace OrbitRender.Renderer
             Main.Entry.Logger.Error("[Render] Failed: " + ex);
         }
 
-        // Keeps the structured fields (code/field/line/file) that the recording
-        // bundle parser produces so callers can show a precise message instead
-        // of a generic "render failed".
+        // Keeps structured fields (code/field/line/file) so callers can show a
+        // precise message instead of a generic "render failed". A replay host's
+        // exception may carry its own code the same way, read by name.
         private static RenderErrorDetails DescribeFailure(Exception exception)
         {
-            var format = exception as TUFReplayRenderer.Contracts.RecordingFormatException
-                ?? exception?.InnerException as TUFReplayRenderer.Contracts.RecordingFormatException;
-            if (format != null) return RenderErrorDetails.From(format);
+            var request = exception as RenderRequestException ?? exception?.InnerException as RenderRequestException;
+            if (request != null) return RenderErrorDetails.From(request);
+            var hosted = RenderErrorDetails.FromHostException(exception) ?? RenderErrorDetails.FromHostException(exception?.InnerException);
+            if (hosted != null) return hosted;
             var timeout = exception as TimeoutException;
             if (timeout != null) return RenderErrorDetails.Create("render_preparation_timeout", timeout.Message);
             var missing = exception as FileNotFoundException;
@@ -2113,13 +2113,14 @@ namespace OrbitRender.Renderer
             useGUILayout = true;
             TryCleanup(() => replaySession?.End(State));
             replaySession = null;
-            if (replayDriver == null) TryCleanup(() => TUFReplayRenderer.Replay.ReplayHitErrorMeter.Deactivate(null));
+            TryCleanup(TUFReplayRenderer.Replay.ReplayHitErrorMeter.Deactivate);
             TryCleanup(() => replayDriver?.RestoreAfterRender());
             replayDriver = null;
             TryCleanup(() => replayOverlayClock?.Dispose());
             replayOverlayClock = null;
             overlayRefreshOnly = false;
-            replayBundle = null;
+            replayRequest = null;
+            replayHost = null;
             replayFrameUnityIndex = -1;
             // Clear patch ownership before calling any normal game reset methods.
             var restore = saved;
@@ -2173,9 +2174,6 @@ namespace OrbitRender.Renderer
                 if (!preserveRecovery && !string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
             TryCleanup(RestoreSkyHook);
-            // Providers keep ownership through the game restore above so a
-            // replay cannot write persistent records on Hide/Show.
-            TryCleanup(OverlayApi.EndSession);
             if (editorRecoveryRoutine == null) { TryCleanup(() => jrpRenderGuard?.Dispose()); jrpRenderGuard = null; }
             if (capturedAudio && !shuttingDown)
                 audioDeviceRecovery.Begin(Time.realtimeSinceStartupAsDouble, AudioSettings.dspTime);
