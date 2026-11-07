@@ -56,7 +56,10 @@ namespace OrbitRender.Renderer
         public void Write(byte[] bytes, int count)
         {
             if (inputClosed) throw new InvalidOperationException("Audio encoder input is closed.");
-            input.Write(bytes, 0, count);
+            var diagnostics = RenderPerformanceDiagnostics.Current;
+            var start = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+            try { input.Write(bytes, 0, count); }
+            finally { if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioPipeWrite, start); }
         }
 
         public void CloseInput()

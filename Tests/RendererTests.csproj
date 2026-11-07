@@ -7,6 +7,7 @@
   <FrameworkPathOverride Condition="Exists('..\packages\net48\build\.NETFramework\v4.8')">$(MSBuildProjectDirectory)\..\packages\net48\build\.NETFramework\v4.8</FrameworkPathOverride>
  </PropertyGroup>
  <ItemGroup>
+  <Compile Include="RenderPerformanceDiagnosticsTests.cs"/><Compile Include="..\OrbitRender\Renderer\RenderPerformanceDiagnostics.cs"/>
   <Reference Include="mscorlib"><Private>false</Private></Reference>
   <Reference Include="0Harmony"><HintPath>../packages/0Harmony.dll</HintPath><Private>true</Private></Reference>
   <Reference Include="System.Xml"><Private>false</Private></Reference>
