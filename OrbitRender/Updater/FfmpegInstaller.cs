@@ -175,6 +175,19 @@ namespace OrbitRender
             }
         }
 
+        internal static void CheckForExport()
+        {
+            if (!NeedsInstallation || IsInstallPromptVisible || IsDownloading) return;
+            var current = Interlocked.CompareExchange(ref state, NotStarted, NotStarted);
+            if (current == Failed || current == Declined)
+            {
+                if (installSettings != null) installSettings.FfmpegInstallPrompted = false;
+                if (Interlocked.CompareExchange(ref state, NotStarted, current) != current) return;
+            }
+            if (Interlocked.CompareExchange(ref state, NotStarted, NotStarted) == NotStarted)
+                Start(installEntry, installSettings);
+        }
+
         internal static string StatusMessage
         {
             get

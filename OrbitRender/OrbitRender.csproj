@@ -89,6 +89,12 @@
   <Copy SourceFiles="../ipc/vendor/LICENSE_MANAGED_WEBSOCKET.txt" DestinationFolder="$(TargetDir)" />
   <Copy SourceFiles="@(DistributionContent)" DestinationFiles="@(DistributionContent->'$(DistributionStagingDirectory)/%(Filename)%(Extension)')" />
   <Copy SourceFiles="@(NativeDistributionContent)" DestinationFiles="@(NativeDistributionContent->'$(DistributionStagingDirectory)/%(TargetName)')" />
+  <Copy SourceFiles="../LICENSE.md;../LICENSE-EXCEPTION" DestinationFolder="$(DistributionStagingDirectory)" />
+  <MakeDir Directories="$(DistributionStagingDirectory)/docs" />
+  <ItemGroup>
+   <DistributionLicense Include="$(DistributionStagingDirectory)/*LICENSE*" />
+  </ItemGroup>
+  <Move SourceFiles="@(DistributionLicense)" DestinationFolder="$(DistributionStagingDirectory)/docs" />
   <ZipDirectory SourceDirectory="$(DistributionStagingDirectory)" DestinationFile="$(DistributionZip)" />
   <Message Text="Distribution ZIP: $(DistributionZip)" Importance="high" />
  </Target>

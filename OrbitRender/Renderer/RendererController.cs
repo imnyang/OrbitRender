@@ -1615,9 +1615,12 @@ namespace OrbitRender.Renderer
             if (!Main.IsBatchMode
                 && (OrbitRender.UI.CompletionScreen.BlocksInput || OrbitRender.UI.NoticeModal.IsOpen || OrbitRender.UI.PresetSaveModal.IsOpen)) return;
             if (!Main.IsBatchMode && Input.GetKeyDown(KeyCode.F6) && Main.Enabled && ADOBase.editor != null
-                && !OrbitRender.UI.ExportVideoDialog.IsOpen
-                && !FfmpegInstaller.IsInstallPromptVisible)
+                && !OrbitRender.UI.ExportVideoDialog.IsOpen)
+            {
+                FfmpegInstaller.CheckForExport();
+                if (FfmpegInstaller.NeedsInstallation || FfmpegInstaller.IsInstallPromptVisible) return;
                 OrbitRender.UI.ExportVideoDialog.Open(ADOBase.editor);
+            }
         }
 
         private void UpdateForceCancelKey()
