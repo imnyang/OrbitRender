@@ -94,6 +94,14 @@ namespace OrbitRender.UI
                 GUILayout.Label(Localization.Get("render-options"));
                 Settings.ShowRenderPreview = DrawLocalizedToggle(
                     Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
+                Settings.DiagnosticTiming = DrawLocalizedToggle(
+                    Localization.Get("diagnostic-timing"), Settings.DiagnosticTiming);
+                Settings.SettleFastPath = DrawLocalizedToggle(
+                    Localization.Get("settle-fast-path"), Settings.SettleFastPath);
+                Settings.SampleGameplayAtOutputFrames = DrawLocalizedToggle(
+                    Localization.Get("sample-gameplay-at-output-frames"), Settings.SampleGameplayAtOutputFrames);
+                if (Settings.SettleFastPath || Settings.SampleGameplayAtOutputFrames)
+                    GUILayout.Label(Localization.Get("render-performance-experimental-warning"));
                 Settings.OpenOutputFolder = DrawLocalizedToggle(
                     Localization.Get("open-output-folder-after-render"), Settings.OpenOutputFolder);
                 GUILayout.Space(8f);

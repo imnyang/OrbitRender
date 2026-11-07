@@ -14,6 +14,18 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 1 && args[0] == "--performance")
+            {
+                RenderPerformanceDiagnosticsTests.Run();
+                CaptureCacheTests.Run();
+                RenderPerformancePolicyTests.Run();
+                return 0;
+            }
+            if (args.Length == 3 && args[0] == "--encoder-performance")
+            {
+                EncoderPerformanceTests.Run(args[1], args[2]);
+                return 0;
+            }
             if (args.Length == 1 && args[0] == "--audio-device-recovery") { AudioDeviceRecoveryTests.Run(); return 0; }
             if (args.Length == 1 && args[0] == "--process-stress")
             {
@@ -26,9 +38,8 @@ internal static class Program
                 Thread.Sleep(5000);
                 return 0;
             }
-            if (args.Length == 1 && args[0] == "--tuf-replay-parser") { TUFReplayRenderer.Tests.ParserTests.Run(); Console.WriteLine("TUF replay parser tests passed."); return 0; }
+            if (args.Length == 1 && args[0] == "--hosted-replay-contract") { HostedReplayContractTests.Run(); return 0; }
             if (args.Length == 1 && args[0] == "--tuf-media-plan") { ReplayMediaPlanTests.Run(); return 0; }
-            if (args.Length == 1 && args[0] == "--tuf-korean-key") { KoreanReplayKeyTests.Run(); return 0; }
             if (args.Length == 1 && args[0] == "--jrp-guard") { JrpGuardTests.Run(); return 0; }
             RenderResourceTests.Run();
             if (args.Length == 3 && args[0] == "--prores")
@@ -74,9 +85,14 @@ internal static class Program
                 Console.WriteLine("Filename template tests passed.");
                 return 0;
             }
-            if (args.Length != 2) throw new ArgumentException("Pass ffmpeg.exe and a test output directory.");
+            // Keep catalog availability checks in the default full suite.
+            // This explicit selector exercises the same frame/audio pipeline
+            // on FFmpeg builds without optional codecs such as libaom-av1.
+            var framePipelineOnly = args.Length == 3 && args[0] == "--frame-pipeline";
+            if (framePipelineOnly) args = new[] { args[1], args[2] };
+            if (args.Length != 2) throw new ArgumentException("Pass ffmpeg.exe and a test output directory, optionally preceded by --frame-pipeline.");
             Directory.CreateDirectory(args[1]);
-            TestOutputFormats(args[0], args[1]);
+            if (!framePipelineOnly) TestOutputFormats(args[0], args[1]);
             var clock = new RenderClock();
             for (int i = 0; i < 60 * 60 * 4 * 60; i++) clock.Advance();
             Assert(clock.Time == 14400, "Four-hour clock drift.");
@@ -112,8 +128,9 @@ internal static class Program
                 var columns = decoded[i].Split(',');
                 Assert(long.Parse(columns[2]) == i && int.Parse(columns[3]) == 1, "Frame timestamp or duration mismatch.");
             }
-            if (!string.Equals(Environment.GetEnvironmentVariable("ORBIT_RENDER_SKIP_TRANSPORT_TEST"), "1",
-                StringComparison.Ordinal))
+            var testTransport = !string.Equals(Environment.GetEnvironmentVariable("ORBIT_RENDER_SKIP_TRANSPORT_TEST"), "1",
+                StringComparison.Ordinal);
+            if (testTransport)
             {
                 var rgbaTransport = Path.Combine(args[1], "transport-rgba.mp4");
                 var rgbTransport = Path.Combine(args[1], "transport-rgb.mp4");
@@ -225,6 +242,15 @@ internal static class Program
                 "Advanced audio mux dropped video frames.");
             Assert(MeanVolume(args[0], advancedMuxed, "0:0.7") > -40 && MeanVolume(args[0], advancedMuxed, "0.8:1") < -80,
                 "Advanced replay audio was not padded with silence at the end.");
+            if (framePipelineOnly)
+            {
+                Console.WriteLine("PASS: frame pipeline; four-hour clock, DSP anchoring, pitch/offset, 60-frame fast/delayed hash equality,"
+                    + " 24-frame custom FPS, two 60-frame duplicate/grouped streams, frame order, cancellation, encoder failure,"
+                    + " BT.709 tags, AAC mux/copy, concurrent gain, selection offset and positive/negative replay audio delay; "
+                    + (testTransport ? "six-frame RGB24/RGBA transport comparison passed." : "transport test explicitly skipped by environment.")
+                    + " Catalog availability and codec suites are separate; the default full suite is unchanged.");
+                return 0;
+            }
             TestVideoCodecs(args[0], args[1]);
             TestProRes(args[0], args[1]);
             ProResTests.Run(args[0], args[1]);

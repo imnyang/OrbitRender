@@ -72,7 +72,8 @@ namespace OrbitRender.Renderer
                     var backends = codec == VideoCodec.ProRes
                         ? new[] { VideoEncoder.AppleVideoToolbox, VideoEncoder.Software }
                         : new[] { VideoEncoder.NvidiaNvenc, VideoEncoder.IntelQsv,
-                            VideoEncoder.AmdAmf, VideoEncoder.Vaapi, VideoEncoder.Vulkan, VideoEncoder.Software };
+                            VideoEncoder.AmdAmf, VideoEncoder.Vaapi, VideoEncoder.Vulkan, VideoEncoder.Software,
+                            VideoEncoder.AppleVideoToolbox };
                     foreach (var backend in backends)
                     {
                         var encoder = definition.ResolveEncoder(backend, false, false, false);

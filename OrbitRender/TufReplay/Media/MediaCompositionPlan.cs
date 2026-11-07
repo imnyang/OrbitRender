@@ -142,7 +142,7 @@ public sealed class MediaCompositionPlan
     {
         int index = encoding == null ? -1 : Array.IndexOf(encoding, "-pix_fmt");
         string pixel = index >= 0 && index + 1 < encoding.Length ? encoding[index + 1] : "yuv420p";
-        return pixel == "yuv420p10le" ? "yuv420p10"
+        return pixel == "yuv420p10le" || pixel == "p010le" ? "yuv420p10"
             : pixel == "yuv422p10le" || pixel == "p210le" ? "yuv422p10"
             : pixel == "yuva444p10le" ? "yuv444p10"
             : pixel == "bgra" || pixel == "rgba" ? "rgb" : "yuv420";

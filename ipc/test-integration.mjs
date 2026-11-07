@@ -35,6 +35,10 @@ try {
   const health = await channel.health();
   assert.equal(health.ok, true);
   assert.equal(health.renderer, "idle");
+  // Replays are rendered through TUFReplay's hosted replay API, not recording bundles.
+  // With no job queued yet, only the replayManifestPath refusal can reject this request.
+  await assert.rejects(channel.createRender({ options: { levelPath, replayManifestPath: levelPath } }), { code: "handler_failed" });
+  assert.equal((await channel.listJobs()).length, 0);
   const accepted = await channel.createRender({ options: { levelPath, videoFps: 60, bgaMode: false } });
   assert.ok(accepted.id);
   const status = await channel.renderStatus({ id: accepted.id });

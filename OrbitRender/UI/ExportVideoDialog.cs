@@ -425,6 +425,12 @@ namespace OrbitRender.UI
                         UiLayout.LabelFontSize, 44f, UguiFactory.Muted);
                 }
                 AddToggle(Localization.Get("use-rust-renderer"), draft.UseRustRenderer, v => draft.UseRustRenderer = v);
+                AddToggle(Localization.Get("diagnostic-timing"), draft.DiagnosticTiming, v => draft.DiagnosticTiming = v);
+                AddToggle(Localization.Get("settle-fast-path"), draft.SettleFastPath, v => { draft.SettleFastPath = v; RebuildContent(); });
+                AddToggle(Localization.Get("sample-gameplay-at-output-frames"), draft.SampleGameplayAtOutputFrames,
+                    v => { draft.SampleGameplayAtOutputFrames = v; RebuildContent(); });
+                if (draft.SettleFastPath || draft.SampleGameplayAtOutputFrames)
+                    AddLabel(Localization.Get("render-performance-experimental-warning"), 11, 60f, UguiFactory.Muted);
                 AddToggle(Localization.Get("show-render-preview"), draft.ShowRenderPreview, v => draft.ShowRenderPreview = v);
                 AddToggle(Localization.Get("open-output-folder-after-render"), draft.OpenOutputFolder, v => draft.OpenOutputFolder = v);
             }
@@ -850,6 +856,7 @@ namespace OrbitRender.UI
             internal float AudioGainDb;
             internal bool UseRustRenderer, CaptureAudio, ShowRenderPreview, BgaMode, ShowPlanetRings, ShowSongTitle, ShowCountdown,
                 ShowResultText, ShowHitJudgments, ShowModOverlay, ShowAllGameplayHud, OpenOutputFolder, SaveAsDefault;
+            internal bool DiagnosticTiming, SettleFastPath, SampleGameplayAtOutputFrames;
             internal EncoderSpeed Encoding; internal VideoEncoder Encoder; internal VideoCodec Codec; internal VideoBitDepth BitDepth;
             internal ProResProfile ProResProfile;
             // ProRes derives its bitrate from the profile. Shared validation,
@@ -864,6 +871,8 @@ namespace OrbitRender.UI
                 BitrateText = s.BitrateMbps.ToString(CultureInfo.InvariantCulture), EndDelayText = s.EndDelaySeconds.ToString("0.##", CultureInfo.InvariantCulture),
                 AudioGainDb = RendererSettings.ClampAudioGainDb(s.AudioGainDb), CaptureAudio = s.CaptureAudio, AudioCodec = s.AudioCodec,
                 UseRustRenderer = s.UseRustRenderer, ShowRenderPreview = s.ShowRenderPreview, BgaMode = s.BgaMode, ShowPlanetRings = s.ShowPlanetRings,
+                DiagnosticTiming = s.DiagnosticTiming, SettleFastPath = s.SettleFastPath,
+                SampleGameplayAtOutputFrames = s.SampleGameplayAtOutputFrames,
                 ShowSongTitle = s.ShowSongTitle, ShowCountdown = s.ShowCountdown, ShowResultText = s.ShowResultText,
                 ShowHitJudgments = s.ShowHitJudgments, ShowModOverlay = s.ShowModOverlay, ShowAllGameplayHud = s.ShowAllGameplayHud, OpenOutputFolder = s.OpenOutputFolder, Encoding = s.Encoding,
                 Encoder = s.Encoder, Codec = s.Codec, BitDepth = s.BitDepth, ProResProfile = s.ProResProfile,
@@ -899,12 +908,14 @@ namespace OrbitRender.UI
                 options=new RenderRequestOptions { Preset=Preset,BufferPolicy=BufferPolicy,EndDelaySeconds=endDelay,CaptureAudio=CaptureAudio,AudioGainDb=RendererSettings.ClampAudioGainDb(AudioGainDb),
                     AudioCodec=AudioCodecCatalog.CompatibleSelection(AudioCodec,OutputFormat.Extension(Container,Codec)),
                     UseRustRenderer=UseRustRenderer,ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
+                    DiagnosticTiming=DiagnosticTiming,SettleFastPath=SettleFastPath,SampleGameplayAtOutputFrames=SampleGameplayAtOutputFrames,
                     ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,ShowModOverlay=ShowModOverlay,ShowAllGameplayHud=ShowAllGameplayHud,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
                     ProResProfile=ProResProfile,Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
                 if(Preset==RendererPreset.Custom){options.Width=width;options.Height=height;options.BitrateMbps=bitrate;} return true; }
             internal void ApplyTo(RendererSettings s, RenderRequestOptions o)
             { s.BufferPolicy=BufferPolicy;s.UseRustRenderer=UseRustRenderer;s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;if(Codec!=VideoCodec.ProRes)s.BitrateMbps=o.BitrateMbps.Value;}
                 s.EndDelaySeconds=o.EndDelaySeconds.Value;s.CaptureAudio=CaptureAudio;s.AudioGainDb=o.AudioGainDb.Value;s.AudioCodec=o.AudioCodec.Value;s.ShowRenderPreview=ShowRenderPreview;s.BgaMode=BgaMode;
+                s.DiagnosticTiming=DiagnosticTiming;s.SettleFastPath=SettleFastPath;s.SampleGameplayAtOutputFrames=SampleGameplayAtOutputFrames;
                 s.ShowPlanetRings=ShowPlanetRings;s.ShowSongTitle=ShowSongTitle;s.ShowCountdown=ShowCountdown;s.ShowResultText=ShowResultText;s.ShowHitJudgments=ShowHitJudgments;s.ShowModOverlay=ShowModOverlay;s.ShowAllGameplayHud=ShowAllGameplayHud;
                 s.ProResProfile=ProResProfile;s.Container=Container;s.FileNameFormat=FileNameFormat;s.Encoding=Encoding;s.Encoder=Encoder;s.Codec=Codec;s.BitDepth=BitDepth;s.OpenOutputFolder=OpenOutputFolder;s.OnChange(); }
             private void SetVideoValues(int w,int h,int f,int vf,int b){WidthText=w.ToString(CultureInfo.InvariantCulture);HeightText=h.ToString(CultureInfo.InvariantCulture);

@@ -5,7 +5,8 @@ namespace OrbitRender.Renderer
     public sealed class RenderRequestOptions
     {
         internal RenderRequestOptions Snapshot() => (RenderRequestOptions)MemberwiseClone();
-        public string ReplayManifestPath;
+        // The TUFReplay host adapter for a hosted replay job; null for a normal render.
+        internal HostedReplayDriver HostedReplay;
         public string OutputDirectory;
         public RendererPreset? Preset;
         public int? Width;
@@ -20,6 +21,9 @@ namespace OrbitRender.Renderer
         public bool? ShowRenderPreview;
         public bool? NoPreview;
         public bool? UseRustRenderer;
+        public bool? DiagnosticTiming;
+        public bool? SettleFastPath;
+        public bool? SampleGameplayAtOutputFrames;
         public FrameBufferPolicy? BufferPolicy;
         public bool? BgaMode;
         public bool? ShowPlanetRings;

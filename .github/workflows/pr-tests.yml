@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           $test = './Tests/bin/Release/RendererTests.exe'
-          foreach ($suite in @('--tuf-replay-parser', '--tuf-media-plan', '--tuf-korean-key', '--jrp-guard', '--filename-template')) {
+          foreach ($suite in @('--hosted-replay-contract', '--tuf-media-plan', '--jrp-guard', '--filename-template')) {
             & $test $suite
             if ($LASTEXITCODE -ne 0) { throw "Test failed: $suite" }
           }

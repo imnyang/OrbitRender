@@ -29,11 +29,13 @@ namespace OrbitRender.Renderer
         private long captureTicks;
         private long concurrentWriteTicks;
         private long concurrentFinishTicks;
+        private string captureMode = "not-started";
         public int SampleRate { get; private set; }
         public int Channels { get; private set; }
         public long SampleFrames { get; private set; }
         public float Peak { get; private set; }
         public bool NeedsRealtimePacing => useListenerOutputFallback;
+        internal string CaptureMode => captureMode;
         // Late sound effects must be scheduled after the captured DSP boundary.
         public double RenderedUntilDsp(double dspOrigin)
         {
@@ -82,7 +84,10 @@ namespace OrbitRender.Renderer
             }
             finally
             {
-                concurrentFinishTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
+                var elapsed = System.Diagnostics.Stopwatch.GetTimestamp() - start;
+                concurrentFinishTicks += elapsed;
+                var diagnostics = RenderPerformanceDiagnostics.Current;
+                if (diagnostics != null) diagnostics.RecordTicks(RenderPerformanceStage.AudioDrain, elapsed);
                 encoder.Dispose();
             }
         }
@@ -116,6 +121,9 @@ namespace OrbitRender.Renderer
                 useFilterFallback = false;
                 // Live listener polling is only safe when AudioRenderer never started.
                 useListenerOutputFallback = !started && listenerOutputAvailable;
+                captureMode = started ? "AudioRenderer" : useListenerOutputFallback
+                    ? "AudioListener.GetOutputData (AudioRenderer.Start returned false)"
+                    : "unavailable (AudioRenderer.Start returned false; listener output unavailable)";
                 Main.Entry.Logger.Log(filter == null
                     ? "[Audio] AudioListener filter unavailable on the mixed listener."
                     : "[Audio] AudioListener filter fallback attached and waiting for mixer samples.");
@@ -125,6 +133,7 @@ namespace OrbitRender.Renderer
 
         public void CaptureFrame(long videoFrameIndex, int fps)
         {
+            var diagnostics = RenderPerformanceDiagnostics.Current;
             var captureStart = System.Diagnostics.Stopwatch.GetTimestamp();
             var previousCaptureFramerate = Time.captureFramerate;
             try
@@ -147,11 +156,14 @@ namespace OrbitRender.Renderer
                 }
 
                 if (!started) return;
+                var diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
                 int count = AudioRenderer.GetSampleCountForCaptureFrame();
+                if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioQuery, diagnosticStart);
                 // A zero read may be temporary; a later block can include those samples.
                 if (count == 0)
                 {
                     zeroSampleReads++;
+                    if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.AudioZeroReads);
                     if (TryUseFilterFallback()) CaptureFilterSamples(expectedSamples - SampleFrames);
                     return;
                 }
@@ -167,23 +179,31 @@ namespace OrbitRender.Renderer
                 {
                     if (samples.IsCreated) samples.Dispose();
                     samples = new NativeArray<float>(length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                    if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.AudioBufferAllocations);
                     EnsureManagedBuffers(length);
                 }
-                if (!AudioRenderer.Render(samples))
+                diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+                bool rendered = AudioRenderer.Render(samples);
+                if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioRender, diagnosticStart);
+                if (!rendered)
                 {
                     zeroSampleReads++;
+                    if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.AudioRenderFailures);
                     if (TryUseFilterFallback()) CaptureFilterSamples(expectedSamples - SampleFrames);
                     return;
                 }
+                diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
                 NativeArray<float>.Copy(samples, managed, length);
+                if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioCopy, diagnosticStart);
                 WriteManagedSamples(count * Channels);
             }
             finally
             {
                 if (Time.captureFramerate != previousCaptureFramerate)
                     Time.captureFramerate = previousCaptureFramerate;
-                System.Threading.Interlocked.Add(ref captureTicks,
-                    System.Diagnostics.Stopwatch.GetTimestamp() - captureStart);
+                var elapsed = System.Diagnostics.Stopwatch.GetTimestamp() - captureStart;
+                System.Threading.Interlocked.Add(ref captureTicks, elapsed);
+                if (diagnostics != null) diagnostics.RecordTicks(RenderPerformanceStage.AudioCapture, elapsed);
             }
         }
 
@@ -260,6 +280,8 @@ namespace OrbitRender.Renderer
         private void AppendSilence(long sampleFrames)
         {
             if (sampleFrames <= 0) return;
+            var diagnostics = RenderPerformanceDiagnostics.Current;
+            if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.AudioSilenceFrames, sampleFrames);
             int chunkFrames = Math.Max(1, Math.Min(16384, SampleRate));
             int chunkBytes = checked(chunkFrames * Channels * sizeof(float));
             if (bytes == null || bytes.Length < chunkBytes) bytes = new byte[chunkBytes];
@@ -267,7 +289,9 @@ namespace OrbitRender.Renderer
             while (sampleFrames > 0)
             {
                 int frames = (int)Math.Min(chunkFrames, sampleFrames);
+                var diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
                 stream.Write(bytes, 0, checked(frames * Channels * sizeof(float)));
+                if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioWavWrite, diagnosticStart);
                 WriteConcurrent(bytes, checked(frames * Channels * sizeof(float)));
                 sampleFrames -= frames;
             }
@@ -322,6 +346,7 @@ namespace OrbitRender.Renderer
         {
             if (filter == null || filter.AvailableSamples < Channels) return false;
             useFilterFallback = true;
+            captureMode = "AudioListener filter (AudioRenderer unavailable or returned empty/failed blocks)";
             filterSamplesToDiscard = checked(SampleFrames * Channels);
             return true;
         }
@@ -364,14 +389,22 @@ namespace OrbitRender.Renderer
 
         private void WriteManagedSamples(int sampleValues)
         {
+            var diagnostics = RenderPerformanceDiagnostics.Current;
             ValidateWavDataSize(checked(stream.Length - 44 + (long)sampleValues * sizeof(float)));
+            var diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
             var peak = Peak;
             for (int i = 0; i < sampleValues; i++) peak = Math.Max(peak, Math.Abs(managed[i]));
             Peak = peak;
+            if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioPeakScan, diagnosticStart);
+            diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
             Buffer.BlockCopy(managed, 0, bytes, 0, checked(sampleValues * sizeof(float)));
+            if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioCopy, diagnosticStart);
+            diagnosticStart = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
             stream.Write(bytes, 0, checked(sampleValues * sizeof(float)));
+            if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.AudioWavWrite, diagnosticStart);
             WriteConcurrent(bytes, checked(sampleValues * sizeof(float)));
             SampleFrames += sampleValues / Channels;
+            if (diagnostics != null) diagnostics.Increment(RenderPerformanceCounter.AudioSampleFrames, sampleValues / Channels);
         }
 
         public void Dispose()

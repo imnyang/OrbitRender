@@ -269,3 +269,7 @@ field-prores-container = ProRes requires Auto (MOV), MOV or MKV. Choose a compat
 field-ffv1-container = FFV1 requires MKV. Choose a compatible output format.
 lossless = Lossless
 field-ts-container = MPEG-TS requires H.264 or H.265. Choose another codec or output format.
+diagnostic-timing = Save render stage timings (.performance.txt beside the video)
+settle-fast-path = Experimental: skip refresh frames when the replay host certifies completion
+sample-gameplay-at-output-frames = Experimental: render gameplay cameras only for output samples
+render-performance-experimental-warning = These options can change effects or game timing. Compare frames, judgments and audio before using them; disable camera sampling for temporal or feedback effects.

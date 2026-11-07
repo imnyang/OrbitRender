@@ -8,18 +8,14 @@ using OrbitRender;
 
 namespace OrbitRender.Renderer
 {
-    internal static class RenderErrorCodes
+    // Codes a hosted replay request or host can produce are in HostedReplayRequest.cs.
+    internal static partial class RenderErrorCodes
     {
         internal const string RendererUnavailable = "renderer_unavailable";
         internal const string Busy = "render_busy";
-        internal const string LevelPathMissing = "render_level_path_missing";
-        internal const string LevelPathInvalid = "render_level_path_invalid";
         internal const string LevelMissing = "render_level_missing";
-        internal const string LevelMismatch = "render_level_mismatch";
         internal const string LevelFileMissing = "level_file_missing";
-        internal const string OptionsInvalid = "render_options_invalid";
-        internal const string ManifestMissing = "render_manifest_missing";
-        internal const string ManifestInvalid = "render_manifest_invalid";
+        internal const string ReplayManifestUnsupported = "render_replay_manifest_unsupported";
         internal const string JobUnknown = "render_job_unknown";
         internal const string JobFinished = "render_job_finished";
         internal const string Failed = "render_failed";
@@ -50,9 +46,47 @@ namespace OrbitRender.Renderer
             };
         }
 
-        internal static RenderErrorDetails From(TUFReplayRenderer.Contracts.RecordingFormatException exception)
+        internal static RenderErrorDetails From(RenderRequestException exception)
         {
-            return Create(exception.Code, exception.Message, exception.Field, exception.Line, exception.File);
+            return Create(exception.Code, exception.Message, exception.Field, file: exception.File);
+        }
+
+        /// <summary>
+        /// Reads the optional public Code/Field/Line/File properties of an
+        /// exception the replay host threw, so its precise error code reaches the
+        /// job status. Runs once per failure, never per frame.
+        /// </summary>
+        internal static RenderErrorDetails FromHostException(Exception exception)
+        {
+            if (exception == null) return null;
+            try
+            {
+                var type = exception.GetType();
+                var code = Read<string>(type, exception, "Code");
+                if (!IsErrorCode(code)) return null;
+                return Create(code, exception.Message, Read<string>(type, exception, "Field"),
+                    Read<int?>(type, exception, "Line"), Read<string>(type, exception, "File"));
+            }
+            catch (Exception) { return null; }
+        }
+
+        // Error codes are lower-case snake_case, such as render_input_key_unsupported.
+        private static bool IsErrorCode(string code)
+        {
+            if (string.IsNullOrEmpty(code) || code.Length > 128 || code[0] < 'a' || code[0] > 'z') return false;
+            foreach (var c in code)
+                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) return false;
+            return true;
+        }
+
+        private static T Read<T>(Type type, object instance, string name)
+        {
+            var property = type.GetProperty(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            if (property == null || property.GetIndexParameters().Length != 0) return default(T);
+            var value = property.GetValue(instance, null);
+            if (value is T typed) return typed;
+            if (typeof(T) == typeof(int?) && value is int number) return (T)(object)(int?)number;
+            return default(T);
         }
     }
 
@@ -70,6 +104,9 @@ namespace OrbitRender.Renderer
     {
         public string OutputDirectory;
         public bool? NoPreview;
+        public bool? DiagnosticTiming;
+        public bool? SettleFastPath;
+        public bool? SampleGameplayAtOutputFrames;
         public RendererPreset? Preset;
         public int? Width;
         public int? Height;
@@ -95,6 +132,7 @@ namespace OrbitRender.Renderer
             get
             {
                 return OutputDirectory != null || NoPreview.HasValue || Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
+                    || DiagnosticTiming.HasValue || SettleFastPath.HasValue || SampleGameplayAtOutputFrames.HasValue
                     || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
                     || ShowPlanetRings.HasValue
                     || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
@@ -108,6 +146,9 @@ namespace OrbitRender.Renderer
             return new
             {
                 preset = Preset.HasValue ? Preset.Value.ToString() : null,
+                diagnosticTiming = DiagnosticTiming,
+                settleFastPath = SettleFastPath,
+                sampleGameplayAtOutputFrames = SampleGameplayAtOutputFrames,
                 width = Width,
                 height = Height,
                 targetFps = TargetFps,
@@ -168,7 +209,11 @@ namespace OrbitRender.Renderer
     internal sealed class RpcRenderPayload
     {
         [JsonProperty("noPreview")] public bool? NoPreview { get; set; }
+        [JsonProperty("diagnosticTiming")] public bool? DiagnosticTiming { get; set; }
+        [JsonProperty("settleFastPath")] public bool? SettleFastPath { get; set; }
+        [JsonProperty("sampleGameplayAtOutputFrames")] public bool? SampleGameplayAtOutputFrames { get; set; }
         [JsonProperty("levelPath")] public string LevelPath { get; set; }
+        // Recording bundles are no longer rendered here; read only to refuse them clearly.
         [JsonProperty("replayManifestPath")] public string ReplayManifestPath { get; set; }
         [JsonProperty("path")] public string Path { get; set; }
         [JsonProperty("preset")] public string Preset { get; set; }
@@ -215,19 +260,20 @@ namespace OrbitRender.Renderer
         {
         }
 
-        public RpcRenderJob(string id, string levelPath, bool captureAudio, RpcRenderOptions options,
-            string replayManifestPath)
+        internal RpcRenderJob(string id, string levelPath, bool captureAudio, RpcRenderOptions options,
+            HostedReplayDriver hostedReplay)
         {
             Id = id;
             LevelPath = levelPath;
             CaptureAudio = captureAudio;
             Options = options;
-            ReplayManifestPath = replayManifestPath;
+            HostedReplay = hostedReplay;
         }
 
         public string Id { get; }
         public string LevelPath { get; }
-        public string ReplayManifestPath { get; }
+        /// <summary>The TUFReplay host adapter for a hosted replay job, or null for a normal render.</summary>
+        internal HostedReplayDriver HostedReplay { get; }
         public bool CaptureAudio { get; }
         public RpcRenderOptions Options { get; }
 
@@ -238,6 +284,7 @@ namespace OrbitRender.Renderer
                 // Job state only moves forward. A late callback from a finished
                 // render must not resurrect a terminal job for the caller.
                 if (IsTerminalState(state) && !IsTerminalState(value)) return;
+                if (state == value && message == info) return;
                 state = value;
                 message = info;
                 updatedUtc = DateTime.UtcNow;
@@ -248,6 +295,8 @@ namespace OrbitRender.Renderer
         {
             lock (sync)
             {
+                if (capturedFrames == captured && totalFrames == total
+                    && (string.IsNullOrEmpty(output) || outputPath == output)) return;
                 capturedFrames = captured;
                 totalFrames = total;
                 if (!string.IsNullOrEmpty(output)) outputPath = output;
@@ -459,50 +508,25 @@ namespace OrbitRender.Renderer
         }
 
         /// <summary>
-        /// Validates the request, resolves the recorded level, and queues a job.
+        /// Validates the request, resolves the level, and queues a job.
         /// Returns false with a structured error instead of throwing so the
-        /// reflection boundary stays exception-free.
+        /// reflection boundary stays exception-free. A hosted replay passes its
+        /// bound host adapter; its request is the only source of the level.
         /// </summary>
         internal bool TryCreate(RpcRenderPayload payload, out RenderJobSnapshot job, out RenderErrorDetails error,
-            string outputDirectory = null)
+            string outputDirectory = null, HostedReplayDriver hostedReplay = null)
         {
             job = null;
             error = null;
-            string levelPath = payload?.LevelPath ?? payload?.Path;
-            string manifestPath = payload?.ReplayManifestPath;
-            string[] warnings = Array.Empty<string>();
-
-            if (!string.IsNullOrWhiteSpace(manifestPath))
+            if (!string.IsNullOrWhiteSpace(payload?.ReplayManifestPath))
             {
-                TUFReplayRenderer.Contracts.RecordingBundle bundle;
-                try { bundle = TUFReplayRenderer.Contracts.RecordingBundle.Load(manifestPath); }
-                catch (TUFReplayRenderer.Contracts.RecordingFormatException exception)
-                {
-                    error = RenderErrorDetails.From(exception);
-                    return false;
-                }
-                catch (Exception exception)
-                {
-                    error = RenderErrorDetails.Create(RenderErrorCodes.ManifestInvalid,
-                        "Invalid replay bundle: " + exception.Message, "replayManifestPath", file: "manifest.json");
-                    return false;
-                }
-                string replayLevel;
-                try { replayLevel = bundle.ResolveLevelPath(); }
-                catch (TUFReplayRenderer.Contracts.RecordingFormatException exception)
-                {
-                    error = RenderErrorDetails.From(exception);
-                    return false;
-                }
-                if (!string.IsNullOrWhiteSpace(levelPath) && !PathEquals(levelPath, replayLevel))
-                {
-                    error = RenderErrorDetails.Create(RenderErrorCodes.LevelMismatch,
-                        "The replay does not match the requested level.", "levelPath", file: "manifest.json");
-                    return false;
-                }
-                levelPath = replayLevel;
-                warnings = bundle.Manifest.Warnings ?? Array.Empty<string>();
+                error = RenderErrorDetails.Create(RenderErrorCodes.ReplayManifestUnsupported,
+                    "OrbitRender no longer renders recording bundles. Render the replay from TUFReplay.",
+                    "replayManifestPath");
+                return false;
             }
+            string levelPath = hostedReplay != null ? hostedReplay.Request.LevelPath : payload?.LevelPath ?? payload?.Path;
+            string[] warnings = hostedReplay?.Request.Warnings ?? Array.Empty<string>();
 
             if (string.IsNullOrWhiteSpace(levelPath))
             {
@@ -549,7 +573,7 @@ namespace OrbitRender.Renderer
                 var id = Guid.NewGuid().ToString("N");
                 var renderJob = new RpcRenderJob(id, levelPath,
                     payload.CaptureAudio ?? payload.Audio ?? (Main.Settings == null || Main.Settings.CaptureAudio),
-                    options, manifestPath);
+                    options, hostedReplay);
                 if (warnings.Length > 0) renderJob.SetWarnings(warnings);
                 jobs[id] = renderJob;
                 current.EnqueueRpcRender(new RpcRenderRequest { Job = renderJob });
@@ -572,20 +596,6 @@ namespace OrbitRender.Renderer
             {
                 if (jobs.Count <= MaxJobs) break;
                 jobs.TryRemove(job.Id, out _);
-            }
-        }
-
-        private static bool PathEquals(string left, string right)
-        {
-            try
-            {
-                return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right),
-                    Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-            }
-            catch (Exception exception) when (exception is ArgumentException || exception is NotSupportedException
-                || exception is PathTooLongException)
-            {
-                return false;
             }
         }
 
@@ -727,6 +737,9 @@ namespace OrbitRender.Renderer
             var options = new RpcRenderOptions
             {
                 NoPreview = payload.NoPreview,
+                DiagnosticTiming = payload.DiagnosticTiming,
+                SettleFastPath = payload.SettleFastPath,
+                SampleGameplayAtOutputFrames = payload.SampleGameplayAtOutputFrames,
                 Preset = preset,
                 Width = payload.Width,
                 Height = payload.Height,

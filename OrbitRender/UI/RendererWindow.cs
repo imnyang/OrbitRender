@@ -13,6 +13,13 @@ namespace OrbitRender.UI
         private static GameObject backdropObject, panelObject;
         private static GameObject metrics;
         private static RawImage preview;
+        private static AspectRatioFitter previewFitter;
+        private static Button[] renderButtons;
+        private static Text pauseQueueLabel;
+        private static ProgressUpdateCadence progressCadence;
+        private static RenderState displayedState;
+        private static bool displayedToast;
+        private static string displayedMessage;
         private static Button pauseQueue;
         private static Text state, title, detail, percent, frames, speed, eta, hint, path, elapsedLabel;
         private static Image progress;
@@ -41,7 +48,18 @@ namespace OrbitRender.UI
                 || (nextMode == 3 && (builtRenderState != renderer.State
                     || builtShowProgress != HasProgress(renderer)))) Build(nextMode, renderer);
             if (nextMode == 1) UpdateFfmpeg();
-            else if (nextMode == 3) UpdateRender(renderer);
+            else if (nextMode == 3)
+            {
+                UpdatePreview(renderer);
+                bool changed = displayedState != renderer.State || displayedToast != renderer.ToastVisible
+                    || displayedMessage != renderer.Message;
+                if (progressCadence.ShouldPublish(System.Diagnostics.Stopwatch.GetTimestamp(), changed))
+                {
+                    displayedState = renderer.State; displayedToast = renderer.ToastVisible;
+                    displayedMessage = renderer.Message;
+                    UpdateRender(renderer);
+                }
+            }
             else if (nextMode == 4) CompletionScreen.Sync(renderer);
         }
 
@@ -55,6 +73,7 @@ namespace OrbitRender.UI
             installerActions = null;
             installerConfirm = installerDecline = null;
             pauseQueue = null;
+            previewFitter = null; renderButtons = null; pauseQueueLabel = null; progressCadence = null;
         }
 
         private static void Hide()
@@ -88,9 +107,12 @@ namespace OrbitRender.UI
                 preview.color = Color.white;
                 preview.raycastTarget = false;
                 UguiFactory.Stretch(preview.rectTransform);
-                var fitter = previewObject.AddComponent<AspectRatioFitter>();
-                fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+                previewFitter = previewObject.AddComponent<AspectRatioFitter>();
+                previewFitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
                 BuildRenderCard(renderer);
+                renderButtons = panelObject.GetComponentsInChildren<Button>(true);
+                pauseQueueLabel = pauseQueue != null ? pauseQueue.GetComponentInChildren<Text>() : null;
+                progressCadence = new ProgressUpdateCadence(System.Diagnostics.Stopwatch.Frequency);
             }
             else if (nextMode == 2) BuildEncoderPrompt(renderer);
             else BuildFfmpegPrompt();
@@ -221,23 +243,33 @@ namespace OrbitRender.UI
         private static bool HasProgress(RendererController renderer) => renderer.TotalFrames > 0
             && (renderer.State == RenderState.Rendering || renderer.State == RenderState.Finishing);
 
+        private static void UpdatePreview(RendererController renderer)
+        {
+            var texture = renderer.RenderPreviewTexture;
+            SetActive(preview.gameObject, renderer.State == RenderState.Rendering && renderer.ShowPreviewForRun && texture != null);
+            if (preview.texture != texture) preview.texture = texture;
+            if (texture != null)
+            {
+                float ratio = texture.width / (float)Mathf.Max(1, texture.height);
+                if (previewFitter.aspectRatio != ratio) previewFitter.aspectRatio = ratio;
+            }
+        }
+
+        private static void SetActive(GameObject target, bool active)
+        {
+            if (target.activeSelf != active) target.SetActive(active);
+        }
+
         private static void UpdateRender(RendererController renderer)
         {
-            canvasObject.SetActive(true);
-            var busyBackdrop = renderer.Busy;
-            backdropObject.SetActive(busyBackdrop);
-            preview.gameObject.SetActive(renderer.State == RenderState.Rendering && renderer.ShowPreviewForRun
-                && renderer.RenderPreviewTexture != null);
-            preview.texture = renderer.RenderPreviewTexture;
-            if (renderer.RenderPreviewTexture != null)
-                preview.GetComponent<AspectRatioFitter>().aspectRatio =
-                    renderer.RenderPreviewTexture.width / (float)Mathf.Max(1, renderer.RenderPreviewTexture.height);
-            panelObject.SetActive(renderer.ToastVisible || renderer.EncoderFallbackPending);
+            SetActive(canvasObject, true);
+            SetActive(backdropObject, renderer.Busy);
+            SetActive(panelObject, renderer.ToastVisible || renderer.EncoderFallbackPending);
             if (!panelObject.activeSelf) return;
             if (pauseQueue != null)
             {
                 pauseQueue.interactable = RendererController.Queue.IsRunning;
-                pauseQueue.GetComponentInChildren<Text>().text = Localization.Get(RendererController.Queue.IsRunning
+                pauseQueueLabel.text = Localization.Get(RendererController.Queue.IsRunning
                     ? "queue-pause-after-current" : "queue-paused");
             }
             state.text = StateLabel(renderer.State); state.color = StateColor(renderer.State);
@@ -251,7 +283,7 @@ namespace OrbitRender.UI
             elapsedLabel.gameObject.SetActive(completed);
             hint.gameObject.SetActive(renderer.State != RenderState.Rendering && (showProgress || !completed));
             path.gameObject.SetActive(completed && !string.IsNullOrEmpty(renderer.OutputPath));
-            var buttons = panelObject.GetComponentsInChildren<Button>(true);
+            var buttons = renderButtons;
             if (buttons.Length > 0) buttons[0].gameObject.SetActive(renderer.State == RenderState.Rendering);
             if (buttons.Length > 1) buttons[1].gameObject.SetActive(path.gameObject.activeSelf);
             if (showProgress)

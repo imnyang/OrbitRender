@@ -38,6 +38,12 @@ internal static class UserPresetTests
                 => type.GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
                     .Invoke(target, args);
             var source = Settings();
+            foreach (var option in new[] { "DiagnosticTiming", "SettleFastPath", "SampleGameplayAtOutputFrames" })
+            {
+                Assert(!(bool)Get(source, option), option + " must be disabled by default.");
+                Set(source, option, true);
+            }
+            CheckPerformanceOptions(assembly);
             Set(source, "BufferPolicy", Enum.Parse(settingsType.GetField("BufferPolicy").FieldType, "LowMemory"));
             foreach (var delay in new[] { 0f, 31f, 3600f, float.MaxValue })
                 Assert((float)Call(settingsType, "NormalizeEndDelay", null, delay) == delay,
@@ -124,7 +130,11 @@ internal static class UserPresetTests
             Assert(items.Count == 1 && (string)Get(preset, "Name") == "Renamed", "Rename duplicated item.");
             Assert(Call(storeType, "Save", null, library, "Renamed", source, preset) == null, "Overwrite failed.");
             Assert(items.Count == 1 && (int)Get(items[0], "Fps") == 240, "Overwrite did not replace snapshot.");
+            foreach (var name in new[] { "DiagnosticTiming", "SettleFastPath", "SampleGameplayAtOutputFrames" })
+                Set(library, name, true);
             Call(settingsType, "ResetToDefaults", library);
+            foreach (var name in new[] { "DiagnosticTiming", "SettleFastPath", "SampleGameplayAtOutputFrames" })
+                Assert(!(bool)Get(library, name), name + " must reset to disabled.");
             Assert(Get(library, "BufferPolicy").ToString() == "Balanced", "Reset lost default buffer policy.");
             Assert(items.Count == 1, "Reset deleted presets.");
             // A settings file from before custom presets must still load.
@@ -139,6 +149,47 @@ internal static class UserPresetTests
             Console.WriteLine("PASS: custom preset snapshots, built-in values, loading, XML persistence, legacy settings, names, overwrite, rename and reset.");
         }
         finally { AppDomain.CurrentDomain.AssemblyResolve -= resolve; }
+    }
+
+    private static void CheckPerformanceOptions(Assembly assembly)
+    {
+        var api = assembly.GetType("OrbitRender.RenderApi", true);
+        var parse = api.GetMethod("TryReadOptions", BindingFlags.NonPublic | BindingFlags.Static);
+        var create = assembly.GetType("OrbitRender.Renderer.RenderJobService", true)
+            .GetMethod("ParseOptions", BindingFlags.NonPublic | BindingFlags.Static);
+        foreach (bool enabled in new[] { false, true })
+        {
+            var json = Newtonsoft.Json.Linq.JObject.Parse("{\"diagnosticTiming\":" + enabled.ToString().ToLowerInvariant()
+                + ",\"settleFastPath\":" + enabled.ToString().ToLowerInvariant()
+                + ",\"sampleGameplayAtOutputFrames\":" + enabled.ToString().ToLowerInvariant() + "}");
+            var args = new object[] { json, null, null, null };
+            Assert((bool)parse.Invoke(null, args), "Performance options failed to parse.");
+            foreach (var name in new[] { "DiagnosticTiming", "SettleFastPath", "SampleGameplayAtOutputFrames" })
+                Assert(Equals(args[1].GetType().GetProperty(name).GetValue(args[1]), enabled), name + " lost its explicit value.");
+            var converted = new object[] { args[1], null };
+            var options = create.Invoke(null, converted);
+            Assert(options != null && converted[1] == null, "Performance-only request lost its options.");
+            foreach (var name in new[] { "DiagnosticTiming", "SettleFastPath", "SampleGameplayAtOutputFrames" })
+                Assert(Equals(options.GetType().GetField(name).GetValue(options), enabled), name + " lost its RPC value.");
+        }
+        var absent = new object[] { new Newtonsoft.Json.Linq.JObject(), null, null, null };
+        Assert((bool)parse.Invoke(null, absent), "Older request without performance options was rejected.");
+        var unchanged = new object[] { absent[1], null };
+        Assert(create.Invoke(null, unchanged) == null && unchanged[1] == null, "Absent flags must preserve saved settings.");
+        var malformed = new object[] { Newtonsoft.Json.Linq.JObject.Parse("{\"diagnosticTiming\":{}}"), null, null, null };
+        Assert(!(bool)parse.Invoke(null, malformed), "Invalid timing option was accepted.");
+        var jobType = assembly.GetType("OrbitRender.Renderer.RpcRenderJob", true);
+        var job = Activator.CreateInstance(jobType, "test", "level", false, null);
+        var progress = jobType.GetMethod("SetProgress");
+        var stamp = jobType.GetField("updatedUtc", BindingFlags.NonPublic | BindingFlags.Instance);
+        progress.Invoke(job, new object[] { 3L, 10L, "out.mp4" });
+        var originalStamp = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        stamp.SetValue(job, originalStamp);
+        progress.Invoke(job, new object[] { 3L, 10L, "out.mp4" });
+        Assert((DateTime)stamp.GetValue(job) == originalStamp, "Unchanged progress rewrote the RPC timestamp.");
+        progress.Invoke(job, new object[] { 4L, 10L, "out.mp4" });
+        Assert((DateTime)stamp.GetValue(job) != originalStamp, "Changed progress failed to update the RPC timestamp.");
+        Console.WriteLine("PASS: performance options default off, preserve explicit booleans and reject malformed input.");
     }
 
     private static void Assert(bool condition, string message)

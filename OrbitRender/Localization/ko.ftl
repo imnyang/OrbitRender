@@ -269,3 +269,7 @@ field-prores-container = ProRes는 자동(MOV), MOV 또는 MKV가 필요합니�
 field-ffv1-container = FFV1은 MKV가 필요합니다. 출력 형식을 바꿔주세요.
 lossless = 무손실
 field-ts-container = MPEG-TS는 H.264 또는 H.265가 필요합니다. 코덱이나 출력 형식을 바꿔주세요.
+diagnostic-timing = 렌더 단계별 시간 저장 (영상 옆 .performance.txt)
+settle-fast-path = 실험적: 리플레이 호스트가 완료를 보장하면 추가 갱신 프레임 생략
+sample-gameplay-at-output-frames = 실험적: 출력 샘플에만 게임 카메라 렌더링
+render-performance-experimental-warning = 효과나 게임 타이밍이 달라질 수 있습니다. 사용 전 프레임·판정·오디오를 비교하고, 시간 누적·피드백 효과에서는 카메라 샘플링을 끄세요.
