@@ -743,6 +743,11 @@ namespace OrbitRender.Renderer
                     var gameFrameStart = System.Diagnostics.Stopwatch.GetTimestamp();
                     yield return null;
                     yield return EndOfFrame;
+                    // Render the gameplay cameras in the simulated frame itself. The
+                    // overlay-only frames below run with timeScale 0, so Time.deltaTime
+                    // is 0 there, and Camera Filter Pack filters advance their clock by
+                    // Time.deltaTime when their camera renders.
+                    capture.RenderGameplayFrame();
                     if (replaySession != null)
                     {
                         float previousTimeScale = Time.timeScale;
@@ -774,7 +779,6 @@ namespace OrbitRender.Renderer
                         }
                         finally { overlayRefreshOnly = false; Time.timeScale = previousTimeScale; }
                     }
-                    capture.RenderGameplayFrame();
                     if (level == null || (editor != null ? editor.customLevel : ADOBase.customLevel) != level || ADOBase.controller == null || ADOBase.conductor == null)
                         throw new InvalidOperationException("The level was unloaded during rendering.");
                     gameFrameTicks += System.Diagnostics.Stopwatch.GetTimestamp() - gameFrameStart;
