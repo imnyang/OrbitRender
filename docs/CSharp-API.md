@@ -109,6 +109,7 @@ string json = (string)start.Invoke(null, new object[] { request, host });
 | 화면과 프레임 | `preset`, `width`, `height`, `targetFps`, `videoFps`, `endDelaySeconds` |
 | 영상 인코딩 | `bitrateMbps`, `videoCodec`, `bitDepth`, `audioCodec`, `proResProfile` |
 | 오디오 | `captureAudio`, `audioGainDb` |
+| 성능 계측·실험 | `diagnosticTiming`, `settleFastPath`, `sampleGameplayAtOutputFrames` (선택적 `bool`, 기본 설정은 모두 `false`) |
 | 표시 | `bgaMode`, `showPlanetRings`, `showSongTitle`, `showCountdown`, `showResultText`, `showHitJudgments`, `showModOverlay` |
 
 `width`, `height`, `targetFps`, `videoFps`, `bitrateMbps`, `bitDepth`, `videoCodec`, `audioCodec`는 범위를 벗어나면 `render_options_invalid`로 즉시 거부됩니다. `preset`은 `Custom`, `Preview`, `FullHD`, `QHD`, `UHD4K` 중 하나입니다. 리플레이 렌더는 게임플레이 HUD를 항상 모두 표시합니다.
@@ -119,7 +120,7 @@ string json = (string)start.Invoke(null, new object[] { request, host });
 
 OrbitRender는 작업을 만들 때 `host`의 **public 인스턴스 멤버**를 이름과 시그니처로 한 번 찾고, `Delegate.CreateDelegate`로 델리게이트를 만들어 둡니다. 이후 호출, 특히 프레임마다의 호출에는 `MethodInfo.Invoke`를 쓰지 않습니다. 반환형과 매개변수 형식은 정확히 같아야 합니다. 경계를 넘는 형식은 `string`, 숫자, `bool`, `Func<>`/`Action<>`, `IEnumerable<Canvas>` 같은 BCL/Unity 형식뿐입니다.
 
-멤버가 하나라도 없거나 시그니처가 다르면 `render_host_invalid`로 거부합니다. `message`에는 빠진 멤버의 시그니처를 모두 적고, `field`에는 첫 번째 멤버 이름을 넣습니다.
+아래 필수 멤버가 하나라도 없거나 시그니처가 다르면 `render_host_invalid`로 거부합니다. `message`에는 빠진 멤버의 시그니처를 모두 적고, `field`에는 첫 번째 멤버 이름을 넣습니다. 선택적 성능 확장 멤버는 없어도 기존 RenderApi 3 계약이 그대로 작동합니다.
 
 | 멤버 | 호출 시점 |
 | --- | --- |
@@ -136,6 +137,18 @@ OrbitRender는 작업을 만들 때 `host`의 **public 인스턴스 멤버**를 
 | `void End(string finalState)` | 렌더 정리를 시작할 때. `finalState`는 `Completed`, `Failed`, `Cancelled` 같은 `RenderState` 이름입니다. |
 | `void RestoreAfterRender()` | `End` 직후. 녹화 설정과 훅을 되돌립니다. |
 
+### 선택적 성능 확장
+
+기존 13개 필수 멤버와 `ApiVersion = 3`은 바뀌지 않습니다. 다음 public 인스턴스 멤버도 작업 생성 시 정확한 시그니처로 델리게이트에 바인딩하며, 없거나 형식이 다르면 사용하지 않습니다. 자세한 보장 조건은 [Render-Performance.md](Render-Performance.md#optional-host-capabilities)를 참고하세요.
+
+| 선택적 멤버 | 의미 |
+| --- | --- |
+| `bool TryCompleteFrame(long frameIndex, double videoSeconds)` | `settleFastPath`를 켰을 때만 호출합니다. `AfterSimulationFrame`과 현재 Unity 프레임의 끝 이후 같은 시뮬레이션 프레임을 받습니다. `true`는 입력·provider·Unity 큐와 presentation 처리가 완료되어 추가 Unity frame이 필요 없음을 보장합니다. legacy fence가 호출 전후 settled이고 revision이 같을 때만 추가 갱신을 생략합니다. `false` 또는 미지원이면 기존 대기를 유지합니다. 예외는 렌더를 실패시킵니다. |
+| `long CaptureHierarchyRevision { get; }` | 0 이상이면 캡처 대상 전체(게임 HUD 포함)의 자손 생성·삭제·재부모화·활성 상태·레이어 변경을 빠짐없이 반영하는 revision입니다. 변경 시 값을 바꿔야 합니다. 음수 또는 미지원이면 매번 안전한 전체 탐색을 합니다. |
+| `long CaptureLayoutRevision { get; }` | 0 이상이면 캡처 대상 전체의 텍스트·레이아웃 변경을 반영하는 revision입니다. `OnBeforeCapture` 이후 읽습니다. 음수 또는 미지원이면 마지막 `Canvas.ForceUpdateCanvases`를 항상 유지합니다. |
+
+선택적 getter도 예외를 던지지 않아야 합니다. 호스트가 모든 게임·모드 변경을 추적할 수 없으면 revision 멤버를 구현하지 않거나 `-1`을 반환하세요. 기존 TUFReplay 호스트는 변경 없이 계속 작동하며, 별도의 호스트 구현 전에는 추가 갱신 생략과 revision 캐시를 사용하지 않습니다.
+
 ### 호출 순서
 
 ```text
@@ -149,7 +162,7 @@ StartHostedReplay ─ 레벨 열기 ─ 인코더 확인
 - 렌더가 시작되기 전에 작업이 끝나면(레벨 열기·인코더 확인 실패, 준비 중 취소) 호스트 멤버는 하나도 호출되지 않습니다. `ReadStatus`의 종료 상태로 판단하세요.
 - `RestoreAfterRender`는 `PrepareBeforeRender`가 실패했거나 호출되기 전에 렌더가 실패해도 호출됩니다. `End`는 `Begin`이 호출된 경우에만 호출되며, `Begin`이 예외를 던졌을 때도 호출됩니다. 두 메서드는 중복 호출과 부분 준비 상태를 견뎌야 합니다.
 - `ReadStatus`가 종료 상태를 보고할 때는 `End`, `RestoreAfterRender`, OrbitRender의 게임 상태 복원이 이미 끝났습니다. 편집기 복구는 그 뒤에도 이어질 수 있으며, 그동안 `IsBusy`는 `true`입니다.
-- 오버레이 정착 대기는 OptionalModClock의 작업 펜스를 프레임마다 최대 2초 기다립니다. 호스트 호출은 없습니다.
+- 기본 오버레이 정착 대기는 OptionalModClock의 작업 펜스를 프레임마다 최대 2초 기다립니다. `settleFastPath`와 `TryCompleteFrame`을 함께 지원할 때만 위 선택적 완료 계약을 먼저 확인합니다.
 
 ### 호스트가 맡는 게임 상태
 
