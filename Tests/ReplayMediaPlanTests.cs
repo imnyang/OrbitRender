@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 using TUFReplayRenderer.Media;
@@ -40,5 +42,47 @@ internal static class ReplayMediaPlanTests
         if (doubleSpeed.ReplayToOutput(3_000_000) != 2_000_000) throw new Exception("Requested speed must multiply original pitch.");
         if (doubleSpeed.OutputToReplay(500_000) != -1_500_000) throw new Exception("The countdown must be before recording zero.");
         Console.WriteLine("Replay media composition planning tests passed.");
+    }
+
+    // The webcam is cut into one clip per recorded timeline segment. Each clip
+    // must stay on screen until the next one starts, including when the
+    // camera's frames do not line up with the cut.
+    internal static void RunWithFfmpeg(string ffmpeg, string directory)
+    {
+        string game = Path.Combine(directory, "media-game.mp4"), camera = Path.Combine(directory, "media-camera.mp4");
+        string composed = Path.Combine(directory, "media-composed.mp4"), pixels = Path.Combine(directory, "media-camera.gray");
+        RunFfmpeg(ffmpeg, "-v error -y -f lavfi -i color=black:s=320x180:r=60:d=3 -c:v libx264 -pix_fmt yuv420p \"" + game + "\"");
+        RunFfmpeg(ffmpeg, "-v error -y -f lavfi -i color=white:s=160x120:r=30:d=5 -c:v libx264 -pix_fmt yuv420p \"" + camera + "\"");
+        // Gameplay starts 1 s into the video and its first segment 5 ms later,
+        // so the camera is cut there, between two 30 fps camera frames.
+        var webcam = JObject.Parse(@"{""durationUs"":5000000,""captureStartOffsetUs"":-1310000,""gameplayRate"":1,
+            ""timeline"":[{""timelineTimeUs"":5000,""videoTimeUs"":1315000,""gameplayRate"":1}]}");
+        var plan = MediaCompositionPlan.Create(game, composed, 320, 180, 60, 3000000, new RenderTimeline(1000000, 1, null),
+            webcam, camera, null, null, captureGameAudio: false);
+        if (plan.FilterGraph.Split(new[] { "overlay=" }, StringSplitOptions.None).Length != 3)
+            throw new Exception("The timeline segment must cut the webcam into two clips.");
+        RunFfmpeg(ffmpeg, string.Join(" ", plan.Arguments.Select(argument => "\"" + argument + "\"")));
+        // An 8x8 square inside the camera box, for every output frame.
+        RunFfmpeg(ffmpeg, "-v error -y -i \"" + composed + "\" -vf crop=8:8:256:148 -pix_fmt gray -f rawvideo \"" + pixels + "\"");
+        byte[] gray = File.ReadAllBytes(pixels);
+        if (gray.Length != 180 * 64) throw new Exception("The composed webcam test video must have 180 frames.");
+        for (int frame = 0; frame < 180; frame++)
+            if (gray.Skip(frame * 64).Take(64).Average(value => value) < 128)
+                throw new Exception("The webcam disappeared at output frame " + frame + ".");
+        Console.WriteLine("Replay webcam composition tests passed.");
+    }
+
+    private static void RunFfmpeg(string ffmpeg, string arguments)
+    {
+        using (var process = Process.Start(new ProcessStartInfo(ffmpeg, arguments) {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
+        }))
+        {
+            var output = process.StandardOutput.ReadToEndAsync();
+            var errors = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            output.GetAwaiter().GetResult();
+            if (process.ExitCode != 0) throw new Exception("FFmpeg failed: " + errors.GetAwaiter().GetResult());
+        }
     }
 }
