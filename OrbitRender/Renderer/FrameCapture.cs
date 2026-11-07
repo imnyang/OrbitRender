@@ -53,8 +53,14 @@ namespace OrbitRender.Renderer
             public Camera WorldCamera;
             public float PlaneDistance;
         }
+        private sealed class CanvasHierarchy
+        {
+            public readonly List<Transform> Transforms = new List<Transform>();
+            public readonly CaptureRevisionCache Revision = new CaptureRevisionCache();
+        }
         private sealed class Pending
         {
+            public readonly Action<AsyncGPUReadbackRequest> CompleteCallback;
             public FFmpegEncoder.Frame Frame;
             public AsyncGPUReadbackRequest Request;
             public bool Direct;
@@ -63,6 +69,11 @@ namespace OrbitRender.Renderer
             public long SubmittedAt;
             public long CompletedAt;
             public long CopyTicks;
+
+            public Pending()
+            {
+                CompleteCallback = Complete;
+            }
 
             public void Reset(FFmpegEncoder.Frame frame, long submittedAt)
             {
@@ -146,6 +157,7 @@ namespace OrbitRender.Renderer
         private readonly bool replayOverlays;
         private readonly bool captureOverlays;
         private readonly HostedReplayDriver replayHost;
+        private readonly RenderPerformanceDiagnostics diagnostics = RenderPerformanceDiagnostics.Current;
         private readonly scrCamera gameCamera;
         private readonly float originalZoomSize;
         private readonly Vector2 originalOffset;
@@ -161,6 +173,9 @@ namespace OrbitRender.Renderer
         private Vector3 hudOverlayPosition;
         private readonly List<LayerState> hudLayers = new List<LayerState>();
         private readonly HashSet<GameObject> hudLayerObjects = new HashSet<GameObject>();
+        private readonly Dictionary<GameObject, CanvasHierarchy> hudHierarchies =
+            new Dictionary<GameObject, CanvasHierarchy>();
+        private readonly CaptureRevisionCache layoutRevision = new CaptureRevisionCache();
         private Texture2D fallback;
         private bool disposed;
         private long readbackWaitTicks;
@@ -188,13 +203,27 @@ namespace OrbitRender.Renderer
             ? Environment.GetEnvironmentVariable("ORBITRENDER_MANUAL_CAMERAS") != "0"
             : Environment.GetEnvironmentVariable("ORBITRENDER_MANUAL_CAMERAS") == "1";
 
-        internal void RenderGameplayFrame()
+        internal void RenderGameplayFrame(bool outputSample = true)
         {
             if (!manualGameplay) return;
+            if (!outputSample && !CameraSamplingPolicy.ShouldRender(false,
+                FrameRateEventPatch.Enabled || gameCamera.enableCustomFPS,
+                ADOBase.controller != null && ADOBase.controller.homEnabled)) return;
             Bind();
             foreach (var state in cameras)
                 if (state.Camera != null && state.Camera != hudOverlayCamera && state.Camera.gameObject.activeInHierarchy)
+                {
+                    var started = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
                     state.Camera.Render();
+                    if (diagnostics != null)
+                    {
+                        var stage = state.Camera == gameCamera.Bgcamstatic ? RenderPerformanceStage.CameraBackgroundStatic
+                            : state.Camera == gameCamera.BGcam ? RenderPerformanceStage.CameraBackground
+                            : RenderPerformanceStage.CameraGameplay;
+                        diagnostics.Record(stage, started);
+                        diagnostics.Increment(RenderPerformanceCounter.GameplayRenders);
+                    }
+                }
         }
 
         private sealed class LayerState
@@ -451,12 +480,34 @@ namespace OrbitRender.Renderer
         private void AssignLayerRecursively(GameObject root)
         {
             if (root == null) return;
-            foreach (var child in root.GetComponentsInChildren<Transform>(true))
+            if (!hudHierarchies.TryGetValue(root, out var hierarchy))
             {
+                hierarchy = new CanvasHierarchy();
+                hudHierarchies.Add(root, hierarchy);
+            }
+            var revision = replayHost?.CaptureHierarchyRevision != null
+                ? replayHost.CaptureHierarchyRevision() : -1;
+            if (!hierarchy.Revision.NeedsRefresh(revision)) return;
+            var started = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+            // The legacy path still discovers every descendant on every bind,
+            // including inactive nodes created by key-rain and layout callbacks.
+            // Reuse the list instead of allocating Transform[] each time. Only
+            // a host certifying all hierarchy/layer changes can skip this scan.
+            root.GetComponentsInChildren(true, hierarchy.Transforms);
+            foreach (var child in hierarchy.Transforms)
+            {
+                if (child == null) continue;
                 var gameObject = child.gameObject;
                 if (hudLayerObjects.Add(gameObject))
                     hudLayers.Add(new LayerState { Object = gameObject, Layer = gameObject.layer });
                 if (gameObject.layer != hudLayer) gameObject.layer = hudLayer;
+            }
+            hierarchy.Revision.Refreshed(revision);
+            if (diagnostics != null)
+            {
+                diagnostics.Record(RenderPerformanceStage.CanvasHierarchy, started);
+                diagnostics.Increment(RenderPerformanceCounter.HierarchyNodes, hierarchy.Transforms.Count);
+                diagnostics.Increment(RenderPerformanceCounter.HierarchyRebuilds);
             }
         }
 
@@ -673,9 +724,9 @@ namespace OrbitRender.Renderer
                 // during play; the saved state is only for restoration.
                 if (!replayOverlays && state.Enabled) state.Canvas.enabled = true;
             }
-            var jrpPositions = replayOverlays ? new List<JrpPosition>() : CompactJrpStatus(canvases);
-            var hiddenJrpGraphics = replayOverlays ? new List<UnityEngine.UI.Graphic>() : HideExcludedJrpGraphics(canvases);
-            var jrpBpmTexts = new Dictionary<UnityEngine.UI.Graphic, string>();
+            var jrpPositions = replayOverlays ? null : CompactJrpStatus(canvases);
+            var hiddenJrpGraphics = replayOverlays ? null : HideExcludedJrpGraphics(canvases);
+            var jrpBpmTexts = replayOverlays ? null : new Dictionary<UnityEngine.UI.Graphic, string>();
             foreach (var state in canvases)
             {
                 if (replayOverlays) continue;
@@ -697,21 +748,37 @@ namespace OrbitRender.Renderer
             {
                 if (replayOverlays)
                 {
-                    Canvas.ForceUpdateCanvases();
+                    // BeforeCapture can change text, layout and descendants.
+                    // Read its revision afterwards and preserve the final flush
+                    // unless the host explicitly certifies unchanged layout.
+                    var revision = replayHost?.CaptureLayoutRevision != null
+                        ? replayHost.CaptureLayoutRevision() : -1;
+                    if (layoutRevision.NeedsRefresh(revision))
+                    {
+                        var started = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
+                        Canvas.ForceUpdateCanvases();
+                        if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.CanvasLayout, started);
+                        layoutRevision.Refreshed(revision);
+                    }
                     foreach (var state in canvases)
                         if (state.Capture && state.Canvas != null) AssignLayerRecursively(state.Canvas.gameObject);
                 }
+                var hudStarted = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
                 hudOverlayCamera.Render();
+                if (diagnostics != null) diagnostics.Record(RenderPerformanceStage.CameraHud, hudStarted);
             }
             finally
             {
                 if (captureOverlays) replayHost?.AfterCapture();
-                foreach (var pair in jrpBpmTexts)
-                    if (pair.Key != null) pair.Key.GetType().GetProperty("text")?.SetValue(pair.Key, pair.Value, null);
-                foreach (var position in jrpPositions)
-                    if (position.Transform != null) position.Transform.anchoredPosition = position.Position;
-                foreach (var graphic in hiddenJrpGraphics)
-                    if (graphic != null) graphic.enabled = true;
+                if (jrpBpmTexts != null)
+                    foreach (var pair in jrpBpmTexts)
+                        if (pair.Key != null) pair.Key.GetType().GetProperty("text")?.SetValue(pair.Key, pair.Value, null);
+                if (jrpPositions != null)
+                    foreach (var position in jrpPositions)
+                        if (position.Transform != null) position.Transform.anchoredPosition = position.Position;
+                if (hiddenJrpGraphics != null)
+                    foreach (var graphic in hiddenJrpGraphics)
+                        if (graphic != null) graphic.enabled = true;
                 foreach (var state in canvases)
                     if (!replayOverlays && state.Capture && state.Canvas != null) state.Canvas.enabled = false;
             }
@@ -721,7 +788,12 @@ namespace OrbitRender.Renderer
         {
             // Capture runs after WaitForEndOfFrame. Copy the completed gameplay
             // feedback image, then composite the isolated HUD before readback.
+            var captureStarted = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
             RenderOutputFrame();
+            if (diagnostics != null)
+            {
+                diagnostics.Record(RenderPerformanceStage.CanvasCapture, captureStarted);
+            }
             Drain(false);
             lastPending = null;
             var source = SelectCaptureSource();
@@ -743,7 +815,8 @@ namespace OrbitRender.Renderer
                 Drain(true, 1);
                 var rentStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 buffer = encoder.Rent();
-                encoderBufferWaitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - rentStart;
+                var rentedTicks = System.Diagnostics.Stopwatch.GetTimestamp() - rentStart;
+                encoderBufferWaitTicks += rentedTicks;
                 BackpressureSeconds += (System.Diagnostics.Stopwatch.GetTimestamp() - waitStart)
                     / (double)System.Diagnostics.Stopwatch.Frequency;
             }
@@ -751,6 +824,7 @@ namespace OrbitRender.Renderer
             buffer.RepeatCount = 1;
             if (fallback != null)
             {
+                var started = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
                 var previous = RenderTexture.active;
                 try
                 {
@@ -759,11 +833,17 @@ namespace OrbitRender.Renderer
                     fallback.GetRawTextureData<byte>().CopyTo(buffer.Bytes);
                 }
                 finally { RenderTexture.active = previous; }
+                if (diagnostics != null)
+                {
+                    diagnostics.Record(RenderPerformanceStage.ReadbackCopy, started);
+                    diagnostics.Increment(RenderPerformanceCounter.SynchronousReadbacks);
+                }
                 encoder.Submit(buffer);
                 return;
             }
             var frame = reusable.Count > 0 ? reusable.Pop() : new Pending();
             frame.Reset(buffer, System.Diagnostics.Stopwatch.GetTimestamp());
+            var readbackStarted = diagnostics != null ? RenderPerformanceDiagnostics.Timestamp() : 0;
             // Read directly into the encoder's pinned buffer when supported.
             // The callback-copy path remains available for other backends.
             if (directReadbackAvailable)
@@ -777,7 +857,7 @@ namespace OrbitRender.Renderer
                     }
                     frame.Direct = true;
                     frame.Request = AsyncGPUReadback.RequestIntoNativeArray(
-                        ref pinned.Data, source, 0, readbackFormat, frame.Complete);
+                        ref pinned.Data, source, 0, readbackFormat, frame.CompleteCallback);
                     if (frame.Request.hasError)
                         throw new InvalidOperationException("Direct GPU readback request was rejected.");
                 }
@@ -789,8 +869,15 @@ namespace OrbitRender.Renderer
                 }
             }
             if (!frame.Direct)
-                frame.Request = AsyncGPUReadback.Request(source, 0, readbackFormat, frame.Complete);
+                frame.Request = AsyncGPUReadback.Request(source, 0, readbackFormat, frame.CompleteCallback);
             pending.Enqueue(frame);
+            if (diagnostics != null)
+            {
+                diagnostics.Record(RenderPerformanceStage.ReadbackIssue, readbackStarted);
+                diagnostics.Increment(RenderPerformanceCounter.ReadbackRequests);
+                diagnostics.Increment(frame.Direct ? RenderPerformanceCounter.DirectReadbacks : RenderPerformanceCounter.CopiedReadbacks);
+                diagnostics.ObserveQueue(RenderPerformanceQueue.Readback, pending.Count);
+            }
             lastPending = frame;
             if (pending.Count > peakPending) peakPending = pending.Count;
         }
@@ -857,12 +944,19 @@ namespace OrbitRender.Renderer
                     var waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
                     frame.Request.WaitForCompletion();
                     frame.Complete(frame.Request);
-                    readbackWaitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - waitStart;
+                    var waitedTicks = System.Diagnostics.Stopwatch.GetTimestamp() - waitStart;
+                    readbackWaitTicks += waitedTicks;
+                    if (diagnostics != null) diagnostics.RecordTicks(RenderPerformanceStage.ReadbackWait, waitedTicks);
                 }
                 if (!frame.Ready) break;
                 if (frame.Error != null) throw new InvalidOperationException("Capture failed.", frame.Error);
                 readbackCopyTicks += frame.CopyTicks;
                 readbackLatencyTicks += frame.CompletedAt - frame.SubmittedAt;
+                if (diagnostics != null)
+                {
+                    diagnostics.RecordTicks(RenderPerformanceStage.ReadbackCopy, frame.CopyTicks);
+                    diagnostics.RecordTicks(RenderPerformanceStage.ReadbackLatency, frame.CompletedAt - frame.SubmittedAt);
+                }
                 encoder.Submit(frame.Frame);
                 pending.Dequeue();
                 if (lastPending == frame) lastPending = null;
@@ -923,6 +1017,7 @@ namespace OrbitRender.Renderer
             if (hudOverlayObject != null) UnityEngine.Object.Destroy(hudOverlayObject);
             hudLayers.Clear();
             hudLayerObjects.Clear();
+            hudHierarchies.Clear();
             if (fallback != null) UnityEngine.Object.Destroy(fallback);
             if (nativeSource != null) { nativeSource.Release(); UnityEngine.Object.Destroy(nativeSource); }
             if (customFrameHold != null) { customFrameHold.Release(); UnityEngine.Object.Destroy(customFrameHold); }

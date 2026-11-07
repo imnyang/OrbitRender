@@ -39,13 +39,31 @@ namespace HostedReplayFixtures
         public void End(string finalState) => Calls.Add("end " + finalState);
     }
 
-    public sealed class FakeHost : HostCore
+    public class FakeHost : HostCore
     {
         public void PrepareBeforeRender() => Calls.Add("prepare");
         public void BeforeSimulationFrame(long frameIndex, double videoSeconds)
             => Calls.Add("before " + frameIndex + " " + videoSeconds.ToString(CultureInfo.InvariantCulture));
         public long CurrentVideoTimeUs { get; set; }
         public void RestoreAfterRender() => Calls.Add("restore");
+    }
+
+    public sealed class PerformanceHost : FakeHost
+    {
+        public long CompletedFrame;
+        public double CompletedSeconds;
+        public bool Ready;
+        public bool TryCompleteFrame(long frameIndex, double videoSeconds)
+        { CompletedFrame = frameIndex; CompletedSeconds = videoSeconds; return Ready; }
+        public long CaptureHierarchyRevision { get; set; }
+        public long CaptureLayoutRevision { get; set; }
+    }
+
+    public sealed class WrongOptionalHost : FakeHost
+    {
+        public bool TryCompleteFrame(int frameIndex, double videoSeconds) => true;
+        public int CaptureHierarchyRevision => 1;
+        public long CaptureLayoutRevision { private get; set; }
     }
 
     public sealed class MissingRestoreHost : HostCore
@@ -87,8 +105,30 @@ internal static class HostedReplayContractTests
     {
         CheckHostBinding();
         CheckHostRefusals();
+        CheckOptionalCapabilities();
         CheckRequestValidation();
         Console.WriteLine("Hosted replay contract tests passed.");
+    }
+
+    private static void CheckOptionalCapabilities()
+    {
+        var old = HostedReplayHost<Canvas>.Bind(new FakeHost());
+        Assert(old.TryCompleteFrame == null && old.CaptureHierarchyRevision == null
+            && old.CaptureLayoutRevision == null, "existing 13-member hosts need no new members");
+        var wrong = HostedReplayHost<Canvas>.Bind(new WrongOptionalHost());
+        Assert(wrong.TryCompleteFrame == null && wrong.CaptureHierarchyRevision == null
+            && wrong.CaptureLayoutRevision == null, "incompatible optional signatures are ignored");
+        var host = new PerformanceHost { Ready = true, CaptureHierarchyRevision = 7, CaptureLayoutRevision = 9 };
+        var bound = HostedReplayHost<Canvas>.Bind(host);
+        Assert(ReferenceEquals(bound.TryCompleteFrame.Target, host), "completion is a bound delegate");
+        Assert(bound.TryCompleteFrame(42, .7) && host.CompletedFrame == 42 && host.CompletedSeconds == .7,
+            "completion receives the exact simulation frame and time");
+        host.Ready = false;
+        Assert(!bound.TryCompleteFrame(43, .8), "host can decline the fast path per frame");
+        Assert(bound.CaptureHierarchyRevision() == 7 && bound.CaptureLayoutRevision() == 9,
+            "capture revision getters bind by exact signature");
+        host.CaptureHierarchyRevision = -1;
+        Assert(bound.CaptureHierarchyRevision() == -1, "host can withdraw cache support");
     }
 
     private static void CheckHostBinding()

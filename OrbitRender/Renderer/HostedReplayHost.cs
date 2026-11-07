@@ -31,6 +31,10 @@ namespace OrbitRender.Renderer
         internal Action OnAfterCapture { get; private set; }
         internal Action<string> End { get; private set; }
         internal Action RestoreAfterRender { get; private set; }
+        // Optional capabilities never become part of RenderApi 3's required members.
+        internal Func<long, double, bool> TryCompleteFrame { get; private set; }
+        internal Func<long> CaptureHierarchyRevision { get; private set; }
+        internal Func<long> CaptureLayoutRevision { get; private set; }
 
         /// <summary>Binds every member or refuses the host with render_host_invalid, naming what is missing.</summary>
         internal static HostedReplayHost<TCanvas> Bind(object host)
@@ -59,6 +63,12 @@ namespace OrbitRender.Renderer
                 OnAfterCapture = binder.Method<Action>("OnAfterCapture", "void OnAfterCapture()"),
                 End = binder.Method<Action<string>>("End", "void End(string finalState)"),
                 RestoreAfterRender = binder.Method<Action>("RestoreAfterRender", "void RestoreAfterRender()"),
+                TryCompleteFrame = binder.Method<Func<long, double, bool>>("TryCompleteFrame",
+                    "bool TryCompleteFrame(long frameIndex, double videoSeconds)", optional: true),
+                CaptureHierarchyRevision = binder.Getter<Func<long>>("CaptureHierarchyRevision",
+                    "long CaptureHierarchyRevision { get; }", optional: true),
+                CaptureLayoutRevision = binder.Getter<Func<long>>("CaptureLayoutRevision",
+                    "long CaptureLayoutRevision { get; }", optional: true),
             };
             binder.ThrowIfInvalid();
             return bound;
@@ -78,7 +88,7 @@ namespace OrbitRender.Renderer
             }
 
             /// <summary>Binds a public instance method whose parameters and return type match <typeparamref name="T"/> exactly.</summary>
-            internal T Method<T>(string name, string signature) where T : Delegate
+            internal T Method<T>(string name, string signature, bool optional = false) where T : Delegate
             {
                 var invoke = typeof(T).GetMethod("Invoke");
                 var parameters = invoke.GetParameters().Select(p => p.ParameterType).ToArray();
@@ -88,14 +98,14 @@ namespace OrbitRender.Renderer
                     && candidate.GetParameters().Select(p => p.ParameterType).SequenceEqual(parameters));
                 if (method == null)
                 {
-                    missing.Add(new KeyValuePair<string, string>(name, signature));
+                    if (!optional) missing.Add(new KeyValuePair<string, string>(name, signature));
                     return null;
                 }
-                return Create<T>(method, name, signature);
+                return Create<T>(method, name, signature, optional);
             }
 
             /// <summary>Binds the public getter of an instance property whose type matches <typeparamref name="T"/>.</summary>
-            internal T Getter<T>(string name, string signature) where T : Delegate
+            internal T Getter<T>(string name, string signature, bool optional = false) where T : Delegate
             {
                 var returnType = typeof(T).GetMethod("Invoke").ReturnType;
                 PropertyInfo property = null;
@@ -104,16 +114,16 @@ namespace OrbitRender.Renderer
                 var getter = property?.GetGetMethod();
                 if (getter == null || property.PropertyType != returnType)
                 {
-                    missing.Add(new KeyValuePair<string, string>(name, signature));
+                    if (!optional) missing.Add(new KeyValuePair<string, string>(name, signature));
                     return null;
                 }
-                return Create<T>(getter, name, signature);
+                return Create<T>(getter, name, signature, optional);
             }
 
-            private T Create<T>(MethodInfo method, string name, string signature) where T : Delegate
+            private T Create<T>(MethodInfo method, string name, string signature, bool optional) where T : Delegate
             {
                 var bound = Delegate.CreateDelegate(typeof(T), host, method, false) as T;
-                if (bound == null) missing.Add(new KeyValuePair<string, string>(name, signature));
+                if (bound == null && !optional) missing.Add(new KeyValuePair<string, string>(name, signature));
                 return bound;
             }
 
