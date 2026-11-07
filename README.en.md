@@ -33,10 +33,6 @@ FFmpeg is not included in the mod distribution.
 
 ## Usage
 
-In **Advanced**, enable **Save render stage timings** to write `<video>.performance.txt` beside the output after a render, cancellation or failure. It reports wall time, simulation and settle frames, host callbacks, camera/canvas work, readback and encoder waits, audio, webcam composition and mux. The setting is off by default; see [render performance diagnostics](docs/Render-Performance.md) for the counters, experimental options and comparison procedure.
-
-macOS users can explicitly select **HEVC / Apple VideoToolbox** after its real encoding probe succeeds. Auto selection, default codecs, presets and quality remain unchanged. A missing or unusable hardware encoder uses the existing software-fallback confirmation. Webcam composition now uses the selected encoding speed and backend options instead of the encoder's implicit default preset.
-
 Open a custom level in the ADOFAI editor, then select `File → Export Video` or press `F6`.
 
 For six seconds after audio capture ends, OrbitRender checks whether the live audio clock has resumed. If it stalls, OrbitRender doubles the game's audio buffer up to 2048 samples and shows the game's buffer-change notification. This setting is saved by the game, so a buffer raised for a Bluetooth device stays raised when switching back to wired audio. Pauses and frames longer than 0.2 seconds are excluded from detection.
@@ -56,8 +52,6 @@ Export inputs show inline errors and focus the first invalid field when submitte
 Use **Add to queue** or the **Queue** tab to register full-map or selection renders with different settings for the currently open map. Settings and output folders are captured when added. Reorder, remove, run sequentially, or pause after the current render. Failure or cancellation preserves waiting jobs and pauses the queue; changing maps also pauses it. The list lasts for the current game session.
 
 Render error dialogs offer **Copy diagnostic information** to copy the error, output settings, encoder, system/GPU details and file paths to the clipboard. Reports are not sent automatically.
-
-To control rendering from another mod, see the [C# API documentation](docs/CSharp-API.md) (Korean). Replay renders are requested by TUFReplay, and overlay and key-viewer mods integrate through TUFReplay's `ReplayApi`, not OrbitRender ([Overlay API notice](docs/Overlay-API.md), Korean).
 
 ## License
 
