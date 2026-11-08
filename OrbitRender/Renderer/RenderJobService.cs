@@ -110,6 +110,7 @@ namespace OrbitRender.Renderer
         public int? TargetFps;
         public int? VideoFps;
         public int? BitrateMbps;
+        public int? BitrateKbps;
         public float? EndDelaySeconds;
         public float? AudioGainDb;
         public AudioCodec? AudioCodec;
@@ -148,6 +149,7 @@ namespace OrbitRender.Renderer
                 videoFps = VideoFps,
                 fps = VideoFps,
                 bitrateMbps = BitrateMbps,
+                bitrateKbps = BitrateKbps,
                 endDelaySeconds = EndDelaySeconds,
                 audioGainDb = AudioGainDb,
                 audioCodec = AudioCodec.HasValue ? AudioCodec.Value.ToString() : null,
@@ -214,6 +216,7 @@ namespace OrbitRender.Renderer
         [JsonProperty("videoFps")] public int? VideoFps { get; set; }
         [JsonProperty("bitrateMbps")] public int? BitrateMbps { get; set; }
         [JsonProperty("bitrate")] public int? Bitrate { get; set; }
+        [JsonProperty("bitrateKbps")] public int? BitrateKbps { get; set; }
         [JsonProperty("endDelaySeconds")] public float? EndDelaySeconds { get; set; }
         [JsonProperty("audioGainDb")] public float? AudioGainDb { get; set; }
         [JsonProperty("audioCodec")] public string AudioCodec { get; set; }
@@ -640,6 +643,19 @@ namespace OrbitRender.Renderer
                 error = InvalidOption("bitrateMbps", "1..200");
                 return null;
             }
+            var bitrateKbps = payload.BitrateKbps;
+            if (bitrateKbps.HasValue && (bitrateKbps.Value < 1000 || bitrateKbps.Value > 200000))
+            {
+                error = InvalidOption("bitrateKbps", "1000..200000");
+                return null;
+            }
+            if (bitrateKbps.HasValue && bitrate.HasValue && bitrate.Value * 1000 != bitrateKbps.Value)
+            {
+                error = RenderErrorDetails.Create(RenderErrorCodes.OptionsInvalid,
+                    "Use either 'bitrateKbps' or 'bitrateMbps'; both values must match.");
+                return null;
+            }
+            if (bitrateKbps.HasValue) bitrate = RenderProfile.WholeMbps(bitrateKbps.Value);
             if (payload.EndDelaySeconds.HasValue && (float.IsNaN(payload.EndDelaySeconds.Value)
                 || float.IsInfinity(payload.EndDelaySeconds.Value) || payload.EndDelaySeconds.Value < 0f))
             {
@@ -730,6 +746,7 @@ namespace OrbitRender.Renderer
                 TargetFps = targetFps,
                 VideoFps = videoFps,
                 BitrateMbps = bitrate,
+                BitrateKbps = bitrateKbps,
                 EndDelaySeconds = payload.EndDelaySeconds,
                 AudioGainDb = payload.AudioGainDb,
                 AudioCodec = audioCodec,
