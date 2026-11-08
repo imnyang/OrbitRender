@@ -26,13 +26,15 @@ namespace OrbitRender
         public RenderProfile(int width, int height, int targetFps, int videoFps, int bitrateMbps, string ffmpegPreset,
             float endDelaySeconds = 2f, string ffmpegCodec = "libx264", VideoCodec videoCodec = VideoCodec.H264,
             VideoBitDepth bitDepth = VideoBitDepth.Eight, VideoContainer container = VideoContainer.Auto,
-            AudioCodec audioCodec = AudioCodec.Auto, ProResProfile proResProfile = ProResProfile.HQ)
+            AudioCodec audioCodec = AudioCodec.Auto, ProResProfile proResProfile = ProResProfile.HQ,
+            int? bitrateKbps = null)
         {
             Width = width;
             Height = height;
             TargetFps = targetFps;
             VideoFps = videoFps;
-            BitrateMbps = bitrateMbps;
+            BitrateKbps = bitrateKbps ?? bitrateMbps * 1000;
+            BitrateMbps = bitrateKbps.HasValue ? WholeMbps(bitrateKbps.Value) : bitrateMbps;
             FfmpegPreset = ffmpegPreset;
             EndDelaySeconds = endDelaySeconds;
             FfmpegCodec = ffmpegCodec;
@@ -49,7 +51,11 @@ namespace OrbitRender
         public int Height { get; }
         public int TargetFps { get; }
         public int VideoFps { get; }
+        // Whole Mbps for consumers that take nothing finer: the native NVENC
+        // encoder, the {bitrate} file name variable and the settings UI.
         public int BitrateMbps { get; }
+        // The exact rate FFmpeg encodes at.
+        public int BitrateKbps { get; }
         public string FfmpegPreset { get; }
         public float EndDelaySeconds { get; }
         public string FfmpegCodec { get; }
@@ -62,6 +68,11 @@ namespace OrbitRender
         public string ContainerMimeType => OutputFormat.MimeType(ContainerExtension);
         public AudioCodec AudioCodec { get; }
         public string AudioEncoder => AudioCodecCatalog.Encoder(AudioCodec);
+
+        internal static int WholeMbps(int bitrateKbps)
+        {
+            return Math.Max(1, (int)Math.Round(bitrateKbps / 1000.0, MidpointRounding.AwayFromZero));
+        }
     }
 
     public sealed class RendererSettings : UnityModManager.ModSettings, IDrawable
@@ -303,7 +314,8 @@ namespace OrbitRender
             int? heightOverride, int? targetFpsOverride, int? videoFpsOverride, int? bitrateOverride, float? endDelayOverride,
             VideoCodec? codecOverride, VideoBitDepth? bitDepthOverride,
             EncoderSpeed? encodingOverride = null, VideoEncoder? encoderOverride = null, VideoContainer? containerOverride = null,
-            AudioCodec? audioCodecOverride = null, ProResProfile? proResProfileOverride = null)
+            AudioCodec? audioCodecOverride = null, ProResProfile? proResProfileOverride = null,
+            int? bitrateKbpsOverride = null)
         {
             var preset = presetOverride ?? Preset;
             // A target-FPS override does not turn a built-in resolution preset
@@ -311,7 +323,8 @@ namespace OrbitRender
             // preset still use the saved Custom values as their base.
             var useCustomBase = preset == RendererPreset.Custom
                 || (!presetOverride.HasValue
-                    && (widthOverride.HasValue || heightOverride.HasValue || bitrateOverride.HasValue));
+                    && (widthOverride.HasValue || heightOverride.HasValue || bitrateOverride.HasValue
+                        || bitrateKbpsOverride.HasValue));
             var baseProfile = useCustomBase
                 ? new RenderProfile(
                     EvenClamp(Width, MinWidth, MaxWidth),
@@ -348,7 +361,7 @@ namespace OrbitRender
                 bitDepthOverride ?? BitDepth, containerOverride ?? Container,
                 audioCodecOverride ?? AudioCodecCatalog.CompatibleSelection(AudioCodec,
                     OutputFormat.Extension(containerOverride ?? Container, codecOverride ?? Codec)),
-                proResProfileOverride ?? ProResProfile);
+                proResProfileOverride ?? ProResProfile, bitrateKbpsOverride);
         }
 
         public override void Save(UnityModManager.ModEntry modEntry)

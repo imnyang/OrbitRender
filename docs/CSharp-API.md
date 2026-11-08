@@ -2,7 +2,7 @@
 
 다른 ADOFAI 모드에서 OrbitRender에 렌더링을 요청할 수 있습니다. `OrbitRender.dll`을 참조하지 않아도 되도록 공개 표면은 **JSON 문자열 인자와 반환값**, 그리고 리플레이를 진행하는 **호스트 객체**로만 구성됩니다. 리플렉션으로 `OrbitRender.RenderApi`를 찾아 호출하세요. 모든 호출은 Unity 메인 스레드에서 실행해야 합니다.
 
-출력 폴더 지원 여부는 `RenderApi.OutputDirectoryOptionVersion` 필드가 존재하고 값이 1 이상인지 리플렉션으로 확인할 수 있습니다. 호스트가 완성된 영상 위에 영상을 덧씌우는 기능([`GetOverlayVideos`](#덧씌울-영상))은 `RenderApi.OverlayVideoVersion`으로 같은 방법으로 확인합니다.
+출력 폴더 지원 여부는 `RenderApi.OutputDirectoryOptionVersion` 필드가 존재하고 값이 1 이상인지 리플렉션으로 확인할 수 있습니다. 호스트가 완성된 영상 위에 영상을 덧씌우는 기능([`GetOverlayVideos`](#덧씌울-영상))은 `RenderApi.OverlayVideoVersion`으로, Kbps 단위 비트레이트(`bitrateKbps`)는 `RenderApi.BitrateKbpsVersion`으로 같은 방법으로 확인합니다.
 
 ## 표면
 
@@ -14,6 +14,7 @@ namespace OrbitRender
         public const int ApiVersion = 3;   // 계약이 깨질 때 증가합니다.
         public const int OutputDirectoryOptionVersion = 1;
         public const int OverlayVideoVersion = 1;   // 호스트의 GetOverlayVideos를 씁니다.
+        public const int BitrateKbpsVersion = 1;    // bitrateKbps 옵션을 받습니다.
         public static bool IsAvailable { get; }
         public static string Version { get; }
         public static bool IsBusy { get; }
@@ -109,11 +110,13 @@ string json = (string)start.Invoke(null, new object[] { request, host });
 | 저장 폴더 | `outputDirectory` |
 | 완료 화면 | `noPreview` (`true`이면 렌더 완료 화면을 표시하지 않음) |
 | 화면과 프레임 | `preset`, `width`, `height`, `targetFps`, `videoFps`, `endDelaySeconds` |
-| 영상 인코딩 | `bitrateMbps`, `videoCodec`, `bitDepth`, `audioCodec`, `proResProfile` |
+| 영상 인코딩 | `bitrateMbps` 또는 `bitrateKbps`, `videoCodec`, `bitDepth`, `audioCodec`, `proResProfile` |
 | 오디오 | `captureAudio`, `audioGainDb` |
 | 표시 | `bgaMode`, `showPlanetRings`, `showSongTitle`, `showCountdown`, `showResultText`, `showHitJudgments`, `showModOverlay` |
 
-`width`, `height`, `targetFps`, `videoFps`, `bitrateMbps`, `bitDepth`, `videoCodec`, `audioCodec`는 범위를 벗어나면 `render_options_invalid`로 즉시 거부됩니다. `preset`은 `Custom`, `Preview`, `FullHD`, `QHD`, `UHD4K` 중 하나입니다. 리플레이 렌더는 게임플레이 HUD를 항상 모두 표시합니다.
+`width`, `height`, `targetFps`, `videoFps`, `bitrateMbps`, `bitrateKbps`, `bitDepth`, `videoCodec`, `audioCodec`는 범위를 벗어나면 `render_options_invalid`로 즉시 거부됩니다. `preset`은 `Custom`, `Preview`, `FullHD`, `QHD`, `UHD4K` 중 하나입니다. 리플레이 렌더는 게임플레이 HUD를 항상 모두 표시합니다.
+
+`bitrateKbps`(1000~200000)는 1 Mbps보다 세밀한 비트레이트입니다. FFmpeg는 이 값 그대로 인코딩하고, 정수 Mbps만 받는 곳(네이티브 NVENC 인코더, 파일 이름의 `{bitrate}`)은 가장 가까운 Mbps로 반올림한 값을 씁니다. `bitrateMbps`와 함께 지정하면 `bitrateMbps × 1000`과 같아야 하며, 다르면 `render_options_invalid`로 거부됩니다.
 
 `Begin`에는 종료 지연이 전달되지 않습니다. 호스트가 종료 시각을 계산할 때 쓸 값은 `options.endDelaySeconds`로 직접 지정하세요. 생략하면 OrbitRender는 사용자 설정값을 쓰므로 호스트는 그 값을 알 수 없습니다.
 

@@ -27,6 +27,7 @@
   <Compile Include="FileNameTemplateTests.cs"/>
   <Compile Include="..\OrbitRender\FileNameTemplate.cs" Link="FileNameTemplate.cs"/>
   <Compile Include="FfmpegInstallContractTests.cs"/>
+  <Compile Include="BitrateTests.cs"/>
   <Compile Include="..\OrbitRender\Updater\FfmpegInstallContract.cs" Link="FfmpegInstallContract.cs"/>
   <Compile Include="..\OrbitRender\UI\UiLayout.cs" Link="UiLayout.cs"/>
   <Compile Include="..\OrbitRender\VideoCodec.cs" Link="VideoCodec.cs"/>

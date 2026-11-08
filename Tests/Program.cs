@@ -91,6 +91,12 @@ internal static class Program
                 Console.WriteLine("FFmpeg folder tests passed.");
                 return 0;
             }
+            BitrateTests.Run();
+            if (args.Length == 1 && args[0] == "--bitrate")
+            {
+                Console.WriteLine("Bitrate tests passed.");
+                return 0;
+            }
             if (args.Length != 2) throw new ArgumentException("Pass ffmpeg.exe and a test output directory.");
             Directory.CreateDirectory(args[1]);
             TestOutputFormats(args[0], args[1]);

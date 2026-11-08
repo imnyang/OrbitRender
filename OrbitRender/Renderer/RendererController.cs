@@ -300,7 +300,8 @@ namespace OrbitRender.Renderer
                 requestOptions?.BitDepth ?? rpcOptions?.BitDepth,
                 requestOptions?.Encoding,
                 requestOptions?.Encoder, requestOptions?.Container, requestOptions?.AudioCodec ?? rpcOptions?.AudioCodec,
-                requestOptions?.ProResProfile ?? rpcOptions?.ProResProfile);
+                requestOptions?.ProResProfile ?? rpcOptions?.ProResProfile,
+                requestOptions?.BitrateMbps == null ? rpcOptions?.BitrateKbps : null);
             Clock = new RenderClock(profile.TargetFps);
             AudioSchedulePatch.ResetRuntimeState();
             Message = Localization.FormatWithCurrentCulture("preparing-render", profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps, profile.FfmpegCodec);
@@ -412,7 +413,8 @@ namespace OrbitRender.Renderer
             var definition = VideoCodecCatalog.Get(profile.VideoCodec);
             profile = new RenderProfile(profile.Width, profile.Height, profile.TargetFps, profile.VideoFps, profile.BitrateMbps,
                 profile.FfmpegPreset, profile.EndDelaySeconds, definition.SoftwareEncoder,
-                profile.VideoCodec, profile.BitDepth, profile.Container, profile.AudioCodec, profile.ProResProfile);
+                profile.VideoCodec, profile.BitDepth, profile.Container, profile.AudioCodec, profile.ProResProfile,
+                profile.BitrateKbps);
             encoderFallbackPending = false;
             encoderFallbackReason = null;
             State = RenderState.Preparing;
@@ -586,7 +588,7 @@ namespace OrbitRender.Renderer
                     ? RawVideoPixelFormat.Rgba32 : FrameCapture.SelectRawPixelFormat(),
                 deferStart: useRustRendererForRun
                     && NativeNvencEncoder.IsInstalled && !NativeNvencEncoder.IsDisabled, bufferPolicy: bufferPolicyForRun,
-                proResProfile: profile.ProResProfile);
+                proResProfile: profile.ProResProfile, bitrateKbps: profile.BitrateKbps);
             if (editor != null)
             {
                 Main.Entry.Logger.Log("[Render] Preparing editor render: playMode=" + editor.playMode
@@ -1235,7 +1237,7 @@ namespace OrbitRender.Renderer
             bool reencode = webcam != null || overlays.Count > 0;
             var encoding = !reencode ? new[] { "-c:v", "copy" }
                 : new[] { "-c:v", compositionCodec,
-                    "-b:v", profile.BitrateMbps + "M", "-pix_fmt", profile.VideoCodec == VideoCodec.ProRes ? "yuv422p10le" : profile.PixelFormat };
+                    "-b:v", profile.BitrateKbps + "k", "-pix_fmt", profile.VideoCodec == VideoCodec.ProRes ? "yuv422p10le" : profile.PixelFormat };
             if (reencode && profile.VideoCodec == VideoCodec.ProRes)
                 encoding = new[] { "-c:v", compositionCodec, "-profile:v", ((int)profile.ProResProfile).ToString(),
                     compositionCodec == "prores_videotoolbox" ? "-allow_sw" : "-threads",

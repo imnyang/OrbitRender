@@ -30,6 +30,9 @@ namespace OrbitRender
         /// </summary>
         public const int OverlayVideoVersion = 1;
 
+        /// <summary>Indicates support for the exact bitrateKbps render option.</summary>
+        public const int BitrateKbpsVersion = 1;
+
         /// <summary>True when OrbitRender is loaded and can accept render jobs.</summary>
         public static bool IsAvailable
         {
