@@ -42,6 +42,12 @@ internal static class Program
                 ProResTests.Run(args[1], args[2]);
                 return 0;
             }
+            if (args.Length == 3 && args[0] == "--videotoolbox")
+            {
+                Directory.CreateDirectory(args[2]);
+                VideoToolboxTests.Run(args[1], args[2]);
+                return 0;
+            }
             if (args.Length == 2 && args[0] == "--encoder-probe")
             {
                 var available = EncoderAvailability.Get(args[1], VideoCodec.FFV1, VideoBitDepth.Eight, VideoContainer.Auto);
@@ -233,6 +239,7 @@ internal static class Program
             TestVideoCodecs(args[0], args[1]);
             TestProRes(args[0], args[1]);
             ProResTests.Run(args[0], args[1]);
+            VideoToolboxTests.Run(args[0], args[1]);
             TestFFV1(args[0], args[1]);
             TestOpusAudio(args[0], args[1]);
             TestFlacAudio(args[0], args[1]);
