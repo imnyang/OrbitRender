@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using UnityModManagerNet;
@@ -415,6 +416,7 @@ namespace OrbitRender
                         error = null;
                         Interlocked.Exchange(ref state, Ready);
                         installEntry.Logger.Log("[FFmpeg] Promoted an existing FFmpeg installation to the shared location: " + adopted);
+                        NotifyTufReplay(installSpec.Name, adopted);
                         return;
                     }
 
@@ -493,6 +495,7 @@ namespace OrbitRender
                 error = null;
                 Interlocked.Exchange(ref state, Ready);
                 entry.Logger.Log("[FFmpeg] Shared FFmpeg installed for " + spec.Name + ": " + published);
+                NotifyTufReplay(spec.Name, published);
             }
             finally
             {
@@ -520,6 +523,28 @@ namespace OrbitRender
         internal static string GetBundledExecutable(string modPath)
         {
             return GetInstalledExecutable();
+        }
+
+        // TUFReplay checks the shared folder when the game starts and hands its FFmpeg to
+        // mods that make overlay videos. Tell it when this mod fills the folder later, so
+        // it does not wait for a restart.
+        private static void NotifyTufReplay(string platform, string executablePath)
+        {
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (assembly.GetName().Name != "TUFReplay") continue;
+                    var notify = assembly.GetType("TUFReplay.FfmpegApi", false)?.GetMethod(
+                        "NotifyInstallationCompleted", BindingFlags.Public | BindingFlags.Static,
+                        null, new[] { typeof(string), typeof(string) }, null);
+                    notify?.Invoke(null, new object[] { platform, executablePath });
+                }
+            }
+            catch (Exception ex)
+            {
+                installEntry?.Logger.Log("[FFmpeg] Could not tell TUFReplay about the shared FFmpeg: " + ex.Message);
+            }
         }
 
         private static string GetGameDirectory()
