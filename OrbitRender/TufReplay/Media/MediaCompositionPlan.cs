@@ -77,8 +77,10 @@ public sealed class MediaCompositionPlan
                     var clip = clips[i];
                     filters.Add("[cam" + i + "]trim=start=" + N(clip.sourceStart / 1e6) + ":end=" + N(clip.sourceEnd / 1e6)
                         + ",setpts=(PTS-STARTPTS)/" + N(clip.rate) + "+" + N(clip.start / 1e6) + "/TB," + appearance + "[camera" + i + "]");
+                    // A clip's last camera frame usually comes before its end. Keep it on screen
+                    // until the next clip starts; enable still hides the clip after its end.
                     filters.Add("[" + video + "][camera" + i + "]overlay=x=" + x + ":y=" + y
-                        + ":format=" + overlayFormat + ":eof_action=pass:repeatlast=0:enable='gte(t," + N(clip.start / 1e6) + ")*lt(t," + N(clip.end / 1e6) + ")'[v" + i + "]");
+                        + ":format=" + overlayFormat + ":eof_action=repeat:enable='gte(t," + N(clip.start / 1e6) + ")*lt(t," + N(clip.end / 1e6) + ")'[v" + i + "]");
                     video = "v" + i;
                 }
                 }

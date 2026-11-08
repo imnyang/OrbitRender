@@ -28,6 +28,12 @@ internal static class Program
             }
             if (args.Length == 1 && args[0] == "--hosted-replay-contract") { HostedReplayContractTests.Run(); return 0; }
             if (args.Length == 1 && args[0] == "--tuf-media-plan") { ReplayMediaPlanTests.Run(); return 0; }
+            if (args.Length == 3 && args[0] == "--tuf-media-composition")
+            {
+                Directory.CreateDirectory(args[2]);
+                ReplayMediaPlanTests.RunWithFfmpeg(args[1], args[2]);
+                return 0;
+            }
             if (args.Length == 1 && args[0] == "--jrp-guard") { JrpGuardTests.Run(); return 0; }
             RenderResourceTests.Run();
             if (args.Length == 3 && args[0] == "--prores")
@@ -230,6 +236,7 @@ internal static class Program
             TestFFV1(args[0], args[1]);
             TestOpusAudio(args[0], args[1]);
             TestFlacAudio(args[0], args[1]);
+            ReplayMediaPlanTests.RunWithFfmpeg(args[0], args[1]);
             Console.WriteLine("PASS: filename tokens/sanitization/collisions, MP4/TS/MKV/MOV video and AAC mux/copy, encoder availability and Vulkan FFV1, four-hour clock, DSP anchoring, pitch/offset, 1080p60/60 frames, repeated-frame grouping, frame order, identical fast/slow video, RGB24/RGBA transport equivalence, failure, cancellation, AAC/Opus/FLAC mux, concurrent AAC gain/mux, bit-exact lossless FFV1, selection and replay audio offsets and H.264/H.265/VP9/AV1/ProRes/FFV1 codec support.");
             return 0;
         }
