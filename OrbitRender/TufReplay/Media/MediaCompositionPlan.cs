@@ -40,9 +40,14 @@ public sealed class MediaCompositionPlan
             int overlayIndex = input++;
             plan.Arguments.AddRange(new[] { "-i", overlay.Path });
             string picture = "overlaypicture" + overlayNumber, composed = "overlay" + overlayNumber++;
-            filters.Add("[" + overlayIndex + ":v]" + OverlayAppearance(overlay) + "[" + picture + "]");
+            // overlay rounds x and y down to even on chroma-subsampled video. An odd side gets
+            // one clear pixel and the picture starts a pixel earlier, so it lands exactly.
+            int padX = overlay.Target.X & 1, padY = overlay.Target.Y & 1;
+            filters.Add("[" + overlayIndex + ":v]" + OverlayAppearance(overlay)
+                + (padX + padY > 0 ? ",pad=iw+" + padX + ":ih+" + padY + ":" + padX + ":" + padY + ":color=black@0" : "")
+                + "[" + picture + "]");
             // An overlay that ends early keeps its last frame on screen.
-            filters.Add("[" + video + "][" + picture + "]overlay=x=" + overlay.Target.X + ":y=" + overlay.Target.Y
+            filters.Add("[" + video + "][" + picture + "]overlay=x=" + (overlay.Target.X - padX) + ":y=" + (overlay.Target.Y - padY)
                 + ":format=" + overlayFormat + (IsScaled(overlay) ? ":alpha=premultiplied" : "")
                 + ":eof_action=repeat[" + composed + "]");
             video = composed;

@@ -169,7 +169,9 @@ internal static class ReplayMediaPlanTests
         var overlays = new[] {
             // The crop drops a 10 px border, as Element crops a page's padding.
             new MediaOverlay(overlayPath, new MediaRect(10, 10, 100, 40), new MediaRect(40, 60, 100, 40)),
-            new MediaOverlay(overlayPath, new MediaRect(10, 10, 100, 40), new MediaRect(200, 120, 50, 20))
+            new MediaOverlay(overlayPath, new MediaRect(10, 10, 100, 40), new MediaRect(200, 120, 50, 20)),
+            // At odd x and y, which overlay alone would round down to even on yuv420.
+            new MediaOverlay(overlayPath, new MediaRect(10, 10, 100, 40), new MediaRect(41, 121, 100, 40))
         };
         var plan = MediaCompositionPlan.Create(game, composed, 320, 180, 60, 3000000, new RenderTimeline(0, 1, null),
             null, null, null, null, captureGameAudio: false, overlays: overlays);
@@ -197,6 +199,15 @@ internal static class ReplayMediaPlanTests
             CheckColor(rgb, 280, 20, false, "The overlay leaked outside its target" + at);
             CheckColor(rgb, 20, 140, false, "The overlay leaked outside its target" + at);
         }
+        // The odd overlay's opaque part starts exactly at its target: luma, which yuv420
+        // keeps per pixel, is red (~63) from x 41 and y 121 and black (16) one pixel before.
+        string luma = Path.Combine(directory, "media-overlay-odd.gray");
+        RunFfmpeg(ffmpeg, "-v error -y -i \"" + composed + "\" -ss 0.5 -frames:v 1 -pix_fmt gray -f rawvideo \"" + luma + "\"");
+        byte[] gray = File.ReadAllBytes(luma);
+        bool Lit(int x, int y) => gray[y * 320 + x] > 39;
+        if (!Lit(41, 140) || Lit(40, 140) || !Lit(60, 121) || Lit(60, 120))
+            throw new Exception("An overlay at an odd position must start exactly there: x 40/41 = "
+                + gray[140 * 320 + 40] + "/" + gray[140 * 320 + 41] + ", y 120/121 = " + gray[120 * 320 + 60] + "/" + gray[121 * 320 + 60] + ".");
         Console.WriteLine("Replay overlay video composition tests passed.");
     }
 
