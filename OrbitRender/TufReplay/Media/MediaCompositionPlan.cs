@@ -16,11 +16,12 @@ public sealed class MediaCompositionPlan
 
     // audioDelayUs is how much later than the picture the game audio starts. The
     // microphone is placed against the game audio, so it moves by the same amount.
+    // overlays are the host's videos, such as key viewers, drawn in order on the game
+    // picture and under the webcam.
     public static MediaCompositionPlan Create(string game, string output, int width, int height, int fps,
         double durationUs, RenderTimeline timeline, JObject webcam, string webcamPath,
-        JObject microphone, string microphonePath, string dmnotePath = null, JObject dmnoteLayout = null,
-        string[] videoEncoding = null, bool captureGameAudio = true, IEnumerable<MediaOverlay> dmnoteOverlays = null,
-        double audioDelayUs = 0)
+        JObject microphone, string microphonePath, string[] videoEncoding = null, bool captureGameAudio = true,
+        IEnumerable<MediaOverlay> overlays = null, double audioDelayUs = 0)
     {
         if (width <= 0 || height <= 0 || fps <= 0 || durationUs <= 0) throw new ArgumentOutOfRangeException(nameof(width));
         if (double.IsNaN(audioDelayUs) || double.IsInfinity(audioDelayUs)) throw new ArgumentOutOfRangeException(nameof(audioDelayUs));
@@ -31,6 +32,26 @@ public sealed class MediaCompositionPlan
         string video = "0:v";
         string audio = captureGameAudio ? "0:a:0" : null;
         string overlayFormat = OverlayFormat(videoEncoding);
+        // Drawn in the host's order, each from its own input. The captured HUD used to hold the
+        // key viewers, and the webcam has always covered the HUD, so these come first.
+        int overlayNumber = 0;
+        foreach (MediaOverlay overlay in overlays ?? Enumerable.Empty<MediaOverlay>())
+        {
+            int overlayIndex = input++;
+            plan.Arguments.AddRange(new[] { "-i", overlay.Path });
+            string picture = "overlaypicture" + overlayNumber, composed = "overlay" + overlayNumber++;
+            // overlay rounds x and y down to even on chroma-subsampled video. An odd side gets
+            // one clear pixel and the picture starts a pixel earlier, so it lands exactly.
+            int padX = overlay.Target.X & 1, padY = overlay.Target.Y & 1;
+            filters.Add("[" + overlayIndex + ":v]" + OverlayAppearance(overlay)
+                + (padX + padY > 0 ? ",pad=iw+" + padX + ":ih+" + padY + ":" + padX + ":" + padY + ":color=black@0" : "")
+                + "[" + picture + "]");
+            // An overlay that ends early keeps its last frame on screen.
+            filters.Add("[" + video + "][" + picture + "]overlay=x=" + (overlay.Target.X - padX) + ":y=" + (overlay.Target.Y - padY)
+                + ":format=" + overlayFormat + (IsScaled(overlay) ? ":alpha=premultiplied" : "")
+                + ":eof_action=repeat[" + composed + "]");
+            video = composed;
+        }
         if (webcam != null && webcamPath != null)
         {
             int cameraIndex = input++;
@@ -87,21 +108,6 @@ public sealed class MediaCompositionPlan
             }
             void AddBoundary(double value) { if (value > 0 && value < durationUs) boundaries.Add(value); }
         }
-        var notes = dmnoteOverlays ?? (dmnotePath == null ? Array.Empty<MediaOverlay>() : new[] { new MediaOverlay(dmnotePath, dmnoteLayout) });
-        int noteNumber = 0;
-        foreach (MediaOverlay note in notes)
-        {
-            int noteIndex = input++;
-            plan.Arguments.AddRange(new[] { "-i", note.Path });
-            JObject layout = note.Layout ?? new JObject();
-            int x = (int)Math.Round(Position(layout, "left", 0) * width), y = (int)Math.Round(Position(layout, "top", 0) * height);
-            double scale = (double?)layout["scale"] ?? 1;
-            if (double.IsNaN(scale) || double.IsInfinity(scale) || scale <= 0 || scale > 8) throw new InvalidOperationException("Invalid ImplDmNote scale.");
-            string scaled = "notescaled" + noteNumber, composed = "note" + noteNumber++;
-            filters.Add("[" + noteIndex + ":v]scale=iw*" + N(scale) + ":ih*" + N(scale) + "[" + scaled + "]");
-            filters.Add("[" + video + "][" + scaled + "]overlay=" + x + ":" + y + ":format=" + overlayFormat + ":eof_action=pass:repeatlast=0[" + composed + "]");
-            video = composed;
-        }
         if (microphone != null && microphonePath != null)
         {
             int micIndex = input++;
@@ -126,8 +132,8 @@ public sealed class MediaCompositionPlan
         if (audio == null) plan.Arguments.Add("-an");
         else plan.Arguments.AddRange(new[] { "-map", audio == "0:a:0" ? audio : "[" + audio + "]" });
         plan.Arguments.AddRange(videoEncoding ?? new[] { "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p" });
-        // Replay composition re-encodes the recorded game video when camera or
-        // note overlays are present. Explicit metadata keeps the result tagged
+        // Replay composition re-encodes the recorded game video when a camera or
+        // overlay video is present. Explicit metadata keeps the result tagged
         // like the direct render instead of relying on the encoder default.
         plan.Arguments.AddRange(new[] { "-color_range", "tv", "-colorspace", "bt709",
             "-color_primaries", "bt709", "-color_trc", "bt709" });
@@ -149,6 +155,21 @@ public sealed class MediaCompositionPlan
             : pixel == "yuva444p10le" ? "yuv444p10"
             : pixel == "bgra" || pixel == "rgba" ? "rgb" : "yuv420";
     }
+
+    // Crop to the source rectangle, then scale only when the target is a different size,
+    // so an overlay drawn at the video's scale lands pixel for pixel. Scaling straight alpha
+    // would bleed the color of clear pixels into the edges, so a scaled overlay is
+    // premultiplied first and blended as premultiplied.
+    private static string OverlayAppearance(MediaOverlay overlay)
+    {
+        MediaRect source = overlay.Source, target = overlay.Target;
+        string crop = "crop=" + source.Width + ":" + source.Height + ":" + source.X + ":" + source.Y;
+        return !IsScaled(overlay) ? crop
+            : crop + ",premultiply=inplace=1,scale=" + target.Width + ":" + target.Height + ":flags=lanczos";
+    }
+
+    private static bool IsScaled(MediaOverlay overlay)
+        => overlay.Source.Width != overlay.Target.Width || overlay.Source.Height != overlay.Target.Height;
 
     private static string CameraAppearance(JObject camera, int width, int height, out int x, out int y)
     {

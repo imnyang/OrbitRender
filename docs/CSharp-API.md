@@ -2,7 +2,7 @@
 
 다른 ADOFAI 모드에서 OrbitRender에 렌더링을 요청할 수 있습니다. `OrbitRender.dll`을 참조하지 않아도 되도록 공개 표면은 **JSON 문자열 인자와 반환값**, 그리고 리플레이를 진행하는 **호스트 객체**로만 구성됩니다. 리플렉션으로 `OrbitRender.RenderApi`를 찾아 호출하세요. 모든 호출은 Unity 메인 스레드에서 실행해야 합니다.
 
-출력 폴더 지원 여부는 `RenderApi.OutputDirectoryOptionVersion` 필드가 존재하고 값이 1 이상인지 리플렉션으로 확인할 수 있습니다.
+출력 폴더 지원 여부는 `RenderApi.OutputDirectoryOptionVersion` 필드가 존재하고 값이 1 이상인지 리플렉션으로 확인할 수 있습니다. 호스트가 완성된 영상 위에 영상을 덧씌우는 기능([`GetOverlayVideos`](#덧씌울-영상))은 `RenderApi.OverlayVideoVersion`으로 같은 방법으로 확인합니다.
 
 ## 표면
 
@@ -12,6 +12,8 @@ namespace OrbitRender
     public static class RenderApi
     {
         public const int ApiVersion = 3;   // 계약이 깨질 때 증가합니다.
+        public const int OutputDirectoryOptionVersion = 1;
+        public const int OverlayVideoVersion = 1;   // 호스트의 GetOverlayVideos를 씁니다.
         public static bool IsAvailable { get; }
         public static string Version { get; }
         public static bool IsBusy { get; }
@@ -33,7 +35,7 @@ namespace OrbitRender
 | --- | --- |
 | 레벨 열기, 시작 타일 지정, 오프라인 시계와 프레임 루프 | 녹화된 입력과 판정, 이를 적용하는 게임플레이 훅 |
 | 프레임 캡처, 오디오 캡처와 인코딩 | 녹화 당시 설정(피치, no-fail, input offset, 판정 난이도) 적용과 복원 |
-| 웹캠·마이크 합성, 영상 파일 저장 | 종료·사망 처리, 렌더 종료 시각 결정 |
+| 웹캠·마이크와 호스트가 넘긴 영상(키뷰어 등) 합성, 영상 파일 저장 | 종료·사망 처리, 렌더 종료 시각 결정 |
 | 오버레이 모드의 시간 가상화(OptionalModClock) | 레벨 해시 확인, 오버레이·키뷰어 모드와의 연동 |
 
 ## 렌더 시작
@@ -119,7 +121,7 @@ string json = (string)start.Invoke(null, new object[] { request, host });
 
 OrbitRender는 작업을 만들 때 `host`의 **public 인스턴스 멤버**를 이름과 시그니처로 한 번 찾고, `Delegate.CreateDelegate`로 델리게이트를 만들어 둡니다. 이후 호출, 특히 프레임마다의 호출에는 `MethodInfo.Invoke`를 쓰지 않습니다. 반환형과 매개변수 형식은 정확히 같아야 합니다. 경계를 넘는 형식은 `string`, 숫자, `bool`, `Func<>`/`Action<>`, `IEnumerable<Canvas>` 같은 BCL/Unity 형식뿐입니다.
 
-멤버가 하나라도 없거나 시그니처가 다르면 `render_host_invalid`로 거부합니다. `message`에는 빠진 멤버의 시그니처를 모두 적고, `field`에는 첫 번째 멤버 이름을 넣습니다.
+필수 멤버가 하나라도 없거나 시그니처가 다르면 `render_host_invalid`로 거부합니다. `message`에는 빠진 멤버의 시그니처를 모두 적고, `field`에는 첫 번째 멤버 이름을 넣습니다. 선택 멤버(표의 "선택")는 없어도 되지만, 같은 이름의 public 메서드가 있는데 시그니처가 다르면 마찬가지로 거부합니다.
 
 | 멤버 | 호출 시점 |
 | --- | --- |
@@ -135,6 +137,7 @@ OrbitRender는 작업을 만들 때 `host`의 **public 인스턴스 멤버**를 
 | `void OnBeforeCapture()` / `void OnAfterCapture()` | 출력 프레임에 HUD 캔버스를 그릴 때마다 그 전후. |
 | `void End(string finalState)` | 렌더 정리를 시작할 때. `finalState`는 `Completed`, `Failed`, `Cancelled` 같은 `RenderState` 이름입니다. |
 | `void RestoreAfterRender()` | `End` 직후. 녹화 설정과 훅을 되돌립니다. |
+| `string GetOverlayVideos()` (선택) | 렌더가 완료된 경우에만, 마지막 프레임의 영상 인코딩과 오디오 합치기가 끝난 뒤 합성하기 전에 한 번. 완성된 영상 위에 덧씌울 영상을 JSON으로 돌려줍니다. 아래 [덧씌울 영상](#덧씌울-영상)을 참고하세요. |
 
 ### 호출 순서
 
@@ -143,13 +146,43 @@ StartHostedReplay ─ 레벨 열기 ─ 인코더 확인
   └─ PrepareBeforeRender ─ 곡 준비, 플레이 시작, 음악 예약 ─ Begin ─ GetCaptureCanvases
        └─ 프레임마다: BeforeSimulationFrame → (게임 Update) → AfterSimulationFrame
                      → 오버레이 작업 정착 대기 → OnBeforeCapture → OnAfterCapture
-            └─ End → RestoreAfterRender → 게임 상태 복원 → 편집기 복구
+            └─ (완료 시) 영상·오디오 마무리 → GetOverlayVideos → 웹캠·마이크·덧씌울 영상 합성
+                 └─ End → RestoreAfterRender → 게임 상태 복원 → 편집기 복구
 ```
 
 - 렌더가 시작되기 전에 작업이 끝나면(레벨 열기·인코더 확인 실패, 준비 중 취소) 호스트 멤버는 하나도 호출되지 않습니다. `ReadStatus`의 종료 상태로 판단하세요.
 - `RestoreAfterRender`는 `PrepareBeforeRender`가 실패했거나 호출되기 전에 렌더가 실패해도 호출됩니다. `End`는 `Begin`이 호출된 경우에만 호출되며, `Begin`이 예외를 던졌을 때도 호출됩니다. 두 메서드는 중복 호출과 부분 준비 상태를 견뎌야 합니다.
 - `ReadStatus`가 종료 상태를 보고할 때는 `End`, `RestoreAfterRender`, OrbitRender의 게임 상태 복원이 이미 끝났습니다. 편집기 복구는 그 뒤에도 이어질 수 있으며, 그동안 `IsBusy`는 `true`입니다.
 - 오버레이 정착 대기는 OptionalModClock의 작업 펜스를 프레임마다 최대 2초 기다립니다. 호스트 호출은 없습니다.
+- 취소되거나 실패한 렌더에서는 `GetOverlayVideos`를 호출하지 않습니다.
+
+### 덧씌울 영상
+
+`OverlayVideoVersion` 1부터, 호스트는 렌더와 따로 만든 영상(예: 키뷰어)을 완성된 영상 위에 덧씌울 수 있습니다. 게임이 그 영상을 프레임마다 기다리지 않아도 되므로, 무거운 오버레이를 게임과 동시에 그릴 수 있습니다.
+
+`GetOverlayVideos`는 `null`, 빈 문자열, 또는 다음 모양의 JSON 배열을 돌려줍니다. 배열 순서대로 그립니다.
+
+```json
+[
+  {
+    "path": "C:\\Users\\me\\AppData\\Local\\Element\\render\\abc\\hand.mov",
+    "source": { "x": 30, "y": 30, "width": 585, "height": 180 },
+    "target": { "x": 40, "y": 860, "width": 585, "height": 180 }
+  }
+]
+```
+
+| 필드 | 설명 |
+| --- | --- |
+| `path` | 영상 파일의 절대 경로. 알파 채널이 있는 형식(예: `qtrle`, `-pix_fmt argb`)이면 투명한 부분은 게임 화면이 보입니다. |
+| `source` | 영상의 각 프레임에서 쓸 부분. 픽셀 단위 정수, 왼쪽 위가 원점입니다. |
+| `target` | 출력 영상에서 그 부분이 놓일 자리. 픽셀 단위 정수, 왼쪽 위가 원점입니다. 화면 밖으로 걸쳐도 됩니다. 크기가 `source`와 다르면 늘이거나 줄입니다. |
+
+- 영상의 0초가 출력 영상의 0번 프레임입니다. 프레임은 파일의 타임스탬프대로 놓이므로 출력과 같은 FPS로 만들면 프레임마다 정확히 맞습니다. 영상이 출력보다 먼저 끝나면 마지막 프레임을 유지합니다.
+- 게임 화면 위, 웹캠 아래에 그립니다. 같은 파일을 여러 항목이 쓰면 한 번만 읽습니다.
+- 덧씌울 영상이 있으면 웹캠이 있을 때처럼 영상을 다시 인코딩합니다(마이크만 있을 때는 영상을 그대로 복사합니다).
+- `GetOverlayVideos`는 메인 스레드에서 호출되며, 호스트는 영상이 다 써질 때까지 기다렸다가 돌려줘도 됩니다. 그동안 렌더 마무리가 멈춥니다.
+- 호출이 예외를 던지거나 JSON을 읽을 수 없으면, 또는 항목의 파일이 없거나 크기가 0 이하이면 그 항목을 빼고 로그(`[Replay] …`)를 남깁니다. 덧씌울 영상을 합성하다 실패하면 그 영상 없이 다시 합성합니다. 어느 경우에도 렌더는 실패하지 않습니다.
 
 ### 호스트가 맡는 게임 상태
 
@@ -162,7 +195,7 @@ StartHostedReplay ─ 레벨 열기 ─ 인코더 확인
 ### 예외
 
 - `PrepareBeforeRender`, `Begin`, `BeforeSimulationFrame`, `AfterSimulationFrame`의 예외는 렌더를 실패시키고, 예외 메시지가 작업 상태의 `errorMessage`에 들어갑니다. 예외에 public `string Code` 속성(소문자 snake_case)이 있으면 `errorCode`로 전달하고, `Field`, `Line`(`int?`), `File` 속성이 있으면 `errorDetails`에 함께 넣습니다.
-- `GetCaptureCanvases`, `OnBeforeCapture`, `OnAfterCapture`의 예외는 로그에 남기고 계속합니다.
+- `GetCaptureCanvases`, `OnBeforeCapture`, `OnAfterCapture`, `GetOverlayVideos`의 예외는 로그에 남기고 계속합니다.
 - 속성 getter는 예외를 던지지 않아야 합니다. `CurrentVideoTimeUs`는 오버레이 모드 코드 안에서 호출됩니다.
 
 ## 응답
@@ -234,7 +267,7 @@ string cancelled = RenderApi.Cancel(jobId);    // 취소 요청 후의 스냅샷
 - 한 번에 하나의 작업만 실행합니다.
 - 종료된 작업의 상태는 1시간 동안 유지된 뒤 정리됩니다.
 - 결과 파일은 호출자가 관리합니다. `outputPath`를 직접 읽고, 이동·삭제도 호출자 책임입니다.
-- `media` 파일은 렌더 마지막 단계에서 읽으므로 작업이 종료 상태가 된 뒤에 정리하세요.
+- `media` 파일과 `GetOverlayVideos`로 넘긴 영상은 렌더 마지막 단계에서 읽으므로 작업이 종료 상태가 된 뒤에(또는 `End` 이후에) 정리하세요.
 
 ## v2에서 바뀐 점
 

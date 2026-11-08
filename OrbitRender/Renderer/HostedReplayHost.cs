@@ -32,7 +32,16 @@ namespace OrbitRender.Renderer
         internal Action<string> End { get; private set; }
         internal Action RestoreAfterRender { get; private set; }
 
-        /// <summary>Binds every member or refuses the host with render_host_invalid, naming what is missing.</summary>
+        /// <summary>
+        /// Optional (<c>RenderApi.OverlayVideoVersion</c>): the host's videos to lay over
+        /// the finished video, as JSON. Null when the host has no such member.
+        /// </summary>
+        internal Func<string> GetOverlayVideos { get; private set; }
+
+        /// <summary>
+        /// Binds every required member or refuses the host with render_host_invalid, naming what is
+        /// missing. An optional member may be absent, but one that is present must match exactly.
+        /// </summary>
         internal static HostedReplayHost<TCanvas> Bind(object host)
         {
             if (host == null)
@@ -59,6 +68,7 @@ namespace OrbitRender.Renderer
                 OnAfterCapture = binder.Method<Action>("OnAfterCapture", "void OnAfterCapture()"),
                 End = binder.Method<Action<string>>("End", "void End(string finalState)"),
                 RestoreAfterRender = binder.Method<Action>("RestoreAfterRender", "void RestoreAfterRender()"),
+                GetOverlayVideos = binder.OptionalMethod<Func<string>>("GetOverlayVideos", "string GetOverlayVideos()"),
             };
             binder.ThrowIfInvalid();
             return bound;
@@ -93,6 +103,14 @@ namespace OrbitRender.Renderer
                 }
                 return Create<T>(method, name, signature);
             }
+
+            /// <summary>
+            /// Like <see cref="Method{T}"/>, but a host without any public method of that name is
+            /// fine (null). A host that has one with another signature is refused, so a typo or an
+            /// outdated host is named instead of silently ignored.
+            /// </summary>
+            internal T OptionalMethod<T>(string name, string signature) where T : Delegate
+                => type.GetMethods(Members).Any(candidate => candidate.Name == name) ? Method<T>(name, signature) : null;
 
             /// <summary>Binds the public getter of an instance property whose type matches <typeparamref name="T"/>.</summary>
             internal T Getter<T>(string name, string signature) where T : Delegate
