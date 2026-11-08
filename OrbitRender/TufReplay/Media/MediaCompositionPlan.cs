@@ -32,27 +32,15 @@ public sealed class MediaCompositionPlan
         string video = "0:v";
         string audio = captureGameAudio ? "0:a:0" : null;
         string overlayFormat = OverlayFormat(videoEncoding);
-        // A video several overlays share is read once and split; they are still drawn in the
-        // host's order. The captured HUD used to hold the key viewers, and the webcam has
-        // always covered the HUD, so these come first.
-        MediaOverlay[] drawn = (overlays ?? Enumerable.Empty<MediaOverlay>()).ToArray();
-        var sources = new Dictionary<string, Queue<string>>(StringComparer.Ordinal);
-        foreach (var file in drawn.GroupBy(overlay => overlay.Path, StringComparer.Ordinal))
+        // Drawn in the host's order, each from its own input. The captured HUD used to hold the
+        // key viewers, and the webcam has always covered the HUD, so these come first.
+        int overlayNumber = 0;
+        foreach (MediaOverlay overlay in overlays ?? Enumerable.Empty<MediaOverlay>())
         {
             int overlayIndex = input++;
-            plan.Arguments.AddRange(new[] { "-i", file.Key });
-            int uses = file.Count();
-            string[] labels = uses == 1 ? new[] { overlayIndex + ":v" }
-                : Enumerable.Range(0, uses).Select(i => "overlay" + overlayIndex + "_" + i).ToArray();
-            if (uses > 1)
-                filters.Add("[" + overlayIndex + ":v]split=" + uses + string.Concat(labels.Select(label => "[" + label + "]")));
-            sources.Add(file.Key, new Queue<string>(labels));
-        }
-        for (int i = 0; i < drawn.Length; i++)
-        {
-            MediaOverlay overlay = drawn[i];
-            string picture = "overlaypicture" + i, composed = "overlay" + i;
-            filters.Add("[" + sources[overlay.Path].Dequeue() + "]" + OverlayAppearance(overlay) + "[" + picture + "]");
+            plan.Arguments.AddRange(new[] { "-i", overlay.Path });
+            string picture = "overlaypicture" + overlayNumber, composed = "overlay" + overlayNumber++;
+            filters.Add("[" + overlayIndex + ":v]" + OverlayAppearance(overlay) + "[" + picture + "]");
             // An overlay that ends early keeps its last frame on screen.
             filters.Add("[" + video + "][" + picture + "]overlay=x=" + overlay.Target.X + ":y=" + overlay.Target.Y
                 + ":format=" + overlayFormat + (IsScaled(overlay) ? ":alpha=premultiplied" : "")

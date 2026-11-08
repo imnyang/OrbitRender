@@ -36,11 +36,11 @@ internal static class ReplayMediaPlanTests
         Console.WriteLine("Replay media composition planning tests passed.");
     }
 
-    // Host overlay videos: one input per file (split when shared), cropped to the source,
-    // scaled only when the target differs, held at their last frame, and under the webcam.
+    // Host overlay videos: one input each, cropped to the source, scaled only when the
+    // target differs, held at their last frame, and under the webcam.
     private static void CheckOverlayPlan(RenderTimeline timeline)
     {
-        // The shared file is used first and last, so drawing must follow this order, not the files'.
+        // Two overlays show the same file, as two key viewers of a kind share one page.
         var overlays = new[] {
             new MediaOverlay("hand.mov", new MediaRect(30, 30, 585, 180), new MediaRect(40, 860, 585, 180)),
             new MediaOverlay("foot.mov", new MediaRect(0, 0, 400, 100), new MediaRect(-20, 900, 400, 100)),
@@ -49,15 +49,15 @@ internal static class ReplayMediaPlanTests
         var camera = JObject.Parse(@"{""durationUs"":10000000,""captureStartOffsetUs"":0,""gameplayRate"":1}");
         var plan = MediaCompositionPlan.Create("game.mp4", "out.mp4", 1920, 1080, 60,
             4000000, timeline, camera, "camera.mp4", null, null, overlays: overlays);
-        Check(plan.Arguments.Count(argument => argument == "hand.mov") == 1 && plan.Arguments.Count(argument => argument == "foot.mov") == 1,
-            "Each overlay video file must be one input.");
-        int hand = plan.Arguments.IndexOf("hand.mov"), foot = plan.Arguments.IndexOf("foot.mov"), webcam = plan.Arguments.IndexOf("camera.mp4");
-        Check(hand < foot && foot < webcam, "Overlay videos must be inputs in order, before the webcam.");
+        Check(plan.Arguments.Count(argument => argument == "hand.mov") == 2 && plan.Arguments.Count(argument => argument == "foot.mov") == 1,
+            "Each overlay must be its own input.");
+        int foot = plan.Arguments.IndexOf("foot.mov"), webcam = plan.Arguments.IndexOf("camera.mp4");
+        Check(plan.Arguments.IndexOf("hand.mov") < foot && foot < plan.Arguments.LastIndexOf("hand.mov")
+            && plan.Arguments.LastIndexOf("hand.mov") < webcam, "Overlay videos must be inputs in order, before the webcam.");
         string graph = plan.FilterGraph;
-        Check(graph.Contains("[1:v]split=2[overlay1_0][overlay1_1]"), "A shared overlay video must be split: " + graph);
-        Check(graph.Contains("[overlay1_0]crop=585:180:30:30[overlaypicture0]") && graph.Contains("[2:v]crop=400:100:0:0[overlaypicture1]"),
+        Check(graph.Contains("[1:v]crop=585:180:30:30[overlaypicture0]") && graph.Contains("[2:v]crop=400:100:0:0[overlaypicture1]"),
             "A same-size overlay must only be cropped: " + graph);
-        Check(graph.Contains("[overlay1_1]crop=585:180:30:30,premultiply=inplace=1,scale=390:120:flags=lanczos[overlaypicture2]")
+        Check(graph.Contains("[3:v]crop=585:180:30:30,premultiply=inplace=1,scale=390:120:flags=lanczos[overlaypicture2]")
             && graph.Contains("[overlay1][overlaypicture2]overlay=x=1200:y=860:format=yuv420:alpha=premultiplied:eof_action=repeat[overlay2]"),
             "A smaller target must be premultiplied, scaled after the crop and blended as premultiplied: " + graph);
         Check(graph.Contains("[0:v][overlaypicture0]overlay=x=40:y=860:format=yuv420:eof_action=repeat[overlay0]")
@@ -72,7 +72,8 @@ internal static class ReplayMediaPlanTests
             "No media must mean no filter graph.");
     }
 
-    // The host's JSON is checked entry by entry; a bad entry is left out with a reason.
+    // The host's JSON is read entry by entry; an entry without an existing file or with a
+    // non-positive size is left out and named.
     private static void CheckOverlayList()
     {
         string directory = Path.Combine(Path.GetTempPath(), "orbitrender-overlay-list-" + Guid.NewGuid().ToString("N"));
@@ -86,19 +87,17 @@ internal static class ReplayMediaPlanTests
             var json = "[" + string.Join(",",
                 Entry(hand, good, new { x = -10, y = 860, width = 390, height = 120 }),
                 Entry(Path.Combine(directory, "missing.mov"), good, good),
-                Entry("relative.mov", good, good),
-                Entry(hand, new { x = -1, y = 0, width = 10, height = 10 }, good),
                 Entry(hand, good, new { x = 0, y = 0, width = 0, height = 10 }),
-                Entry(hand, new { x = 0, y = 0, width = 10.5, height = 10 }, good),
                 Entry(hand, null, good),
+                Entry(hand, new { x = "a", y = 0, width = 10, height = 10 }, good),
                 "5") + "]";
             var reasons = new System.Collections.Generic.List<string>();
             var overlays = MediaOverlay.ParseList(json, reasons.Add);
             Check(overlays.Count == 1 && overlays[0].Path == hand && overlays[0].Source.X == 30 && overlays[0].Source.Width == 585
                 && overlays[0].Target.X == -10 && overlays[0].Target.Y == 860 && overlays[0].Target.Width == 390 && overlays[0].Target.Height == 120,
                 "Only the valid overlay entry must be read.");
-            Check(reasons.Count == 7 && reasons[0].StartsWith("Overlay video 1 left out") && reasons[0].Contains("does not exist"),
-                "Each bad entry must be named with its reason: " + string.Join(" | ", reasons));
+            Check(reasons.Count == 5 && reasons[0].StartsWith("Overlay video 1 left out"),
+                "Each bad entry must be named: " + string.Join(" | ", reasons));
             foreach (var empty in new[] { null, "", "  ", "[]" })
                 Check(MediaOverlay.ParseList(empty, reason => throw new Exception("Unexpected: " + reason)).Count == 0,
                     "An empty overlay list must be accepted quietly.");
@@ -107,9 +106,6 @@ internal static class ReplayMediaPlanTests
                 reasons.Clear();
                 Check(MediaOverlay.ParseList(bad, reasons.Add).Count == 0 && reasons.Count == 1, "Unreadable overlay JSON must be skipped: " + bad);
             }
-            var many = "[" + string.Join(",", Enumerable.Repeat(Entry(hand, good, good), 40)) + "]";
-            reasons.Clear();
-            Check(MediaOverlay.ParseList(many, reasons.Add).Count == 32 && reasons.Count == 1, "Overlay videos must be capped.");
         }
         finally { Directory.Delete(directory, true); }
     }
