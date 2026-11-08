@@ -450,18 +450,20 @@ namespace OrbitRender
                 if (available.Complete && available.Encoders.Length > 0)
                 {
                     // Prefer the active GPU, or Vulkan for FFV1, among successful probes.
+                    // On macOS that is VideoToolbox, also on Intel Macs.
                     var preferred = codec == VideoCodec.ProRes
                         ? (macOS ? VideoEncoder.AppleVideoToolbox : VideoEncoder.Software)
                         : codec == VideoCodec.FFV1
                         ? (Array.IndexOf(available.Encoders, VideoEncoder.Vulkan) >= 0
                             ? VideoEncoder.Vulkan : VideoEncoder.Software)
+                        : macOS ? VideoEncoder.AppleVideoToolbox
                         : nvidia ? VideoEncoder.NvidiaNvenc : intel ? VideoEncoder.IntelQsv
                         : amd ? VideoEncoder.AmdAmf : VideoEncoder.Software;
                     encoder = Array.IndexOf(available.Encoders, preferred) >= 0
                         ? preferred : available.Encoders[0];
                 }
             }
-            return definition.ResolveEncoder(encoder, nvidia, intel, amd, macOS);
+            return definition.ResolveEncoder(encoder, nvidia, intel, amd, macOS, depth);
         }
 
         private static bool ContainsGpuName(string value, string name)

@@ -167,7 +167,7 @@ namespace OrbitRender.Renderer
                     + (rawPixelFormat == RawVideoPixelFormat.Rgb24 ? "rgb24" : "rgba") + " -video_size "
                     + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf "
                     + BuildVideoFilter(codec, pixelFormat) + " "
-                    + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : isVulkan ? "vulkan" : pixelFormat)
+                    + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : isVulkan ? "vulkan" : EncoderPixelFormat(codec, pixelFormat))
                     + ColorMetadataOptions(fullRangeOutput)
                     // The raw-video demuxer supplies the same target time base
                     // used by the render clock, so the encoded stream inherits
@@ -304,6 +304,14 @@ namespace OrbitRender.Renderer
                 || string.Equals(pixelFormat, "gbrp10le", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// The -pix_fmt FFmpeg gets for <paramref name="pixelFormat"/>. VideoToolbox HEVC takes
+        /// 10-bit frames only as p010le; the same samples, packed differently.
+        /// </summary>
+        internal static string EncoderPixelFormat(string codec, string pixelFormat)
+            => string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
+                && string.Equals(codec, "hevc_videotoolbox", StringComparison.OrdinalIgnoreCase) ? "p010le" : pixelFormat;
+
         internal static string ColorMetadataOptions(bool fullRange)
         {
             // RGB surfaces (Vulkan FFV1 / ProRes alpha) are full range; encoded
@@ -332,9 +340,13 @@ namespace OrbitRender.Renderer
             if (normalized.EndsWith("_vulkan", StringComparison.Ordinal))
                 return "-c:v " + normalized;
             var tenBitHevc = string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
-                && (normalized == "libx265" || normalized == "hevc_nvenc"
-                    || normalized == "hevc_qsv" || normalized == "hevc_amf" || normalized == "hevc_vaapi");
+                && (normalized == "libx265" || normalized == "hevc_nvenc" || normalized == "hevc_qsv"
+                    || normalized == "hevc_amf" || normalized == "hevc_vaapi" || normalized == "hevc_videotoolbox");
             var profile = tenBitHevc ? " -profile:v main10" : string.Empty;
+            // VideoToolbox has no presets. -allow_sw 0 refuses Apple's software encoder, so a
+            // Mac without the hardware encoder fails the preflight instead of encoding slowly.
+            if (normalized == "h264_videotoolbox" || normalized == "hevc_videotoolbox")
+                return "-c:v " + normalized + " -allow_sw 0 " + rateControl + profile;
             if (normalized.EndsWith("_vaapi", StringComparison.Ordinal))
                 // Leave driver-specific rate-control/quality selection on auto.
                 // VAAPI does not accept x264/NVENC preset names.

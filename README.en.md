@@ -11,6 +11,8 @@ You can configure the resolution, FPS, bitrate, encoder, and more. Instead of re
 
 ProRes supports the `prores_ks` software encoder and available `prores_videotoolbox` Apple hardware encoding. Auto on macOS prefers VideoToolbox after a successful encoding probe. The export dialog's encoding tab offers Proxy, LT, Standard, HQ, 4444, and 4444 XQ; HQ is the default. Select Auto (MOV), MOV, or MKV as the container. The profile replaces bitrate, encoding speed, and bit depth settings and is saved in defaults and user presets. The 422 profiles output 10-bit 4:2:2; 4444 profiles preserve captured alpha. Capture remains 8-bit RGB/RGBA, so the output format does not increase source precision.
 
+On macOS, H.264 and HEVC can also be encoded with Apple VideoToolbox (`h264_videotoolbox`, `hevc_videotoolbox`). They are offered after a successful encoding probe, and Auto prefers them, as it prefers the GPU encoder on other systems. VideoToolbox H.264 has no 10-bit profile, so 10-bit H.264 is encoded in software (`libx264`); 10-bit HEVC is encoded as Main 10.
+
 FFV1 is a lossless codec that preserves every pixel exactly. It is written to MKV with software encoding; bitrate and encoding speed do not apply. When the FFmpeg build and GPU provide the Vulkan FFV1 encoder (`ffv1_vulkan`), it is offered in the encoder dropdown after an availability probe, and [Auto] prefers it — this path uploads the native RGB surface and preserves chroma resolution exactly. Aligned lossless audio (FLAC) can be selected as well. Files are very large, making it best suited as a master for editing or re-encoding.
 - **Audio Capture** — Capture in-game audio and encode it using AAC or Opus
 - **BGA Mode** — Render backgrounds without tiles, planets, or gameplay effects
