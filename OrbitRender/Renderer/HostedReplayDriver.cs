@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TUFReplayRenderer.Media;
 using TUFReplayRenderer.Replay;
 using UnityEngine;
 
@@ -74,6 +75,35 @@ namespace OrbitRender.Renderer
         {
             try { host.OnAfterCapture(); }
             catch (Exception exception) { LogError("OnAfterCapture", exception); }
+        }
+
+        /// <summary>
+        /// The host's videos to lay over the finished video, such as key viewers. Called once,
+        /// after the last frame of a completed render; the host may block while it finishes
+        /// them. A host failure or an unusable entry is logged and left out, never failing the render.
+        /// </summary>
+        internal List<MediaOverlay> OverlayVideos()
+        {
+            if (host.GetOverlayVideos == null) return new List<MediaOverlay>();
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            string json;
+            try { json = host.GetOverlayVideos(); }
+            catch (Exception exception)
+            {
+                LogError("GetOverlayVideos", exception);
+                return new List<MediaOverlay>();
+            }
+            var overlays = MediaOverlay.ParseList(json, problem => Log("[Replay] " + problem));
+            if (overlays.Count > 0 || started.Elapsed.TotalSeconds >= 1)
+                Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "[Replay] Host overlay videos: {0} in {1:F2} s.", overlays.Count, started.Elapsed.TotalSeconds));
+            return overlays;
+        }
+
+        private static void Log(string message)
+        {
+            try { Main.Entry?.Logger?.Log(message); }
+            catch (Exception) { }
         }
 
         private static void LogError(string member, Exception error)

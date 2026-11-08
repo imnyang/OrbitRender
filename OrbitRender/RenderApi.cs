@@ -24,6 +24,12 @@ namespace OrbitRender
         /// <summary>Indicates support for the outputDirectory replay option.</summary>
         public const int OutputDirectoryOptionVersion = 1;
 
+        /// <summary>
+        /// Indicates that a hosted replay's host may add videos over the finished video with an
+        /// optional <c>string GetOverlayVideos()</c> member. See docs/CSharp-API.md.
+        /// </summary>
+        public const int OverlayVideoVersion = 1;
+
         /// <summary>True when OrbitRender is loaded and can accept render jobs.</summary>
         public static bool IsAvailable
         {

@@ -71,6 +71,27 @@ namespace HostedReplayFixtures
         public void RestoreAfterRender() { }
     }
 
+    // A host that also hands overlay videos (RenderApi.OverlayVideoVersion).
+    public sealed class OverlayHost : HostCore
+    {
+        public void PrepareBeforeRender() { }
+        public void BeforeSimulationFrame(long frameIndex, double videoSeconds) { }
+        public long CurrentVideoTimeUs { get; set; }
+        public void RestoreAfterRender() { }
+        public string Videos = "[]";
+        public string GetOverlayVideos() { Calls.Add("overlay-videos"); return Videos; }
+    }
+
+    // GetOverlayVideos with the wrong return type.
+    public sealed class WrongOverlayHost : HostCore
+    {
+        public void PrepareBeforeRender() { }
+        public void BeforeSimulationFrame(long frameIndex, double videoSeconds) { }
+        public long CurrentVideoTimeUs { get; set; }
+        public void RestoreAfterRender() { }
+        public string[] GetOverlayVideos() => new string[0];
+    }
+
     // A host built against an earlier draft that passed an overlay-work delegate.
     public sealed class DraftHost : HostCore
     {
@@ -86,6 +107,7 @@ internal static class HostedReplayContractTests
     internal static void Run()
     {
         CheckHostBinding();
+        CheckOverlayVideoBinding();
         CheckHostRefusals();
         CheckRequestValidation();
         Console.WriteLine("Hosted replay contract tests passed.");
@@ -137,6 +159,19 @@ internal static class HostedReplayContractTests
         host.GameplayStartVideoTimeUs = null;
         Assert(bound.GameplayStartVideoTimeUs() == null, "a null gameplay start survives binding");
         Assert(bound.GetCaptureCanvases().Single() == host.Overlay, "capture canvases come from the host");
+        Assert(bound.GetOverlayVideos == null, "a host without GetOverlayVideos still binds, without overlay videos");
+    }
+
+    private static void CheckOverlayVideoBinding()
+    {
+        var host = new OverlayHost { Videos = "[{\"path\":\"/tmp/hand.mov\"}]" };
+        var bound = HostedReplayHost<Canvas>.Bind(host);
+        Assert(bound.GetOverlayVideos != null && ReferenceEquals(bound.GetOverlayVideos.Target, host)
+            && bound.GetOverlayVideos.Method.Name == "GetOverlayVideos", "GetOverlayVideos is a direct delegate to the host");
+        Assert(bound.GetOverlayVideos() == host.Videos && host.Calls.Single() == "overlay-videos", "GetOverlayVideos returns the host's JSON");
+        // Present with another signature: named, not silently ignored.
+        Refused(() => HostedReplayHost<Canvas>.Bind(new WrongOverlayHost()), "render_host_invalid",
+            "GetOverlayVideos", "string GetOverlayVideos()");
     }
 
     private static void CheckHostRefusals()

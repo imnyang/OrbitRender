@@ -918,16 +918,14 @@ namespace OrbitRender.Renderer
                         FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
                             audioGainDbForRun, profile.AudioCodec, ReplayAudioDelaySeconds);
                     }
-                    if (HasReplayMedia()) ComposeReplayMedia(muxPath, OutputPath, true);
-                    else File.Move(muxPath, OutputPath);
+                    PublishReplayVideo(muxPath, true);
                     RenderRecovery.DeleteTemporary(muxPath);
                     RenderRecovery.DeleteTemporary(partialPath); RenderRecovery.DeleteTemporary(audioPath);
                     RenderRecovery.DeleteTemporary(audioEncodedPath);
                     RenderRecovery.DeleteTemporary(OutputPath + RenderRecovery.Suffix);
                     preserveRecovery = false;
                 }
-                else if (HasReplayMedia()) ComposeReplayMedia(partialPath, OutputPath, false);
-                else File.Move(partialPath, OutputPath);
+                else PublishReplayVideo(partialPath, false);
             }
             finally { finalizationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - finalizationStart; }
             totalRenderTicks = System.Diagnostics.Stopwatch.GetTimestamp() - totalRenderStartTicks;
@@ -1192,7 +1190,33 @@ namespace OrbitRender.Renderer
 
         private bool HasReplayMedia() => replayRequest?.HasMedia == true;
 
-        private void ComposeReplayMedia(string input, string output, bool hasGameAudio)
+        // The finished video becomes the output as it is, or composed with the replay's webcam
+        // and microphone and the host's overlay videos. Finalization: no Unity yields here.
+        private void PublishReplayVideo(string input, bool hasGameAudio)
+        {
+            var overlays = replayDriver != null ? replayDriver.OverlayVideos()
+                : new System.Collections.Generic.List<TUFReplayRenderer.Media.MediaOverlay>();
+            if (overlays.Count > 0)
+            {
+                try
+                {
+                    ComposeReplayMedia(input, OutputPath, hasGameAudio, overlays);
+                    return;
+                }
+                catch (IOException exception)
+                {
+                    // A broken host video must not cost the whole render.
+                    Main.Entry.Logger.Error("[Replay] The overlay videos could not be composed; finishing without them: "
+                        + exception.Message);
+                }
+            }
+            if (HasReplayMedia())
+                ComposeReplayMedia(input, OutputPath, hasGameAudio, new System.Collections.Generic.List<TUFReplayRenderer.Media.MediaOverlay>());
+            else File.Move(input, OutputPath);
+        }
+
+        private void ComposeReplayMedia(string input, string output, bool hasGameAudio,
+            System.Collections.Generic.IReadOnlyList<TUFReplayRenderer.Media.MediaOverlay> overlays)
         {
             var webcam = replayRequest.MediaEntry("webcam");
             var microphone = replayRequest.MediaEntry("microphone");
@@ -1200,16 +1224,19 @@ namespace OrbitRender.Renderer
             string microphonePath = replayRequest.MediaPath("microphone");
             Main.Entry.Logger.Log("[Replay] Media settings: webcam offset=" + (webcam?["offsetMs"]?.ToString() ?? "n/a")
                 + " ms, microphone latency=" + (microphone?["latencyUs"]?.ToString() ?? "n/a")
-                + " us, microphone gain=" + (microphone?["volume"]?.ToString() ?? "n/a") + ".");
+                + " us, microphone gain=" + (microphone?["volume"]?.ToString() ?? "n/a")
+                + ", overlay videos=" + overlays.Count + ".");
             var timeline = new TUFReplayRenderer.Media.RenderTimeline(replayDriver.GameplayStartVideoTimeUs ?? 0,
                 replayDriver.GameplayRate, replayRequest.WonTimeUs);
             var compositionCodec = profile.FfmpegCodec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
                 || profile.FfmpegCodec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase)
                 ? VideoCodecCatalog.Get(profile.VideoCodec).SoftwareEncoder : profile.FfmpegCodec;
-            var encoding = webcam == null ? new[] { "-c:v", "copy" }
+            // Only a microphone-only composition keeps the encoded picture.
+            bool reencode = webcam != null || overlays.Count > 0;
+            var encoding = !reencode ? new[] { "-c:v", "copy" }
                 : new[] { "-c:v", compositionCodec,
                     "-b:v", profile.BitrateMbps + "M", "-pix_fmt", profile.VideoCodec == VideoCodec.ProRes ? "yuv422p10le" : profile.PixelFormat };
-            if (webcam != null && profile.VideoCodec == VideoCodec.ProRes)
+            if (reencode && profile.VideoCodec == VideoCodec.ProRes)
                 encoding = new[] { "-c:v", compositionCodec, "-profile:v", ((int)profile.ProResProfile).ToString(),
                     compositionCodec == "prores_videotoolbox" ? "-allow_sw" : "-threads",
                     "0", "-pix_fmt", profile.PixelFormat };
@@ -1217,7 +1244,7 @@ namespace OrbitRender.Renderer
             var plan = TUFReplayRenderer.Media.MediaCompositionPlan.Create(input, composedPath, profile.Width, profile.Height,
                 profile.VideoFps, CapturedFrames * 1000000d / profile.VideoFps, timeline,
                 webcam, cameraPath, microphone, microphonePath, videoEncoding: encoding, captureGameAudio: hasGameAudio,
-                audioDelayUs: ReplayAudioDelaySeconds * 1000000d);
+                overlays: overlays, audioDelayUs: ReplayAudioDelaySeconds * 1000000d);
             var audioOption = plan.Arguments.IndexOf("-c:a");
             if (audioOption >= 0)
             {
