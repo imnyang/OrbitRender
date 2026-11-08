@@ -63,36 +63,36 @@ namespace OrbitRender.Renderer
         // Kept for the standalone encoder tests and for callers that use the
         // original API. RendererController uses the configurable overload.
         public FFmpegEncoder(string executable, string output)
-            : this(executable, output, 1920, 1080, 60, 18, "veryfast", true, true, "libx264", "yuv420p",
+            : this(executable, output, 1920, 1080, 60, 18000, "veryfast", true, true, "libx264", "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps, string preset)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, true, "libx264", "yuv420p",
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, true, "libx264", "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, "libx264", "yuv420p",
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, fastStart, "libx264", "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, "yuv420p",
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, fastStart, codec, "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec, string pixelFormat)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, fastStart, codec, pixelFormat,
                 RawVideoPixelFormat.Rgba32) { }
 
         internal FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec, string pixelFormat, RawVideoPixelFormat rawPixelFormat,
             bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced,
-            ProResProfile proResProfile = ProResProfile.HQ)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
-                rawPixelFormat, deferStart, bufferPolicy, proResProfile) { }
+            ProResProfile proResProfile = ProResProfile.HQ, int? bitrateKbps = null)
+            : this(executable, output, width, height, fps, bitrateKbps ?? bitrateMbps * 1000, preset, false, fastStart,
+                codec, pixelFormat, rawPixelFormat, deferStart, bufferPolicy, proResProfile) { }
 
-        private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
+        private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateKbps,
             string preset, bool legacyCrf, bool fastStart, string codec, string pixelFormat,
             RawVideoPixelFormat rawPixelFormat, bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced,
             ProResProfile proResProfile = ProResProfile.HQ)
@@ -100,7 +100,7 @@ namespace OrbitRender.Renderer
             if (string.IsNullOrWhiteSpace(executable)) throw new FileNotFoundException("FFmpeg executable was not configured.");
             if (LooksLikeFilePath(executable) && !File.Exists(executable))
                 throw new FileNotFoundException("FFmpeg executable not found", executable);
-            if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0 || fps <= 0 || bitrateMbps <= 0)
+            if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0 || fps <= 0 || bitrateKbps <= 0)
                 throw new ArgumentOutOfRangeException();
             if (string.IsNullOrEmpty(preset)) preset = "fast";
             if (string.IsNullOrEmpty(codec)) codec = "libx264";
@@ -140,19 +140,7 @@ namespace OrbitRender.Renderer
             var bufferCount = RenderResources.BufferCount(frameByteCount, bufferPolicy);
             free = new BlockingCollection<Frame>(bufferCount);
             work = new BlockingCollection<Frame>(bufferCount);
-            var bufferSizeMbps = Math.Max(1, bitrateMbps * 2);
-            var rateControl = legacyCrf && string.Equals(codec, "libx264", StringComparison.OrdinalIgnoreCase)
-                ? "-crf 18"
-                : "-b:v " + bitrateMbps + "M -maxrate " + bitrateMbps + "M -bufsize " + bufferSizeMbps + "M";
-            if (string.Equals(codec, "libaom-av1", StringComparison.OrdinalIgnoreCase))
-            {
-                // libaom-av1 does not accept x264-style CBR flags. Use a target
-                // bitrate for audio renders and capped CRF for video-only
-                // renders so the existing quality/bitrate intent is retained.
-                rateControl = legacyCrf
-                    ? "-crf 30 -b:v 0"
-                    : "-b:v " + bitrateMbps + "M";
-            }
+            var rateControl = RateControl(codec, bitrateKbps, legacyCrf);
             var encoderOptions = BuildEncoderOptions(codec, preset, rateControl, isHardwareEncoder, pixelFormat, proResProfile);
             process = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable,
@@ -321,6 +309,17 @@ namespace OrbitRender.Renderer
                 + " -colorspace bt709 -color_primaries bt709 -color_trc bt709";
         }
 
+        internal static string RateControl(string codec, int bitrateKbps, bool legacyCrf)
+        {
+            // libaom-av1 does not accept x264-style CBR flags. Use a target
+            // bitrate for audio renders and capped CRF for video-only
+            // renders so the existing quality/bitrate intent is retained.
+            if (string.Equals(codec, "libaom-av1", StringComparison.OrdinalIgnoreCase))
+                return legacyCrf ? "-crf 30 -b:v 0" : "-b:v " + bitrateKbps + "k";
+            if (legacyCrf && string.Equals(codec, "libx264", StringComparison.OrdinalIgnoreCase)) return "-crf 18";
+            return "-b:v " + bitrateKbps + "k -maxrate " + bitrateKbps + "k -bufsize " + bitrateKbps * 2 + "k";
+        }
+
         internal static string BuildEncoderOptions(string codec, string preset, string rateControl,
             bool isHardwareEncoder, string pixelFormat, ProResProfile proResProfile = ProResProfile.HQ)
         {
@@ -421,7 +420,7 @@ namespace OrbitRender.Renderer
                 // hardware encoders, including NVENC on supported drivers,
                 // reject tiny 128x128 surfaces before testing any real frame.
                 using (var encoder = new FFmpegEncoder(executable, output, 320, 180, 30,
-                    Math.Max(1, bitrateMbps), preset, legacyCrf, false, codec, pixelFormat,
+                    Math.Max(1, bitrateMbps) * 1000, preset, legacyCrf, false, codec, pixelFormat,
                     RawVideoPixelFormat.Rgba32, proResProfile: proResProfile))
                 {
                     var frame = encoder.Rent();

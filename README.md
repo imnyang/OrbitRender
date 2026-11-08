@@ -31,7 +31,7 @@ Windows, macOS, Linux를 지원합니다.
 2. 압축을 풀고 모드 폴더를 `A Dance of Fire and Ice/Mods/`에 넣습니다.
 3. Unity Mod Manager가 설치된 상태에서 게임을 실행합니다.
 
-렌더링에는 FFmpeg가 필요합니다. 설치되어 있지 않다면 첫 실행 시 자동 설치 여부를 묻고, `A Dance of Fire and Ice/ffmpeg/<플랫폼>/`에 설치합니다. 기존 `Mods/OrbitRender/FFmpeg/` 또는 `Mods/TUFReplay/FFmpeg/`에 있는 파일은 검증 후 공용 위치로 복사해 재사용하며 원본은 삭제하지 않습니다. 직접 지정한 FFmpeg 실행 파일 경로가 있으면 그것을 우선 사용합니다.
+렌더링에는 FFmpeg가 필요합니다. 설치되어 있지 않다면 첫 실행 시 자동 설치 여부를 묻고, `A Dance of Fire and Ice/ffmpeg/<플랫폼>/`에 설치합니다. 기존 `Mods/OrbitRender/FFmpeg/` 또는 `Mods/TUFReplay/FFmpeg/`, macOS에서 이전 버전이 설치한 `ADanceOfFireAndIce.app/Contents/ffmpeg/`에 있는 파일은 검증 후 공용 위치로 복사해 재사용하며 원본은 삭제하지 않습니다. 직접 지정한 FFmpeg 실행 파일 경로가 있으면 그것을 우선 사용합니다.
 
 FFmpeg는 모드 배포 파일에 포함되어 있지 않습니다.
 
