@@ -40,6 +40,7 @@ namespace OrbitRender
         private static PlatformSpec installSpec;
         private static string installGameDirectory;
         private static string installRoot;
+        private static string installPreviousMacDirectory;
         private static string installDestinationDirectory;
         private static string installDestination;
 
@@ -226,7 +227,7 @@ namespace OrbitRender
                 }
 
                 var spec = GetPlatformSpec();
-                var gameDirectory = FfmpegInstallContract.GetGameDirectory();
+                var gameDirectory = GetGameDirectory();
                 var root = FfmpegInstallContract.GetSharedRoot(gameDirectory);
                 var destinationDirectory = FfmpegInstallContract.GetInstallDirectory(gameDirectory, spec.Name);
                 var destination = Path.Combine(destinationDirectory, spec.ExecutableName);
@@ -236,6 +237,8 @@ namespace OrbitRender
                 installSpec = spec;
                 installGameDirectory = gameDirectory;
                 installRoot = root;
+                installPreviousMacDirectory = FfmpegInstallContract.GetPreviousMacInstallDirectory(
+                    UnityEngine.Application.dataPath, IsMacOS(), spec.Name);
                 installDestinationDirectory = destinationDirectory;
                 installDestination = destination;
 
@@ -502,7 +505,7 @@ namespace OrbitRender
             try
             {
                 var spec = GetPlatformSpec();
-                var gameDirectory = FfmpegInstallContract.GetGameDirectory();
+                var gameDirectory = GetGameDirectory();
                 var path = Path.Combine(
                     FfmpegInstallContract.GetInstallDirectory(gameDirectory, spec.Name), spec.ExecutableName);
                 return File.Exists(path) ? path : null;
@@ -517,6 +520,17 @@ namespace OrbitRender
         internal static string GetBundledExecutable(string modPath)
         {
             return GetInstalledExecutable();
+        }
+
+        private static string GetGameDirectory()
+        {
+            return FfmpegInstallContract.GetGameDirectory(UnityEngine.Application.dataPath, IsMacOS());
+        }
+
+        private static bool IsMacOS()
+        {
+            var platform = UnityEngine.Application.platform;
+            return platform == UnityEngine.RuntimePlatform.OSXPlayer || platform == UnityEngine.RuntimePlatform.OSXEditor;
         }
 
         private static PlatformSpec GetPlatformSpec()
@@ -698,6 +712,9 @@ namespace OrbitRender
 
         private static IEnumerable<LegacyCandidate> GetLegacyCandidates(PlatformSpec spec)
         {
+            if (installPreviousMacDirectory != null)
+                yield return new LegacyCandidate(installPreviousMacDirectory,
+                    Path.Combine(installPreviousMacDirectory, spec.ExecutableName));
             var mods = Path.Combine(installGameDirectory, "Mods");
             yield return new LegacyCandidate(Path.Combine(mods, "OrbitRender", "FFmpeg", spec.Name),
                 Path.Combine(mods, "OrbitRender", "FFmpeg", spec.Name, spec.ExecutableName));

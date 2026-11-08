@@ -3,6 +3,8 @@
  <PropertyGroup>
   <OutputType>Exe</OutputType><AssemblyName>RendererTests</AssemblyName><TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
   <LangVersion>latest</LangVersion><OutputPath>bin\Release\</OutputPath>
+  <!-- Json.NET fills FfmpegInstallReceipt's fields; the installer that also sets them is not linked here. -->
+  <NoWarn>$(NoWarn);CS0649</NoWarn>
   <TargetFrameworkRootPath>$(MSBuildProjectDirectory)\..\packages\net48\build\</TargetFrameworkRootPath>
   <FrameworkPathOverride Condition="Exists('..\packages\net48\build\.NETFramework\v4.8')">$(MSBuildProjectDirectory)\..\packages\net48\build\.NETFramework\v4.8</FrameworkPathOverride>
  </PropertyGroup>
@@ -24,6 +26,8 @@
   <Compile Include="PatchCompatibilityTests.cs"/>
   <Compile Include="FileNameTemplateTests.cs"/>
   <Compile Include="..\OrbitRender\FileNameTemplate.cs" Link="FileNameTemplate.cs"/>
+  <Compile Include="FfmpegInstallContractTests.cs"/>
+  <Compile Include="..\OrbitRender\Updater\FfmpegInstallContract.cs" Link="FfmpegInstallContract.cs"/>
   <Compile Include="..\OrbitRender\UI\UiLayout.cs" Link="UiLayout.cs"/>
   <Compile Include="..\OrbitRender\VideoCodec.cs" Link="VideoCodec.cs"/>
   <Compile Include="..\OrbitRender\AudioCodec.cs" Link="AudioCodec.cs"/>
