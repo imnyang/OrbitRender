@@ -550,16 +550,13 @@ namespace OrbitRender.Renderer
             var audioFilter = filters.Count == 0 ? string.Empty : " -af \"" + string.Join(",", filters) + "\"";
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardError = true,
-                Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
+                RedirectStandardError = true, RedirectStandardOutput = true,
+                Arguments = "-hide_banner -loglevel error -nostdin -progress pipe:1 -nostats -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
                     + "\" -map 0:v:0 -map 1:a:0 -c:v copy" + audioFilter + AudioCodecCatalog.EncodingArguments(audioCodec)
                     + " " + containerOptions + " -shortest \"" + output + "\""
             }})
             {
-                mux.Start();
-                var errors = mux.StandardError.ReadToEndAsync();
-                if (!mux.WaitForExit(60000)) { mux.Kill(); mux.WaitForExit(); throw new TimeoutException("Audio/video mux timed out."); }
-                if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors.GetAwaiter().GetResult());
+                RunMux(mux);
             }
         }
         public static void MuxPreencodedAudio(string executable, string video, string audio, string output,
@@ -571,17 +568,46 @@ namespace OrbitRender.Renderer
             // including ProRes with AAC. Preserve every rendered frame.
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardError = true,
-                Arguments = "-hide_banner -loglevel error -nostdin -n -i \"" + video + "\" -i \"" + audio
+                RedirectStandardError = true, RedirectStandardOutput = true,
+                Arguments = "-hide_banner -loglevel error -nostdin -progress pipe:1 -nostats -n -i \"" + video + "\" -i \"" + audio
                     + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + " \""
                     + output + "\""
             }})
             {
-                mux.Start();
-                var errors = mux.StandardError.ReadToEndAsync();
-                if (!mux.WaitForExit(60000)) { mux.Kill(); mux.WaitForExit(); throw new TimeoutException("Audio/video mux timed out."); }
-                if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors.GetAwaiter().GetResult());
+                RunMux(mux);
             }
+        }
+        private static void RunMux(Process mux)
+        {
+            var lastProgress = Stopwatch.GetTimestamp();
+            var errors = new StringBuilder();
+            mux.OutputDataReceived += (sender, args) => {
+                if (args.Data != null)
+                    Interlocked.Exchange(ref lastProgress, Stopwatch.GetTimestamp());
+            };
+            mux.ErrorDataReceived += (sender, args) => {
+                if (args.Data == null) return;
+                lock (errors)
+                {
+                    errors.AppendLine(args.Data);
+                    if (errors.Length > 16384) errors.Remove(0, errors.Length - 16384);
+                }
+            };
+            mux.Start();
+            mux.BeginOutputReadLine();
+            mux.BeginErrorReadLine();
+            // AAC encoding scales with song length, and faststart can spend
+            // minutes moving a large MP4 without emitting progress.
+            while (!mux.WaitForExit(1000))
+            {
+                if ((Stopwatch.GetTimestamp() - Interlocked.Read(ref lastProgress))
+                    / (double)Stopwatch.Frequency < 600) continue;
+                mux.Kill();
+                mux.WaitForExit();
+                throw new TimeoutException("Audio/video mux produced no progress for 10 minutes. " + errors);
+            }
+            mux.WaitForExit(); // Drain redirected output before inspecting errors.
+            if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors);
         }
         public void Dispose()
         {

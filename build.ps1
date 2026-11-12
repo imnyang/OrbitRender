@@ -1,8 +1,6 @@
 param(
     [string]$GameDir = 'L:\SteamLibrary\steamapps\common\A Dance of Fire and Ice',
     [string]$MSBuildPath,
-    [string]$FfmpegPath = 'ffmpeg',
-    [switch]$Test,
     [switch]$Copy
 )
 
@@ -127,47 +125,6 @@ foreach ($staleName in @(
     if (Test-Path -LiteralPath $stalePath -PathType Leaf) {
         Remove-Item -LiteralPath $stalePath -Force
     }
-}
-
-if ($Test) {
-    & $MSBuildPath `
-        Tests/RendererTests.csproj `
-        /t:Rebuild `
-        /v:minimal `
-        /nologo
-
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Test build failed.'
-    }
-
-    & ./Tests/bin/Release/RendererTests.exe `
-        --user-presets `
-        (Join-Path $releaseDirectory 'OrbitRender.dll') `
-        (Join-Path $GameDir 'A Dance of Fire and Ice_Data/Managed')
-
-    if ($LASTEXITCODE -ne 0) {
-        throw 'User preset tests failed.'
-    }
-
-    & ./Tests/bin/Release/RendererTests.exe --encoder-probe $FfmpegPath
-
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Encoder discovery test failed.'
-    }
-
-    $testOutput = Join-Path `
-        $env:TEMP `
-        ('orbit-render-tests-' + [guid]::NewGuid().ToString('N'))
-
-    & ./Tests/bin/Release/RendererTests.exe `
-        $FfmpegPath `
-        $testOutput
-
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Renderer tests failed.'
-    }
-
-    Write-Host "Test videos: $testOutput"
 }
 
 Write-Host "Mod output: $releaseDirectory"

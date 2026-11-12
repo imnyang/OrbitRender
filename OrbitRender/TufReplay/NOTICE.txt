@@ -1,9 +1,0 @@
-TUF replay checkpoint audio scheduling, overlay clock synchronization, the
-replay hit error meter, media composition planning, and associated tests are
-derived from
-https://github.com/KGH1113/TUFReplay-Renderer at commit
-d8592fa8c8dac70810d8f4f700d53fdbbbf063cc, GPL-3.0-only with its
-ADOFAI/Unity linking exception. The imported files are in OrbitRender/TufReplay;
-their replay timeline checks are in Tests/ReplayMediaPlanTests.cs. Recording
-bundle parsing, the recorded replay driver and overlay input injection moved to
-TUFReplay. See LICENSE and LICENSE-EXCEPTION.

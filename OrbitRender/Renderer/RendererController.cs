@@ -104,7 +104,7 @@ namespace OrbitRender.Renderer
         private FrameCapture capture;
         private FFmpegEncoder encoder;
         private string fileNameFormatForRun;
-        private SavedState saved;
+        private RenderGameState saved;
         private JrpRenderGuard jrpRenderGuard;
         // The hosted replay request and the host adapter bound when its job was created.
         private HostedReplayRequest replayRequest;
@@ -524,6 +524,7 @@ namespace OrbitRender.Renderer
         {
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
+            if (captureAudioForRun) AudioBackendCompatibility.EnsureCaptureSupported();
             // Replay overlays, JRP included, belong to the replay host.
             jrpRenderGuard = replayRequest != null ? null : JrpRenderGuard.Begin();
             RenderTimingPatches.Apply();
@@ -533,18 +534,18 @@ namespace OrbitRender.Renderer
             if (replayRequest != null && !PathsEqual(level.levelPath, replayRequest.LevelPath))
                 throw new InvalidOperationException("Open the level referenced by the replay before rendering.");
             ValidateSelection();
-            LogRenderChain("before render preparation", level);
+            EditorRenderState.Log("before render preparation", level);
             string invalidReason = null;
-            if (editor != null && (!editorStateReady || !IsEditorRenderStateValid(level, out invalidReason)))
+            if (editor != null && (!editorStateReady || !EditorRenderState.IsValid(level, out invalidReason)))
             {
                 Main.Entry.Logger.Log("[Render] Rebuilding editor render state before export: "
                     + (editorStateReady ? invalidReason : "previous recovery has not completed"));
-                RebuildEditorRenderState(editor, level);
+                EditorRenderState.Rebuild(editor, level);
                 yield return null;
-                if (!IsEditorRenderStateValid(level, out invalidReason))
+                if (!EditorRenderState.IsValid(level, out invalidReason))
                     throw new InvalidOperationException("Editor render state could not be restored: " + invalidReason);
                 editorStateReady = true;
-                LogRenderChain("after pre-render rebuild", level);
+                EditorRenderState.Log("after pre-render rebuild", level);
             }
             if (GCS.d_oldConductor || GCS.d_webglConductor)
                 throw new InvalidOperationException("The installed conductor must use its standard DSP timing mode.");
@@ -576,7 +577,7 @@ namespace OrbitRender.Renderer
             audioPath = Path.ChangeExtension(OutputPath, ".partial.wav");
             audioEncodedPath = Path.ChangeExtension(OutputPath, ".partial" + AudioCodecCatalog.IntermediateExtension(profile.AudioCodec));
             muxPath = Path.ChangeExtension(OutputPath, ".mux" + profile.ContainerExtension);
-            saved = new SavedState();
+            saved = new RenderGameState();
             SuspendSkyHook();
             PrepareAudioConfiguration();
             if (replayRequest == null) OverrideInputOffsetForRender();
@@ -684,7 +685,7 @@ namespace OrbitRender.Renderer
             // so a second render is visually identical to the first one.
             if (!selectionStartTileForRun.HasValue) CameraFilterPatch.ResetRuntimeState();
             FrameRateEventPatch.ResetRuntimeState();
-            LogRenderChain("after gameplay camera setup", level);
+            EditorRenderState.Log("after gameplay camera setup", level);
             defaultText = DefaultTextRenderState.Capture(showSongTitleForRun,
                 showCountdownForRun, showResultTextForRun, showHitJudgmentsForRun, showGameplayHudForRun);
             // Replay renders use the same meter path as editor renders with the full HUD.
@@ -1192,102 +1193,13 @@ namespace OrbitRender.Renderer
 
         private bool HasReplayMedia() => replayRequest?.HasMedia == true;
 
-        // The finished video becomes the output as it is, or composed with the replay's webcam
-        // and microphone and the host's overlay videos. Finalization: no Unity yields here.
         private void PublishReplayVideo(string input, bool hasGameAudio)
         {
-            var overlays = replayDriver != null ? replayDriver.OverlayVideos()
-                : new System.Collections.Generic.List<TUFReplayRenderer.Media.MediaOverlay>();
-            if (overlays.Count > 0)
-            {
-                try
-                {
-                    ComposeReplayMedia(input, OutputPath, hasGameAudio, overlays);
-                    return;
-                }
-                catch (IOException exception)
-                {
-                    // A broken host video must not cost the whole render.
-                    Main.Entry.Logger.Error("[Replay] The overlay videos could not be composed; finishing without them: "
-                        + exception.Message);
-                }
-            }
-            if (HasReplayMedia())
-                ComposeReplayMedia(input, OutputPath, hasGameAudio, new System.Collections.Generic.List<TUFReplayRenderer.Media.MediaOverlay>());
-            else File.Move(input, OutputPath);
+            var publisher = new ReplayVideoPublisher(FFmpegPath, replayRequest, replayDriver,
+                profile, ReplayAudioDelaySeconds);
+            publisher.Publish(input, OutputPath, CapturedFrames, hasGameAudio);
         }
 
-        private void ComposeReplayMedia(string input, string output, bool hasGameAudio,
-            System.Collections.Generic.IReadOnlyList<TUFReplayRenderer.Media.MediaOverlay> overlays)
-        {
-            var webcam = replayRequest.MediaEntry("webcam");
-            var microphone = replayRequest.MediaEntry("microphone");
-            string cameraPath = replayRequest.MediaPath("webcam");
-            string microphonePath = replayRequest.MediaPath("microphone");
-            Main.Entry.Logger.Log("[Replay] Media settings: webcam offset=" + (webcam?["offsetMs"]?.ToString() ?? "n/a")
-                + " ms, microphone latency=" + (microphone?["latencyUs"]?.ToString() ?? "n/a")
-                + " us, microphone gain=" + (microphone?["volume"]?.ToString() ?? "n/a")
-                + ", overlay videos=" + overlays.Count + ".");
-            var timeline = new TUFReplayRenderer.Media.RenderTimeline(replayDriver.GameplayStartVideoTimeUs ?? 0,
-                replayDriver.GameplayRate, replayRequest.WonTimeUs);
-            var compositionCodec = profile.FfmpegCodec.EndsWith("_vaapi", StringComparison.OrdinalIgnoreCase)
-                || profile.FfmpegCodec.EndsWith("_vulkan", StringComparison.OrdinalIgnoreCase)
-                ? VideoCodecCatalog.Get(profile.VideoCodec).SoftwareEncoder : profile.FfmpegCodec;
-            // Only a microphone-only composition keeps the encoded picture.
-            bool reencode = webcam != null || overlays.Count > 0;
-            var encoding = !reencode ? new[] { "-c:v", "copy" }
-                : new[] { "-c:v", compositionCodec,
-                    "-b:v", profile.BitrateKbps + "k", "-pix_fmt", profile.VideoCodec == VideoCodec.ProRes ? "yuv422p10le" : profile.PixelFormat };
-            if (reencode && profile.VideoCodec == VideoCodec.ProRes)
-                encoding = new[] { "-c:v", compositionCodec, "-profile:v", ((int)profile.ProResProfile).ToString(),
-                    compositionCodec == "prores_videotoolbox" ? "-allow_sw" : "-threads",
-                    "0", "-pix_fmt", profile.PixelFormat };
-            var composedPath = Path.ChangeExtension(output, ".composed" + profile.ContainerExtension);
-            var plan = TUFReplayRenderer.Media.MediaCompositionPlan.Create(input, composedPath, profile.Width, profile.Height,
-                profile.VideoFps, CapturedFrames * 1000000d / profile.VideoFps, timeline,
-                webcam, cameraPath, microphone, microphonePath, videoEncoding: encoding, captureGameAudio: hasGameAudio,
-                overlays: overlays, audioDelayUs: ReplayAudioDelaySeconds * 1000000d);
-            var audioOption = plan.Arguments.IndexOf("-c:a");
-            if (audioOption >= 0)
-            {
-                plan.Arguments.RemoveRange(audioOption, 4);
-                var codec = AudioCodecCatalog.Resolve(profile.AudioCodec, profile.ContainerExtension);
-                plan.Arguments.InsertRange(audioOption, codec == AudioCodec.Flac
-                    ? new[] { "-c:a", "flac" }
-                    : new[] { "-c:a", AudioCodecCatalog.Encoder(codec), "-b:a", AudioCodecCatalog.Bitrate(codec) });
-            }
-            using (var process = new System.Diagnostics.Process { StartInfo = new System.Diagnostics.ProcessStartInfo {
-                FileName = FFmpegPath, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardError = true, RedirectStandardOutput = true,
-                Arguments = string.Join(" ", plan.Arguments.Select(QuoteFfmpegArgument))
-            } })
-            {
-                process.Start();
-                var errors = process.StandardError.ReadToEndAsync();
-                var progressOutput = process.StandardOutput.ReadToEndAsync();
-                process.WaitForExit();
-                progressOutput.GetAwaiter().GetResult();
-                if (process.ExitCode != 0) { RenderRecovery.DeleteTemporary(composedPath); throw new IOException("Replay media composition failed: " + errors.GetAwaiter().GetResult()); }
-                File.Move(composedPath, output);
-            }
-        }
-
-        private static string QuoteFfmpegArgument(string value)
-        {
-            if (string.IsNullOrEmpty(value)) return "\"\"";
-            var result = new System.Text.StringBuilder("\"");
-            int slashes = 0;
-            foreach (char c in value)
-            {
-                if (c == '\\') { slashes++; continue; }
-                if (c == '"') result.Append('\\', slashes * 2 + 1);
-                else result.Append('\\', slashes);
-                slashes = 0;
-                result.Append(c);
-            }
-            result.Append('\\', slashes * 2);
-            return result.Append('"').ToString();
-        }
         private static string QuoteProcessArgument(string value)
         {
             return "\"" + (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
@@ -1314,7 +1226,7 @@ namespace OrbitRender.Renderer
             if (captureAudioForRun && audio == null)
             {
                 audio = new GameAudioCapture();
-                audio.Begin(audioPath);
+                audio.Begin(audioPath, profile.VideoFps);
                 // The streamed encoder starts the audio at output frame zero.
                 // Shifted audio is aligned by the final WAV mux instead.
                 if (!selectionStartTileForRun.HasValue && ReplayAudioDelaySeconds == 0.0)
@@ -1525,7 +1437,7 @@ namespace OrbitRender.Renderer
         {
             var camera = scrCamera.instance;
             if (camera == null) return;
-            SyncBackgroundCameras(camera);
+            EditorRenderState.SyncBackgroundCameras(camera);
             // Do not call MoveCameraToPlayer or Refocus here. Those methods
             // overwrite the camera state/tweens created by the level's Move
             // Camera events. The game has already applied its normal camera
@@ -1725,7 +1637,7 @@ namespace OrbitRender.Renderer
                 if (requestedBuffer <= 0 || configuration.dspBufferSize <= requestedBuffer) return;
 
                 // A DSP block larger than a video frame can make AudioRenderer return no samples.
-                // SavedState restores the original buffer size after capture.
+                // RenderGameState restores the original buffer size after capture.
                 configuration.dspBufferSize = requestedBuffer;
                 var reset = AudioSettings.Reset(configuration);
                 var actual = AudioSettings.GetConfiguration();
@@ -2203,9 +2115,9 @@ namespace OrbitRender.Renderer
                     }
                 });
                 TryCleanup(restore.Restore);
-                if (recoveryEditor != null && recoveryLevel != null)
-                    TryCleanup(() => StartEditorRecovery(recoveryEditor, recoveryLevel, restore));
             }
+            if (restore != null && recoveryEditor != null && recoveryLevel != null)
+                TryCleanup(() => StartEditorRecovery(recoveryEditor, recoveryLevel, restore));
             TryCleanup(DisposePendingSongRequest);
             if (!preserveRecovery && State != RenderState.Completed && !string.IsNullOrEmpty(partialPath))
                 TryCleanup(() => { if (File.Exists(partialPath)) File.Delete(partialPath); });
@@ -2289,7 +2201,7 @@ namespace OrbitRender.Renderer
                 throw new InvalidOperationException("The selected tile range is no longer available.");
         }
 
-        private void StartEditorRecovery(scnEditor targetEditor, scnGame targetLevel, SavedState restore)
+        private void StartEditorRecovery(scnEditor targetEditor, scnGame targetLevel, RenderGameState restore)
         {
             if (shuttingDown || targetEditor == null || targetLevel == null) return;
             if (editorRecoveryRoutine != null) StopCoroutine(editorRecoveryRoutine);
@@ -2297,26 +2209,26 @@ namespace OrbitRender.Renderer
             editorRecoveryRoutine = StartCoroutine(RecoverEditorAfterRender(targetEditor, targetLevel, restore));
         }
 
-        private IEnumerator RecoverEditorAfterRender(scnEditor targetEditor, scnGame targetLevel, SavedState restore)
+        private IEnumerator RecoverEditorAfterRender(scnEditor targetEditor, scnGame targetLevel, RenderGameState restore)
         {
             try
             {
-            LogRenderChain("before editor recovery", targetLevel);
-            RebuildEditorRenderState(targetEditor, targetLevel);
-            yield return null;
-
-            if (!IsEditorRenderStateValid(targetLevel, out var reason))
-            {
-                Main.Entry.Logger.Log("[Render] Editor render state validation failed; rebuilding once: " + reason);
-                RebuildEditorRenderState(targetEditor, targetLevel);
+                EditorRenderState.Log("before editor recovery", targetLevel);
+                EditorRenderState.Rebuild(targetEditor, targetLevel);
                 yield return null;
-            }
 
-            restore?.RestoreEditorState();
-            editorStateReady = IsEditorRenderStateValid(targetLevel, out reason);
-            LogRenderChain("after editor recovery", targetLevel);
-            if (!editorStateReady)
-                Main.Entry.Logger.Error("[Render] Editor render state is still invalid after recovery: " + reason);
+                if (!EditorRenderState.IsValid(targetLevel, out var reason))
+                {
+                    Main.Entry.Logger.Log("[Render] Editor render state validation failed; rebuilding once: " + reason);
+                    EditorRenderState.Rebuild(targetEditor, targetLevel);
+                    yield return null;
+                }
+
+                restore?.RestoreEditorState();
+                editorStateReady = EditorRenderState.IsValid(targetLevel, out reason);
+                EditorRenderState.Log("after editor recovery", targetLevel);
+                if (!editorStateReady)
+                    Main.Entry.Logger.Error("[Render] Editor render state is still invalid after recovery: " + reason);
             }
             finally
             {
@@ -2326,208 +2238,6 @@ namespace OrbitRender.Renderer
             }
         }
 
-        private static void RebuildEditorRenderState(scnEditor targetEditor, scnGame targetLevel)
-        {
-            targetLevel.ResetScene();
-            targetEditor.SwitchToEditMode();
-            targetLevel.ReloadAssets(force: true, reloadDecorations: true);
-            targetEditor.UpdateDecorationObjects();
-            RepairInternalCameraTarget();
-        }
-
-        private static void RepairInternalCameraTarget()
-        {
-            var camera = scrCamera.instance;
-            if (camera == null) return;
-            SyncBackgroundCameras(camera);
-
-            // SetCustomFrameRate(false) releases the texture currently shown by
-            // the camera quad. After a custom-FPS event that texture is camRT,
-            // so a later ResetScene can leave the same object assigned but no
-            // longer created. Recreate it without replacing level/editor data.
-            var field = AccessTools.Field(typeof(scrCamera), "camRT");
-            var target = field?.GetValue(camera) as RenderTexture;
-            if (target == null && field != null)
-            {
-                target = new RenderTexture(Math.Max(1, Screen.width), Math.Max(1, Screen.height), 24) {
-                    name = "ADOFAI Camera RT"
-                };
-                field.SetValue(camera, target);
-            }
-            if (target != null && !target.IsCreated() && !target.Create())
-                throw new InvalidOperationException("The game camera render texture could not be recreated.");
-
-            if (target != null)
-            {
-                // Use the same presentation mesh that scrCamera uses for the
-                // full-screen quad, with a child lookup as a fallback.
-                var renderer = AccessTools.Field(typeof(scrCamera), "camQuadMesh")?.GetValue(camera) as MeshRenderer;
-                if (renderer == null && camera.quad != null)
-                    renderer = camera.quad.GetComponentInChildren<MeshRenderer>(true);
-                if (renderer != null && renderer.material.mainTexture != target)
-                    renderer.material.mainTexture = target;
-            }
-            if (camera.quad != null && camera.Overlaycam != null && Screen.height > 0)
-            {
-                // scrCamera.Update normally sizes this presentation quad when
-                // camRT is first allocated. We allocate camRT in edit mode, so
-                // that size-change branch no longer runs on the next Play.
-                var quadHeight = camera.Overlaycam.orthographicSize * 2f;
-                var quadWidth = quadHeight * Screen.width / Screen.height;
-                camera.quad.transform.localScale = new Vector3(quadWidth, quadHeight, 1f);
-            }
-            camera.SetupRTCam(false);
-        }
-
-        private static void SyncBackgroundCameras(scrCamera camera)
-        {
-            if (camera == null || camera.camobj == null) return;
-            var position = camera.camobj.transform.position;
-            var rotation = camera.camobj.transform.rotation;
-            if (camera.Bgcamstatic != null)
-                camera.Bgcamstatic.transform.SetPositionAndRotation(position, rotation);
-            if (camera.BGcam != null)
-                camera.BGcam.transform.SetPositionAndRotation(position, rotation);
-        }
-
-        private static bool IsEditorRenderStateValid(scnGame targetLevel, out string reason)
-        {
-            var camera = scrCamera.instance;
-            if (camera == null || camera.Bgcamstatic == null || camera.BGcam == null || camera.camobj == null)
-            {
-                reason = "camera chain is missing";
-                return false;
-            }
-            foreach (var item in new[] { camera.Bgcamstatic, camera.BGcam, camera.camobj })
-            {
-                if (!item.enabled || !item.gameObject.activeInHierarchy || item.cullingMask == 0)
-                {
-                    reason = item.name + " is disabled, inactive, or has an empty culling mask";
-                    return false;
-                }
-                if (item.targetTexture != null)
-                {
-                    reason = item.name + " still targets a render texture in edit mode";
-                    return false;
-                }
-            }
-            if ((camera.Bgcamstatic.transform.position - camera.camobj.transform.position).sqrMagnitude > 0.0001f
-                || (camera.BGcam.transform.position - camera.camobj.transform.position).sqrMagnitude > 0.0001f)
-            {
-                reason = "background camera transform does not match the gameplay camera";
-                return false;
-            }
-
-            var target = AccessTools.Field(typeof(scrCamera), "camRT")?.GetValue(camera) as RenderTexture;
-            if (target == null || !target.IsCreated())
-            {
-                reason = "internal camera render texture is released";
-                return false;
-            }
-            var quadMesh = AccessTools.Field(typeof(scrCamera), "camQuadMesh")?.GetValue(camera) as MeshRenderer;
-            if (quadMesh != null && quadMesh.material.mainTexture != target)
-            {
-                reason = "camera presentation quad is not bound to the internal render texture";
-                return false;
-            }
-            if (camera.quad != null && camera.Overlaycam != null && Screen.height > 0)
-            {
-                var expectedHeight = camera.Overlaycam.orthographicSize * 2f;
-                var expectedWidth = expectedHeight * Screen.width / Screen.height;
-                var scale = camera.quad.transform.localScale;
-                if (!Mathf.Approximately(scale.x, expectedWidth)
-                    || !Mathf.Approximately(scale.y, expectedHeight))
-                {
-                    reason = "camera presentation quad has the wrong size";
-                    return false;
-                }
-            }
-            if (camera.flashPlusRendererBg == null || camera.flashPlusRendererFg == null
-                || !camera.flashPlusRendererBg.enabled || !camera.flashPlusRendererFg.enabled)
-            {
-                reason = "Flash Plus background/foreground renderer is unavailable";
-                return false;
-            }
-
-            // The editor may intentionally keep its default background hidden.
-            // Bgcamstatic clears to SolidColor in that configuration, so the
-            // absence of a visible default-background renderer is not a broken
-            // render state and must not prevent export.
-            reason = null;
-            return true;
-        }
-
-        private static GameObject FindDefaultBackground(scnGame targetLevel)
-        {
-            if (targetLevel == null) return null;
-            var custom = AccessTools.Field(typeof(scnGame), "customEditorBG")?.GetValue(targetLevel) as GameObject;
-            if (custom != null) return custom;
-            return AccessTools.Field(typeof(scnGame), "editorBG")?.GetValue(targetLevel) as GameObject;
-        }
-
-        private static void LogRenderChain(string stage, scnGame targetLevel)
-        {
-            var camera = scrCamera.instance;
-            if (camera == null)
-            {
-                Main.Entry.Logger.Log("[Render] Render chain [" + stage + "]: <missing>");
-                return;
-            }
-            var target = AccessTools.Field(typeof(scrCamera), "camRT")?.GetValue(camera) as RenderTexture;
-            var quadMesh = AccessTools.Field(typeof(scrCamera), "camQuadMesh")?.GetValue(camera) as MeshRenderer;
-            var quadTexture = quadMesh != null ? quadMesh.material.mainTexture : null;
-            var background = FindDefaultBackground(targetLevel);
-            var backgroundRenderers = background != null
-                ? background.GetComponentsInChildren<UnityEngine.Renderer>(true)
-                : new UnityEngine.Renderer[0];
-            Main.Entry.Logger.Log("[Render] Render chain [" + stage + "]: "
-                + DescribeCamera("Bgcamstatic", camera.Bgcamstatic) + "; "
-                + DescribeCamera("BGcam", camera.BGcam) + "; "
-                + DescribeCamera("camobj", camera.camobj) + "; camRT="
-                + (target == null ? "missing" : target.width + "x" + target.height + "/created=" + target.IsCreated())
-                + "; useRTCam=" + ReadBoolField(camera, "useRTCam")
-                + ", customFPS=" + camera.enableCustomFPS
-                + ", forceRTCam=" + camera.forceRTCam
-                + ", lockCustomFrameUpdate=" + camera.lockCustomFrameUpdate
-                + ", quadActive=" + (camera.quad != null && camera.quad.activeInHierarchy)
-                + ", overlayActive=" + (camera.Overlaycam != null && camera.Overlaycam.gameObject.activeInHierarchy)
-                + ", quadTexture=" + (quadTexture != null ? quadTexture.name : "missing")
-                + ", quadUsesCamRT=" + (quadTexture == target)
-                + ", quadScale=" + (camera.quad != null ? camera.quad.transform.localScale.ToString() : "missing")
-                + ", hom=" + (ADOBase.controller != null && ADOBase.controller.homEnabled)
-                + "; " + DescribeRenderer("flashBg", camera.flashPlusRendererBg)
-                + "; " + DescribeRenderer("flashFg", camera.flashPlusRendererFg)
-                + "; defaultBG(active=" + (background != null && background.activeInHierarchy)
-                + ", renderers=" + backgroundRenderers.Length
-                + ", visible=" + backgroundRenderers.Count(item => item.enabled && item.gameObject.activeInHierarchy) + ")");
-        }
-
-        private static bool ReadBoolField(object instance, string name)
-        {
-            var field = instance != null ? AccessTools.Field(instance.GetType(), name) : null;
-            return field != null && (bool)field.GetValue(instance);
-        }
-
-        private static string DescribeCamera(string name, Camera camera)
-        {
-            if (camera == null) return name + "=<missing>";
-            return name + "(active=" + camera.gameObject.activeInHierarchy + ", target="
-                + (camera.targetTexture == null ? "screen" : camera.targetTexture.name)
-                + ", enabled=" + camera.enabled + ", mask=0x" + camera.cullingMask.ToString("X8")
-                + ", clear=" + camera.clearFlags + ", depth=" + camera.depth.ToString("F1")
-                + ", ortho=" + camera.orthographicSize.ToString("F2")
-                + ", pos=" + camera.transform.position
-                + ", rect=" + camera.rect
-                + ", effects=" + string.Join(",", camera.GetComponents<MonoBehaviour>()
-                    .Where(item => item != null && item.enabled).Select(item => item.GetType().Name).ToArray()) + ")";
-        }
-
-        private static string DescribeRenderer(string name, UnityEngine.Renderer renderer)
-        {
-            if (renderer == null) return name + "=<missing>";
-            return name + "(active=" + renderer.gameObject.activeInHierarchy + ", enabled=" + renderer.enabled
-                + ", layer=" + renderer.gameObject.layer + ", color=" + renderer.material.color + ")";
-        }
         private static void ClearQueuedInput()
         {
             try { AsyncInputManager.ClearKeys(); } catch { }
@@ -2563,177 +2273,6 @@ namespace OrbitRender.Renderer
             StopAndClean();
             TryCleanup(DisposePendingSongRequest);
             TryCleanup(DisposeSongRequest);
-        }
-        private sealed class SavedState
-        {
-            private readonly int captureRate = Time.captureFramerate, targetRate = Application.targetFrameRate, vsync = QualitySettings.vSyncCount, checkpoint = GCS.checkpointNum;
-            private readonly float timeScale = Time.timeScale, volume = AudioListener.volume;
-            private readonly bool auto = RDC.auto, noFail = ADOBase.controller.noFail, pauseAudio = AudioListener.pause, background = Application.runInBackground;
-            private readonly bool smoothTweens = DG.Tweening.DOTween.useSmoothDeltaTime;
-            private readonly bool noHud = RDC.noHud, noAutoHud = RDC.noAutoHud;
-            private readonly int renderInterval = UnityEngine.Rendering.OnDemandRendering.renderFrameInterval;
-            private readonly bool wasPaused = ADOBase.controller.paused, controllerEnabled = ADOBase.controller.enabled;
-            private readonly SkipIntroBehavior intro = Persistence.skipIntroBehavior;
-            private readonly bool strictlyEditing = ADOBase.editor != null && ADOBase.editor.inStrictlyEditingMode;
-            private readonly int[] selection = ADOBase.editor != null ? ADOBase.editor.selectedFloors.Select(f => f.seqID).ToArray() : new int[0];
-            private readonly CameraViewState cameraView = CameraViewState.Capture();
-            private readonly AudioConfiguration audioConfiguration = AudioSettings.GetConfiguration();
-            private readonly AudioSource song = ADOBase.conductor != null ? ADOBase.conductor.song : null;
-            private readonly AudioSource song2 = ADOBase.conductor != null ? ADOBase.conductor.song2 : null;
-            private readonly AudioSource song3 = ADOBase.conductor != null ? ADOBase.conductor.song3 : null;
-            private readonly float songVolume = ADOBase.conductor != null && ADOBase.conductor.song != null
-                ? ADOBase.conductor.song.volume : 0f;
-            private readonly float song2Volume = ADOBase.conductor != null && ADOBase.conductor.song2 != null
-                ? ADOBase.conductor.song2.volume : 0f;
-            private readonly float song3Volume = ADOBase.conductor != null && ADOBase.conductor.song3 != null
-                ? ADOBase.conductor.song3.volume : 0f;
-            private readonly float songPitch = ADOBase.conductor != null && ADOBase.conductor.song != null
-                ? ADOBase.conductor.song.pitch : 1f;
-            private readonly float song2Pitch = ADOBase.conductor != null && ADOBase.conductor.song2 != null
-                ? ADOBase.conductor.song2.pitch : 1f;
-            private readonly float song3Pitch = ADOBase.conductor != null && ADOBase.conductor.song3 != null
-                ? ADOBase.conductor.song3.pitch : 1f;
-            private readonly VideoPlayer videoBG = ADOBase.customLevel != null ? ADOBase.customLevel.videoBG : null;
-            private readonly VideoTimeUpdateMode videoTimeUpdateMode = ADOBase.customLevel != null && ADOBase.customLevel.videoBG != null
-                ? ADOBase.customLevel.videoBG.timeUpdateMode : VideoTimeUpdateMode.DSPTime;
-            public void Restore()
-            {
-                RestoreTiming();
-                // Rendering always returns to editing, even if it was requested
-                // during playback. Restoring the old unpaused flag here would
-                // incorrectly turn editor.playMode back on with its conductor off.
-                if (ADOBase.controller != null && ADOBase.editor == null)
-                {
-                    ADOBase.controller.paused = wasPaused;
-                    ADOBase.controller.enabled = controllerEnabled;
-                }
-                RestoreEditorState();
-            }
-            public void RestoreEditorState()
-            {
-                var editor = ADOBase.editor;
-                if (editor != null)
-                {
-                    // SwitchToEditMode() used during cleanup puts the editor
-                    // into strict-editing mode. Restore the exact flag from
-                    // before the render; otherwise the next render starts on
-                    // a different editor path and level camera filters can
-                    // retain a stale effect state.
-                    editor.inStrictlyEditingMode = strictlyEditing;
-                    if (selection.Length > 0 && editor.floors.Count > selection.Max())
-                    {
-                        if (selection.Length == 1) editor.SelectFloor(editor.floors[selection[0]], cameraJump: false);
-                        else editor.MultiSelectFloors(editor.floors[selection.Min()], editor.floors[selection.Max()], setSelectPoint: true);
-                    }
-                    cameraView.Restore();
-                }
-            }
-            public void RestoreTiming()
-            {
-                Time.captureFramerate = captureRate; Time.timeScale = timeScale;
-                DG.Tweening.DOTween.useSmoothDeltaTime = smoothTweens;
-                UnityEngine.Rendering.OnDemandRendering.renderFrameInterval = renderInterval;
-                Application.targetFrameRate = targetRate; QualitySettings.vSyncCount = vsync;
-                Application.runInBackground = background;
-                var currentAudio = AudioSettings.GetConfiguration();
-                if (currentAudio.sampleRate != audioConfiguration.sampleRate
-                    || currentAudio.dspBufferSize != audioConfiguration.dspBufferSize
-                    || currentAudio.numRealVoices != audioConfiguration.numRealVoices
-                    || currentAudio.numVirtualVoices != audioConfiguration.numVirtualVoices
-                    || currentAudio.speakerMode != audioConfiguration.speakerMode)
-                    AudioSettings.Reset(audioConfiguration);
-                // AudioSettings.Reset can recreate the Unity audio device, so
-                // apply the listener state after the reset rather than before
-                // it. Otherwise the editor may remain paused after rendering.
-                AudioListener.volume = volume; AudioListener.pause = pauseAudio;
-                RDC.auto = auto; GCS.checkpointNum = checkpoint; Persistence.skipIntroBehavior = intro;
-                RDC.noHud = noHud; RDC.noAutoHud = noAutoHud;
-                if (ADOBase.controller != null) ADOBase.controller.noFail = noFail;
-                if (videoBG != null) videoBG.timeUpdateMode = videoTimeUpdateMode;
-            }
-            public void RestoreAudioSources()
-            {
-                RestoreAudioSource(song, songVolume, songPitch);
-                RestoreAudioSource(song2, song2Volume, song2Pitch);
-                RestoreAudioSource(song3, song3Volume, song3Pitch);
-            }
-            private static void RestoreAudioSource(AudioSource source, float volume, float pitch)
-            {
-                if (source == null) return;
-                source.Stop();
-                source.volume = volume;
-                source.pitch = pitch;
-                if (source.clip != null) source.time = 0f;
-                Main.Entry.Logger.Log(string.Format(
-                    "[Render] Restored audio source: clip={0}, length={1:F2}s, volume={2:F3}, pitch={3:F3}.",
-                    source.clip != null ? source.clip.name : "<none>",
-                    source.clip != null ? source.clip.length : 0.0f, volume, pitch));
-            }
-
-            private sealed class CameraViewState
-            {
-                private readonly scrCamera owner;
-                private readonly CameraState main;
-                private readonly CameraState background;
-                private readonly CameraState staticBackground;
-                private readonly float zoomSize;
-
-                private CameraViewState(scrCamera owner)
-                {
-                    this.owner = owner;
-                    main = CameraState.Capture(owner != null ? owner.camobj : null);
-                    background = CameraState.Capture(owner != null ? owner.BGcam : null);
-                    staticBackground = CameraState.Capture(owner != null ? owner.Bgcamstatic : null);
-                    zoomSize = owner != null ? owner.zoomSize : 0f;
-                }
-
-                public static CameraViewState Capture()
-                {
-                    return new CameraViewState(scrCamera.instance);
-                }
-
-                public void Restore()
-                {
-                    if (owner == null || scrCamera.instance != owner) return;
-
-                    // Playback moves the shared level camera all the way to the
-                    // final tile. Restore the editor's pre-render framing after
-                    // selection so the view stays on the tile the user was on.
-                    owner.zoomSize = zoomSize;
-                    main.Restore(owner.camobj);
-                    background.Restore(owner.BGcam);
-                    staticBackground.Restore(owner.Bgcamstatic);
-                }
-
-                private struct CameraState
-                {
-                    private readonly bool valid;
-                    private readonly Vector3 position;
-                    private readonly Quaternion rotation;
-                    private readonly float orthographicSize;
-
-                    private CameraState(Camera camera)
-                    {
-                        valid = camera != null;
-                        position = valid ? camera.transform.position : Vector3.zero;
-                        rotation = valid ? camera.transform.rotation : Quaternion.identity;
-                        orthographicSize = valid && camera.orthographic ? camera.orthographicSize : 0f;
-                    }
-
-                    public static CameraState Capture(Camera camera)
-                    {
-                        return new CameraState(camera);
-                    }
-
-                    public void Restore(Camera camera)
-                    {
-                        if (!valid || camera == null) return;
-                        camera.transform.SetPositionAndRotation(position, rotation);
-                        if (camera.orthographic && orthographicSize > 0f)
-                            camera.orthographicSize = orthographicSize;
-                    }
-                }
-            }
         }
     }
 }
