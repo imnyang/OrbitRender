@@ -92,7 +92,15 @@ namespace OrbitRender
         public KeyCode ExportHotkeyModifier = KeyCode.None;
 
         [Draw(DrawType.Ignore)]
+        public int ExportHotkeyModifiers = -1;
+
+        [System.Xml.Serialization.XmlIgnore]
+        [Draw(DrawType.Ignore)]
         public bool WaitingForExportHotkey;
+
+        private static readonly KeyCode[] hotkeyCaptureKeys = (KeyCode[])Enum.GetValues(typeof(KeyCode));
+        private int hotkeyCaptureStartFrame;
+        private bool waitForHotkeyRelease;
 
         private const int MinWidth = 320;
         private const int MaxWidth = 3840;
@@ -239,34 +247,81 @@ namespace OrbitRender
 
         internal bool IsExportHotkeyDown()
         {
-            var modifiers = ExportHotkeyModifier;
-            if (modifiers != KeyCode.None && !UnityEngine.Input.GetKey(modifiers)) return false;
-            if (modifiers == KeyCode.LeftControl
-                && !UnityEngine.Input.GetKey(KeyCode.LeftShift) && !UnityEngine.Input.GetKey(KeyCode.RightShift)) return false;
-            if (UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl))
-                if (modifiers != KeyCode.LeftControl && ExportHotkey != KeyCode.LeftControl && ExportHotkey != KeyCode.RightControl) return false;
-            if (UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift))
-                if (modifiers != KeyCode.LeftControl && modifiers != KeyCode.LeftShift
-                    && ExportHotkey != KeyCode.LeftShift && ExportHotkey != KeyCode.RightShift) return false;
-            if (UnityEngine.Input.GetKey(KeyCode.LeftAlt) || UnityEngine.Input.GetKey(KeyCode.RightAlt))
-                if (modifiers != KeyCode.LeftAlt && ExportHotkey != KeyCode.LeftAlt && ExportHotkey != KeyCode.RightAlt) return false;
-            return UnityEngine.Input.GetKeyDown(ExportHotkey);
+            if (WaitingForExportHotkey) return false;
+            if (waitForHotkeyRelease)
+            {
+                if (!UnityEngine.Input.GetKey(ExportHotkey)) waitForHotkeyRelease = false;
+                return false;
+            }
+            return ReadHotkeyModifiers() == ResolveExportHotkeyModifiers() && UnityEngine.Input.GetKeyDown(ExportHotkey);
         }
+
+        private static EventModifiers ReadHotkeyModifiers()
+        {
+            var held = EventModifiers.None;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl)) held |= EventModifiers.Control;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift)) held |= EventModifiers.Shift;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftAlt) || UnityEngine.Input.GetKey(KeyCode.RightAlt)) held |= EventModifiers.Alt;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftCommand) || UnityEngine.Input.GetKey(KeyCode.RightCommand)) held |= EventModifiers.Command;
+            return held;
+        }
+
+        internal void BeginExportHotkeyCapture()
+        {
+            hotkeyCaptureStartFrame = Time.frameCount;
+            WaitingForExportHotkey = true;
+        }
+
+        internal void UpdateExportHotkeyCapture()
+        {
+            if (!WaitingForExportHotkey || Time.frameCount <= hotkeyCaptureStartFrame) return;
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
+            {
+                WaitingForExportHotkey = false;
+                return;
+            }
+            foreach (var key in hotkeyCaptureKeys)
+            {
+                if (key <= KeyCode.None || key >= KeyCode.Mouse0 || !UnityEngine.Input.GetKeyDown(key)) continue;
+                CaptureExportHotkey(key, ReadHotkeyModifiers());
+                if (!WaitingForExportHotkey)
+                {
+                    waitForHotkeyRelease = true;
+                    Save(Main.Entry);
+                    return;
+                }
+            }
+        }
+
+        private EventModifiers ResolveExportHotkeyModifiers()
+        {
+            if (ExportHotkeyModifiers >= 0) return (EventModifiers)ExportHotkeyModifiers & HotkeyModifierMask;
+            return ExportHotkeyModifier == KeyCode.LeftControl ? EventModifiers.Control | EventModifiers.Shift
+                : ExportHotkeyModifier == KeyCode.LeftAlt ? EventModifiers.Alt
+                : ExportHotkeyModifier == KeyCode.LeftShift ? EventModifiers.Shift : EventModifiers.None;
+        }
+
+        private const EventModifiers HotkeyModifierMask = EventModifiers.Control | EventModifiers.Shift
+            | EventModifiers.Alt | EventModifiers.Command;
 
         internal string FormatExportHotkey()
         {
-            var modifier = ExportHotkeyModifier == KeyCode.LeftControl ? "Ctrl + Shift"
-                : ExportHotkeyModifier == KeyCode.LeftAlt ? "Alt"
-                : ExportHotkeyModifier == KeyCode.LeftShift ? "Shift" : string.Empty;
-            return string.IsNullOrEmpty(modifier) ? ExportHotkey.ToString() : modifier + " + " + ExportHotkey;
+            var modifiers = ResolveExportHotkeyModifiers();
+            return ((modifiers & EventModifiers.Control) != 0 ? "Ctrl + " : string.Empty)
+                + ((modifiers & EventModifiers.Alt) != 0 ? "Alt + " : string.Empty)
+                + ((modifiers & EventModifiers.Shift) != 0 ? "Shift + " : string.Empty)
+                + ((modifiers & EventModifiers.Command) != 0 ? "Cmd + " : string.Empty) + ExportHotkey;
         }
 
-        internal void CaptureExportHotkey(KeyCode key)
+        internal void CaptureExportHotkey(KeyCode key, EventModifiers modifiers)
         {
             if (key == KeyCode.None || key == KeyCode.Escape || key == KeyCode.LeftControl
                 || key == KeyCode.RightControl || key == KeyCode.LeftShift || key == KeyCode.RightShift
-                || key == KeyCode.LeftAlt || key == KeyCode.RightAlt) return;
+                || key == KeyCode.LeftAlt || key == KeyCode.RightAlt
+                || key == KeyCode.LeftCommand || key == KeyCode.RightCommand
+                || key == KeyCode.LeftWindows || key == KeyCode.RightWindows || key == KeyCode.AltGr) return;
             ExportHotkey = key;
+            ExportHotkeyModifiers = (int)(modifiers & HotkeyModifierMask);
             WaitingForExportHotkey = false;
         }
 

@@ -47,6 +47,7 @@ namespace OrbitRender.Renderer
         {
             var result = new RendererDiagnosticResult();
             result.Info("OrbitRender diagnostics started at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            result.Info(DiagnosticContext.Capture());
             result.Info("Platform: " + Application.platform + ", Unity " + Application.unityVersion);
             result.Info("Graphics: " + (SystemInfo.graphicsDeviceName ?? "unknown"));
             result.Info("Graphics vendor: " + (SystemInfo.graphicsDeviceVendor ?? "unknown")

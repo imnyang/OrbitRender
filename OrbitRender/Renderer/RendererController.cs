@@ -158,6 +158,9 @@ namespace OrbitRender.Renderer
         // True when the caller passed this render's folder, rather than OrbitRender's own setting.
         private bool outputDirectoryChosenForRun;
         private string lastFailureReport;
+        private string diagnosticStage = "not started";
+        internal string[] ConflictModIds { get; private set; } = new string[0];
+        internal bool HasTimingCompatibilityFailure { get; private set; }
         internal static RenderQueue Queue { get; } = new RenderQueue();
         private bool audioRealtimePacing;
         private double audioPacingOrigin;
@@ -240,7 +243,10 @@ namespace OrbitRender.Renderer
                 return;
             }
             State = RenderState.Preparing;
+            diagnosticStage = "encoder preflight";
             lastFailureReport = null;
+            ConflictModIds = new string[0];
+            HasTimingCompatibilityFailure = false;
             CompletionVisible = false;
             cancellation = false;
             CapturedFrames = TotalFrames = 0;
@@ -524,10 +530,13 @@ namespace OrbitRender.Renderer
         {
             // Start at a frame boundary so setup cannot advance the captured timeline.
             yield return EndOfFrame;
+            diagnosticStage = "audio backend compatibility";
             if (captureAudioForRun) AudioBackendCompatibility.EnsureCaptureSupported();
             // Replay overlays, JRP included, belong to the replay host.
             jrpRenderGuard = replayRequest != null ? null : JrpRenderGuard.Begin();
+            diagnosticStage = "installing deterministic timing patches";
             RenderTimingPatches.Apply();
+            diagnosticStage = "validating level and selection";
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
             ValidateLoadedLevel();
@@ -551,6 +560,7 @@ namespace OrbitRender.Renderer
                 throw new InvalidOperationException("The installed conductor must use its standard DSP timing mode.");
             var settings = Main.Settings ?? new RendererSettings();
             var directory = outputDirectoryForRun ?? settings.ResolveOutputDirectory();
+            diagnosticStage = "allocating output files";
             Directory.CreateDirectory(directory);
             string name;
             if (replayRequest != null)
@@ -577,6 +587,7 @@ namespace OrbitRender.Renderer
             audioPath = Path.ChangeExtension(OutputPath, ".partial.wav");
             audioEncodedPath = Path.ChangeExtension(OutputPath, ".partial" + AudioCodecCatalog.IntermediateExtension(profile.AudioCodec));
             muxPath = Path.ChangeExtension(OutputPath, ".mux" + profile.ContainerExtension);
+            diagnosticStage = "saving game state and configuring capture";
             saved = new RenderGameState();
             SuspendSkyHook();
             PrepareAudioConfiguration();
@@ -628,9 +639,12 @@ namespace OrbitRender.Renderer
             // Decode the complete clip before gameplay starts. Replacing or
             // waiting for audio after editor.Play lets camera tweens run before
             // output frame zero and changes their motion in the export.
+            diagnosticStage = "loading song audio";
             yield return PrepareSongClip();
             // Preload sound effects before accelerated gameplay can reach and drop them.
+            diagnosticStage = "loading custom sound effects";
             yield return PrepareCustomSoundEffects();
+            diagnosticStage = "starting level playback";
             if (editor != null)
             {
                 // A single selected floor makes editor.Play use the game's
@@ -716,6 +730,7 @@ namespace OrbitRender.Renderer
                 Main.Entry.Logger.Log("[Render] BGA mode enabled: hidden renderers=" + bga.HiddenRendererCount);
             }
             State = RenderState.Rendering;
+            diagnosticStage = "capturing frames";
             // The progress window uses fixed GUI rectangles. Layout is needed
             // again only when the export dialog returns after cleanup.
             useGUILayout = false;
@@ -872,6 +887,7 @@ namespace OrbitRender.Renderer
                     throw new InvalidOperationException("The game did not schedule level playback.");
             }
             State = RenderState.Finishing;
+            diagnosticStage = "finalizing video and audio";
             renderTimer.Stop();
             Message = Localization.Format("finalizing-container", profile.ContainerExtension.TrimStart('.').ToUpperInvariant());
             ShowToast(Message, 8f, false);
@@ -1940,13 +1956,28 @@ namespace OrbitRender.Renderer
         private string BuildDiagnosticReport(Exception error)
         {
             var report = new System.Text.StringBuilder();
-            report.AppendLine("OrbitRender " + typeof(RendererController).Assembly.GetName().Version);
+            report.AppendLine("OrbitRender " + (Main.Entry?.Info.Version ?? "unknown (mod metadata unavailable)"));
             report.AppendLine("Time: " + DateTime.Now.ToString("O"));
+            report.Append(DiagnosticContext.Capture());
             report.AppendLine("System: " + SystemInfo.operatingSystem + "; Unity " + Application.unityVersion);
             report.AppendLine("GPU: " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
             report.AppendLine("State: " + State + "; frames " + CapturedFrames + "/" + TotalFrames);
-            report.AppendLine("Level: " + (level != null ? level.levelPath : ""));
-            report.AppendLine("Output: " + OutputPath);
+            report.AppendLine("Stage: " + diagnosticStage + "; elapsed=" + ElapsedSeconds + " s; clock=" + Clock.Time
+                + "; written frames=" + WrittenFrames + "; pending readbacks=" + PendingReadbacks
+                + "; encoder queue=" + EncoderQueueDepth);
+            report.Append(DiagnosticContext.Storage(outputDirectoryForRun ?? Main.Settings?.ResolveOutputDirectory()));
+            report.AppendLine("Render mode: " + (replayRequest != null ? "hosted replay" : "level / editor")
+                + "; time controlled=" + ControlsTime + "; editor ready=" + editorStateReady);
+            if (replayRequest != null)
+            {
+                report.AppendLine("Replay: level=" + replayRequest.LevelPath + "; SHA256=" + replayRequest.LevelFileSha256
+                    + "; start tile=" + replayRequest.StartTile + "; input offset ms=" + replayRequest.GameInputOffsetMs
+                    + "; won time us=" + replayRequest.WonTimeUs + "; recorded media=" + replayRequest.HasMedia);
+                report.AppendLine("Replay warnings: " + string.Join("; ", replayRequest.Warnings));
+            }
+            var diagnosticLevel = level ?? (ADOBase.editor != null ? ADOBase.editor.customLevel : ADOBase.customLevel);
+            report.AppendLine("Level: " + (diagnosticLevel != null ? diagnosticLevel.levelPath : "not resolved"));
+            report.AppendLine("Output: " + (string.IsNullOrEmpty(OutputPath) ? "not allocated yet" : OutputPath));
             report.AppendLine("FFmpeg: " + FFmpegPath);
             if (profile != null)
                 report.AppendLine(string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -1957,9 +1988,14 @@ namespace OrbitRender.Renderer
                 + "; codec " + (profile != null ? profile.AudioCodec.ToString() : ""));
             report.AppendLine("BGA: " + bgaModeForRun + "; Rust requested: " + useRustRendererForRun + "; buffers: " + bufferPolicyForRun);
             report.AppendLine("Queue: " + (Queue.Active != null ? Queue.Active.Label : "none"));
-            report.AppendLine("Encoder fallback: " + encoderFallbackReason);
+            report.AppendLine("Encoder fallback: " + (string.IsNullOrEmpty(encoderFallbackReason) ? "none" : encoderFallbackReason));
             report.AppendLine("Recovery: " + (recoveryManifest ?? (preserveRecovery ? OutputPath + RenderRecovery.Suffix : "none")));
             report.AppendLine("Error: " + (error != null ? error.ToString() : Message));
+            for (var cause = error; cause != null; cause = cause.InnerException)
+                if (cause.Data.Contains("OrbitRender.TimingCompatibility"))
+                    report.AppendLine("Timing compatibility details:\n" + cause.Data["OrbitRender.TimingCompatibility"]);
+            report.AppendLine(encoder != null ? encoder.DiagnosticReport : "Encoder: not created / already released");
+            report.AppendLine(DiagnosticContext.RecentLogs());
             return report.ToString();
         }
 
@@ -2016,12 +2052,17 @@ namespace OrbitRender.Renderer
         }
         private void Fail(Exception ex)
         {
+            for (var cause = ex; cause != null; cause = cause.InnerException)
+            {
+                if (cause.Data["OrbitRender.ConflictModIds"] is string[] ids) ConflictModIds = ids;
+                if (cause.Data.Contains("OrbitRender.TimingCompatibility")) HasTimingCompatibilityFailure = true;
+            }
             lastFailureReport = BuildDiagnosticReport(ex);
             State = RenderState.Failed;
             Message = ex.Message + ((preserveRecovery || recoveryManifest != null) ? "\n" + Localization.Format("recovery-preserved", recoveryManifest ?? OutputPath + RenderRecovery.Suffix) : "");
             activeRpcJob?.Fail(DescribeFailure(ex));
             ShowToast(Localization.Format("render-failed-value", Message), 10f);
-            Main.Entry.Logger.Error("[Render] Failed: " + ex);
+            Main.Entry.Logger.Error("[Render] Failed:\n" + lastFailureReport);
         }
 
         // Keeps structured fields (code/field/line/file) so callers can show a

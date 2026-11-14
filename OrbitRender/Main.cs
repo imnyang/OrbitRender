@@ -42,6 +42,7 @@ namespace OrbitRender
         public static bool Load(UnityModManager.ModEntry entry)
         {
             Entry = entry;
+            DiagnosticContext.Start();
             MainThreadId = Thread.CurrentThread.ManagedThreadId;
             IsBatchMode = Application.isBatchMode;
             Localization.Initialize(entry.Path);
@@ -82,10 +83,17 @@ namespace OrbitRender
                 {
                     entry.OnGUI = mod => ModSettingsWindow.Draw();
                     entry.OnSaveGUI = mod => Settings?.Save(mod);
+                    entry.OnHideGUI = mod => { if (Settings != null) Settings.WaitingForExportHotkey = false; };
                 }
-                entry.OnUpdate = (mod, deltaTime) => UpdateManager.PumpMainThread();
+                entry.OnUpdate = (mod, deltaTime) =>
+                {
+                    UpdateManager.PumpMainThread();
+                    if (!IsBatchMode && !PresetSaveModal.IsOpen && !NoticeModal.IsOpen)
+                        Settings?.UpdateExportHotkeyCapture();
+                };
                 entry.OnUnload = mod =>
                 {
+                    DiagnosticContext.Stop();
                     ExportVideoDialog.CloseDialog();
                     NoticeModal.Close();
                     AudioPreview.Stop();
@@ -103,6 +111,7 @@ namespace OrbitRender
             }
             catch (Exception ex)
             {
+                DiagnosticContext.Stop();
                 if (host != null) UnityEngine.Object.Destroy(host);
                 harmony?.UnpatchAll(entry.Info.Id);
                 entry.Logger.Error("[System] Load failed: " + ex);

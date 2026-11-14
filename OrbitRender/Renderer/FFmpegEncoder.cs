@@ -227,6 +227,28 @@ namespace OrbitRender.Renderer
             if (process.HasExited) throw new IOException("FFmpeg exited (" + process.ExitCode + "): " + ErrorText());
         }
         private string ErrorText() { lock (stderr) return stderr.ToString(); }
+
+        internal string DiagnosticReport
+        {
+            get
+            {
+                var report = new StringBuilder();
+                report.AppendLine("Encoder backend: " + (NativeBackend != null ? "native NVENC" : "FFmpeg")
+                    + "; started=" + started + "; disposed=" + disposed);
+                try
+                {
+                    report.AppendLine("FFmpeg command: " + process?.StartInfo.FileName + " " + process?.StartInfo.Arguments);
+                    if (started && process != null)
+                        report.AppendLine("FFmpeg process: " + (process.HasExited ? "exited; code=" + process.ExitCode : "running"));
+                    report.AppendLine("Encoder frames: written=" + WrittenFrames + "; repeated=" + RepeatedFrames
+                        + "; queue=" + QueueDepth + "/" + BufferCapacity + "; peak=" + PeakQueueDepth);
+                }
+                catch (Exception ex) { report.AppendLine("Encoder inspection unavailable: " + ex.Message); }
+                report.AppendLine("Encoder worker error: " + (failure?.ToString() ?? "none"));
+                report.AppendLine("FFmpeg stderr (last 16384 characters):\n" + ErrorText());
+                return report.ToString();
+            }
+        }
         public bool TryRent(out Frame frame) { Check(); return free.TryTake(out frame); }
         internal void EnableNative(NativeNvencEncoder native)
         {

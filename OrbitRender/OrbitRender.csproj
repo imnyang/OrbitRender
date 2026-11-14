@@ -14,7 +14,7 @@
   <FrameworkPathOverride Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/.NETFramework/v4.8</FrameworkPathOverride>
  </PropertyGroup>
  <ItemGroup>
-  <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Data"/>
+  <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Data"/><Reference Include="System.Xml"/>
   <Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/>
   <Reference Include="$(ManagedDir)/netstandard.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/UnityEngine*.dll"><Private>false</Private></Reference>
