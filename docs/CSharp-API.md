@@ -184,7 +184,7 @@ StartHostedReplay ─ 레벨 열기 ─ 인코더 확인
 - 영상의 0초가 출력 영상의 0번 프레임입니다. 프레임은 파일의 타임스탬프대로 놓이므로 출력과 같은 FPS로 만들면 프레임마다 정확히 맞습니다. 영상이 출력보다 먼저 끝나면 마지막 프레임을 유지합니다.
 - 게임 화면 위, 웹캠 아래에 그립니다. 같은 파일을 여러 항목이 쓰면 한 번만 읽습니다.
 - 덧씌울 영상이 있으면 웹캠이 있을 때처럼 영상을 다시 인코딩합니다(마이크만 있을 때는 영상을 그대로 복사합니다).
-- `GetOverlayVideos`는 메인 스레드에서 호출되며, 호스트는 영상이 다 써질 때까지 기다렸다가 돌려줘도 됩니다. 그동안 렌더 마무리가 멈춥니다.
+- `GetOverlayVideos`는 백그라운드 스레드에서 호출되므로 Unity API를 쓰면 안 됩니다. 호스트는 영상이 다 써질 때까지 기다렸다가 돌려줘도 됩니다.
 - 호출이 예외를 던지거나 JSON을 읽을 수 없으면, 또는 항목의 파일이 없거나 크기가 0 이하이면 그 항목을 빼고 로그(`[Replay] …`)를 남깁니다. 덧씌울 영상을 합성하다 실패하면 그 영상 없이 다시 합성합니다. 어느 경우에도 렌더는 실패하지 않습니다.
 
 ### 호스트가 맡는 게임 상태
@@ -219,7 +219,7 @@ StartHostedReplay ─ 레벨 열기 ─ 인코더 확인
 } }
 ```
 
-`job` 스냅샷 필드는 `id`, `state`, `progress`, `capturedFrames`, `totalFrames`, `outputPath`, `warnings`, `waitingForGameFocus`, `errorCode`, `errorMessage`, `errorDetails`, `message`, `levelPath`, `updatedUtc`입니다.
+`job` 스냅샷 필드는 `id`, `state`, `progress`, `capturedFrames`, `totalFrames`, `outputPath`, `warnings`, `waitingForGameFocus`, `errorCode`, `errorMessage`, `errorDetails`, `message`, `levelPath`, `updatedUtc`, `finishingStage`, `finishingProgress`입니다.
 
 `state`는 다음 중 하나입니다.
 

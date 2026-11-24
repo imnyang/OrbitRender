@@ -252,11 +252,16 @@ namespace OrbitRender.UI
             hint.gameObject.SetActive(renderer.State != RenderState.Rendering && (showProgress || !completed));
             path.gameObject.SetActive(completed && !string.IsNullOrEmpty(renderer.OutputPath));
             var buttons = panelObject.GetComponentsInChildren<Button>(true);
-            if (buttons.Length > 0) buttons[0].gameObject.SetActive(renderer.State == RenderState.Rendering);
+            // A finish that runs in the background can be cancelled too.
+            if (buttons.Length > 0) buttons[0].gameObject.SetActive(renderer.State == RenderState.Rendering
+                || renderer.State == RenderState.Finishing);
             if (buttons.Length > 1) buttons[1].gameObject.SetActive(path.gameObject.activeSelf);
             if (showProgress)
             {
-                UguiFactory.SetProgress(progress, (float)renderer.CapturedFrames / renderer.TotalFrames);
+                // While finishing, the bar follows the composition when FFmpeg reports it.
+                var finishing = renderer.State == RenderState.Finishing ? renderer.FinishingProgress : null;
+                UguiFactory.SetProgress(progress, finishing.HasValue
+                    ? (float)finishing.Value : (float)renderer.CapturedFrames / renderer.TotalFrames);
                 percent.text = renderer.ProgressPercentText ?? string.Empty;
                 frames.text = renderer.ProgressText ?? string.Empty;
                 speed.text = renderer.SpeedText ?? string.Empty;
