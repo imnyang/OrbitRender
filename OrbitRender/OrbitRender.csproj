@@ -9,7 +9,7 @@
   <NativeProjectDirectory Condition="'$(NativeProjectDirectory)' == ''">$(MSBuildProjectDirectory)/../../OrbitRender.rs</NativeProjectDirectory>
   <TargetFrameworkRootPath Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/</TargetFrameworkRootPath>
   <GameDir Condition="'$(GameDir)' == '' and '$(OS)' == 'Windows_NT'">L:/SteamLibrary/steamapps/common/A Dance of Fire and Ice</GameDir>
-  <ManagedDir>$(GameDir)/A Dance of Fire and Ice_Data/Managed</ManagedDir>
+  <ManagedDir Condition="'$(ManagedDir)' == ''">$(GameDir)/A Dance of Fire and Ice_Data/Managed</ManagedDir>
   <ModManagerDir Condition="'$(ModManagerDir)' == ''">$(ManagedDir)/UnityModManager</ModManagerDir>
   <FrameworkPathOverride Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/.NETFramework/v4.8</FrameworkPathOverride>
  </PropertyGroup>
