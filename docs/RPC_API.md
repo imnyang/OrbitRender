@@ -69,10 +69,6 @@ await file.download();
 
 The other methods are `health()`, `listJobs()`, and `cancelRender({ id })`. Render options and job states match the primary RPC API below; SDK `createRender` wraps options in an `options` object. The returned `statusUrl` and `downloadUrl` refer to the optional primary HTTP listener, not the SDK. Use `renderStatus` and `downloadRender` through the SDK. `downloadRender` returns an SDK file rather than an HTTP ticket.
 
-For the SDK integration test, build `Tests/IpcSdkIntegration/IpcSdkIntegration.csproj` with .NET 10 and set its `GameDir` MSBuild property to the game directory. Then run `pnpm test:integration` in `ipc/`, setting `DOTNET` if the .NET executable is not on PATH. The test uses the real SDK runtime, TypeScript client, and renderer RPC service with a stub game controller; it does not launch the game.
-
-`Tests/IpcLoaderSmoke` separately tests runtime discovery and startup from a packaged `Mods/OrbitRender/ipc` directory. Build it with the same `GameDir` property, extract the distribution ZIP into an isolated `Mods/OrbitRender` folder, then run the resulting `IpcLoaderSmoke.dll` with the isolated `Mods` path as its argument. It uses a Unity API stub and does not replace an in-game test.
-
 ## 3. Health
 
 ### Request
@@ -139,7 +135,7 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `videoCodec` | string | No | `H264`, `H265`, `VP9`, `AV1`, `ProRes`, `FFV1` | Video codec; VP9 produces WebM, ProRes produces MOV, FFV1 produces lossless MKV, and the others produce MP4 |
 | `codec` | string | No | Same as `videoCodec` | Compatibility alias for `videoCodec` |
 | `bitDepth` | integer | No | `8` or `10` | Output video bit depth; `10` uses `yuv420p10le`. ProRes uses its profile's format instead. |
-| `proResProfile` | string | No | `Proxy`, `LT`, `Standard`, `HQ`, `4444`, `4444 XQ` | ProRes quality profile; default `HQ`. Also accepted by `RenderApi.StartReplay` options. 4444 profiles preserve captured alpha. |
+| `proResProfile` | string | No | `Proxy`, `LT`, `Standard`, `HQ`, `4444`, `4444 XQ` | ProRes quality profile; default `HQ`. Also accepted in the `options` of `RenderApi.StartHostedReplay`. 4444 profiles preserve captured alpha. |
 | `endDelaySeconds` | number | No | `0..30` | Delay after the music/final-tile end time |
 | `captureAudio` | boolean | No | `true` / `false` | Capture game audio |
 | `audio` | boolean | No | `true` / `false` | Alias for `captureAudio` |
@@ -152,6 +148,8 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `showHitJudgments` | boolean | No | `true` / `false` | Include hit judgment text when tiles are hit |
 
 Omitted options use the Unity Mod Manager settings, including BGA mode and all visible-component options.
+
+This endpoint renders levels only. Replays are rendered by TUFReplay through the [C# API](CSharp-API.md); a request that includes the former `replayManifestPath` field is rejected with `400`.
 
 If both `fps` and `videoFps` are supplied, they must match. `targetFps` and `videoFps` are intentionally independent. The same applies to `bitrateMbps` and `bitrate`. When both audio fields are supplied, `captureAudio` takes precedence. Width/height/bitrate overrides without `preset` use the Custom profile.
 

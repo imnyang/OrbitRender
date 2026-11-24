@@ -7,7 +7,6 @@
   },
   "scripts": {
     "generate": "adofai-ipc generate --config adofai-ipc.config.json",
-    "check": "adofai-ipc generate --check --config adofai-ipc.config.json",
-    "test:integration": "node test-integration.mjs"
+    "check": "adofai-ipc generate --check --config adofai-ipc.config.json"
   }
 }

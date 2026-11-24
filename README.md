@@ -13,6 +13,8 @@ OrbitRender는 A Dance of Fire and Ice(ADOFAI)의 커스텀 레벨을 영상으�
 
 ProRes는 `prores_ks` 소프트웨어 인코더와 사용 가능한 `prores_videotoolbox` Apple 하드웨어 인코더를 지원합니다. macOS의 자동 선택은 실제 인코딩 검사에 통과한 VideoToolbox를 우선합니다. 내보내기 창의 인코딩 탭에서 Proxy, LT, Standard, HQ, 4444, 4444 XQ를 선택할 수 있으며 기본값은 HQ입니다. 컨테이너는 자동(MOV), MOV 또는 MKV를 선택하세요. 비트레이트·인코딩 속도·비트 깊이 대신 프로파일을 사용하며, 프로파일은 기본 설정과 사용자 프리셋에 저장됩니다. 422 계열은 10-bit 4:2:2를 출력하고 4444 계열은 캡처된 알파를 보존합니다. 원본 캡처는 8-bit RGB/RGBA이므로 출력 포맷이 원본의 정밀도를 늘리지는 않습니다.
 
+macOS에서는 H.264와 HEVC도 Apple VideoToolbox(`h264_videotoolbox`, `hevc_videotoolbox`)로 인코딩할 수 있습니다. 인코딩 검사를 통과하면 선택지에 나타나고, 자동 선택은 다른 OS의 GPU 인코더처럼 이를 우선합니다. VideoToolbox H.264는 10-bit를 지원하지 않으므로 10-bit H.264는 소프트웨어(`libx264`)로 인코딩하고, 10-bit HEVC는 Main 10으로 인코딩합니다.
+
 FFV1은 모든 픽셀이 그대로 보존되는 무손실 코덱입니다. 소프트웨어 인코딩으로 MKV에 기록되며 비트레이트와 인코딩 속도 설정이 적용되지 않습니다. FFmpeg 빌드와 GPU가 Vulkan FFV1 인코더(`ffv1_vulkan`)를 제공하면 사용 가능 여부 확인을 통과한 뒤 선택지에 나타나고, 자동 선택은 이를 우선합니다 — 이 경로는 RGB 표면을 그대로 업로드해 크로마 정보까지 완전히 보존합니다. 오디오도 FLAC(무손실)을 선택할 수 있습니다. 파일이 매우 크므로 편집·재인코딩용 마스터 영상으로 사용하는 것이 좋습니다.
 - **오디오 캡처** — 게임 오디오를 함께 캡처하고 AAC 또는 Opus로 인코딩
 - **BGA Mode** — 타일, 행성, 게임플레이 효과를 제외하고 배경만 렌더링
@@ -29,7 +31,7 @@ Windows, macOS, Linux를 지원합니다.
 2. 압축을 풀고 모드 폴더를 `A Dance of Fire and Ice/Mods/`에 넣습니다.
 3. Unity Mod Manager가 설치된 상태에서 게임을 실행합니다.
 
-렌더링에는 FFmpeg가 필요합니다. 설치되어 있지 않다면 첫 실행 시 자동 설치 여부를 묻고, `A Dance of Fire and Ice/ffmpeg/<플랫폼>/`에 설치합니다. 기존 `Mods/OrbitRender/FFmpeg/` 또는 `Mods/TUFReplay/FFmpeg/`에 있는 파일은 검증 후 공용 위치로 복사해 재사용하며 원본은 삭제하지 않습니다. 직접 지정한 FFmpeg 실행 파일 경로가 있으면 그것을 우선 사용합니다.
+렌더링에는 FFmpeg가 필요합니다. 설치되어 있지 않다면 첫 실행 시 자동 설치 여부를 묻고, `A Dance of Fire and Ice/ffmpeg/<플랫폼>/`에 설치합니다. 기존 `Mods/OrbitRender/FFmpeg/` 또는 `Mods/TUFReplay/FFmpeg/`, macOS에서 이전 버전이 설치한 `ADanceOfFireAndIce.app/Contents/ffmpeg/`에 있는 파일은 검증 후 공용 위치로 복사해 재사용하며 원본은 삭제하지 않습니다. 직접 지정한 FFmpeg 실행 파일 경로가 있으면 그것을 우선 사용합니다.
 
 FFmpeg는 모드 배포 파일에 포함되어 있지 않습니다.
 
@@ -55,11 +57,11 @@ ADOFAI 에디터에서 커스텀 레벨을 열고 `File → Export Video`를 선
 
 렌더 오류 창의 **오류 진단 정보 복사**는 실패 내용, 출력 설정, 인코더, 시스템·GPU 정보와 파일 경로를 클립보드에 복사합니다. 외부로 자동 전송하지 않습니다.
 
-다른 모드에서 렌더링을 제어하려면 [C# API 문서](docs/CSharp-API.md)를 참고하세요.
+다른 모드에서 렌더링을 제어하려면 [C# API 문서](docs/CSharp-API.md)를 참고하세요. 리플레이 렌더는 TUFReplay가 요청하며, 키뷰어·오버레이 모드는 OrbitRender가 아니라 TUFReplay의 `ReplayApi`로 연동합니다([Overlay API 안내](docs/Overlay-API.md)).
 
 ## 빌드
 
-`./build.ps1` 또는 `GAME_DIR="게임 설치 경로" bash ./build.sh`로 빌드합니다. Rider에서 빌드해도 저장소의 `Build/` 폴더에 `OrbitRender-yyyyMMdd-HHmmss-fff.zip`이 자동 생성됩니다. ZIP 최상위에 모드 DLL, `Info.json`, 라이선스와 `OrbitRender/Native/` 아래의 Native DLL이 포함됩니다. Native DLL은 빌드 출력에서도 모드 루트에 배치됩니다. 번역 파일은 모드 DLL에 내장되므로 ZIP에 별도로 넣지 않습니다.
+`./build.ps1` 또는 `GAME_DIR="게임 설치 경로" bash ./build.sh`로 빌드합니다. Rider에서 빌드해도 저장소의 `Build/` 폴더에 `OrbitRender-yyyyMMdd-HHmmss-fff.zip`이 자동 생성됩니다. ZIP 최상위에 모드 DLL, `Info.json`, Native DLL이 포함되고 라이선스 파일은 `docs/`에 모입니다. Native DLL은 빌드 출력에서도 모드 루트에 배치됩니다. 번역 파일은 모드 DLL에 내장되므로 ZIP에 별도로 넣지 않습니다.
 
 Windows에서는 저장소 옆의 `../OrbitRender.rs`가 있으면 Cargo로 Native DLL도 Release 빌드하여 ZIP과 모드 출력 루트에 포함합니다. Rust 툴체인과 MSVC 빌드 도구가 필요합니다. 다른 위치는 MSBuild의 `/p:NativeProjectDirectory="경로"`로 지정할 수 있습니다.
 

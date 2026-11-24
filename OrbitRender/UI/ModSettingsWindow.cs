@@ -62,6 +62,7 @@ namespace OrbitRender.UI
                 Localization.Get("export-tab-game"), Localization.Get("export-tab-advanced") }, GUILayout.Height(32f));
             if (previousTab != settingsTab)
             {
+                Settings.WaitingForExportHotkey = false;
                 if (!ExportVideoDialog.IsOpen) AudioPreview.Stop();
             }
             GUILayout.Space(8f);
@@ -91,6 +92,8 @@ namespace OrbitRender.UI
                 GUILayout.Label(Localization.Get("encoding"));
                 DrawEncodingSettings();
                 GUILayout.Space(8f);
+                DrawHotkeySettings();
+                GUILayout.Space(8f);
                 GUILayout.Label(Localization.Get("render-options"));
                 Settings.ShowRenderPreview = DrawLocalizedToggle(
                     Localization.Get("show-render-preview"), Settings.ShowRenderPreview);
@@ -119,6 +122,24 @@ namespace OrbitRender.UI
             GUILayout.Label("Credit");
             GUILayout.Label(Localization.Format("credit-author", Entry.Info.Author));
             GUILayout.EndVertical();
+        }
+
+        private static void DrawHotkeySettings()
+        {
+            GUILayout.Label(Localization.Get("export-hotkey"));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.Format("export-hotkey-current", Settings.WaitingForExportHotkey
+                ? Localization.Get("press-a-key") : Settings.FormatExportHotkey()));
+            if (GUILayout.Button(Settings.WaitingForExportHotkey
+                ? Localization.Get("cancel") : Localization.Get("record-key"), GUILayout.Width(110f)))
+            {
+                if (Settings.WaitingForExportHotkey) Settings.WaitingForExportHotkey = false;
+                else Settings.BeginExportHotkeyCapture();
+                GUI.FocusControl(null);
+            }
+            GUILayout.EndHorizontal();
+            if (Settings.WaitingForExportHotkey)
+                GUILayout.Label(Localization.Get("record-key-help"));
         }
 
         private static void DrawRenderSettings()

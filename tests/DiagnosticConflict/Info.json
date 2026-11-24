@@ -1,0 +1,9 @@
+{
+  "Id": "OrbitRender.DiagnosticConflict",
+  "DisplayName": "OrbitRender Diagnostic Conflict TEST ONLY",
+  "Author": "OrbitRender diagnostics fixture",
+  "Version": "0.0.1",
+  "ManagerVersion": "0.30.0",
+  "AssemblyName": "OrbitRenderDiagnosticConflict.dll",
+  "EntryMethod": "OrbitRenderDiagnosticConflict.Main.Load"
+}

@@ -63,36 +63,36 @@ namespace OrbitRender.Renderer
         // Kept for the standalone encoder tests and for callers that use the
         // original API. RendererController uses the configurable overload.
         public FFmpegEncoder(string executable, string output)
-            : this(executable, output, 1920, 1080, 60, 18, "veryfast", true, true, "libx264", "yuv420p",
+            : this(executable, output, 1920, 1080, 60, 18000, "veryfast", true, true, "libx264", "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps, string preset)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, true, "libx264", "yuv420p",
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, true, "libx264", "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, "libx264", "yuv420p",
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, fastStart, "libx264", "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, "yuv420p",
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, fastStart, codec, "yuv420p",
                 RawVideoPixelFormat.Rgba32) { }
 
         public FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec, string pixelFormat)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
+            : this(executable, output, width, height, fps, bitrateMbps * 1000, preset, false, fastStart, codec, pixelFormat,
                 RawVideoPixelFormat.Rgba32) { }
 
         internal FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
             string preset, bool fastStart, string codec, string pixelFormat, RawVideoPixelFormat rawPixelFormat,
             bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced,
-            ProResProfile proResProfile = ProResProfile.HQ)
-            : this(executable, output, width, height, fps, bitrateMbps, preset, false, fastStart, codec, pixelFormat,
-                rawPixelFormat, deferStart, bufferPolicy, proResProfile) { }
+            ProResProfile proResProfile = ProResProfile.HQ, int? bitrateKbps = null)
+            : this(executable, output, width, height, fps, bitrateKbps ?? bitrateMbps * 1000, preset, false, fastStart,
+                codec, pixelFormat, rawPixelFormat, deferStart, bufferPolicy, proResProfile) { }
 
-        private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateMbps,
+        private FFmpegEncoder(string executable, string output, int width, int height, int fps, int bitrateKbps,
             string preset, bool legacyCrf, bool fastStart, string codec, string pixelFormat,
             RawVideoPixelFormat rawPixelFormat, bool deferStart = false, FrameBufferPolicy bufferPolicy = FrameBufferPolicy.Balanced,
             ProResProfile proResProfile = ProResProfile.HQ)
@@ -100,7 +100,7 @@ namespace OrbitRender.Renderer
             if (string.IsNullOrWhiteSpace(executable)) throw new FileNotFoundException("FFmpeg executable was not configured.");
             if (LooksLikeFilePath(executable) && !File.Exists(executable))
                 throw new FileNotFoundException("FFmpeg executable not found", executable);
-            if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0 || fps <= 0 || bitrateMbps <= 0)
+            if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0 || fps <= 0 || bitrateKbps <= 0)
                 throw new ArgumentOutOfRangeException();
             if (string.IsNullOrEmpty(preset)) preset = "fast";
             if (string.IsNullOrEmpty(codec)) codec = "libx264";
@@ -140,19 +140,7 @@ namespace OrbitRender.Renderer
             var bufferCount = RenderResources.BufferCount(frameByteCount, bufferPolicy);
             free = new BlockingCollection<Frame>(bufferCount);
             work = new BlockingCollection<Frame>(bufferCount);
-            var bufferSizeMbps = Math.Max(1, bitrateMbps * 2);
-            var rateControl = legacyCrf && string.Equals(codec, "libx264", StringComparison.OrdinalIgnoreCase)
-                ? "-crf 18"
-                : "-b:v " + bitrateMbps + "M -maxrate " + bitrateMbps + "M -bufsize " + bufferSizeMbps + "M";
-            if (string.Equals(codec, "libaom-av1", StringComparison.OrdinalIgnoreCase))
-            {
-                // libaom-av1 does not accept x264-style CBR flags. Use a target
-                // bitrate for audio renders and capped CRF for video-only
-                // renders so the existing quality/bitrate intent is retained.
-                rateControl = legacyCrf
-                    ? "-crf 30 -b:v 0"
-                    : "-b:v " + bitrateMbps + "M";
-            }
+            var rateControl = RateControl(codec, bitrateKbps, legacyCrf);
             var encoderOptions = BuildEncoderOptions(codec, preset, rateControl, isHardwareEncoder, pixelFormat, proResProfile);
             process = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable,
@@ -167,7 +155,7 @@ namespace OrbitRender.Renderer
                     + (rawPixelFormat == RawVideoPixelFormat.Rgb24 ? "rgb24" : "rgba") + " -video_size "
                     + width + "x" + height + " -framerate " + fps + " -i pipe:0 -an -vf "
                     + BuildVideoFilter(codec, pixelFormat) + " "
-                    + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : isVulkan ? "vulkan" : pixelFormat)
+                    + encoderOptions + " -pix_fmt " + (isVaapi ? "vaapi" : isVulkan ? "vulkan" : EncoderPixelFormat(codec, pixelFormat))
                     + ColorMetadataOptions(fullRangeOutput)
                     // The raw-video demuxer supplies the same target time base
                     // used by the render clock, so the encoded stream inherits
@@ -239,6 +227,28 @@ namespace OrbitRender.Renderer
             if (process.HasExited) throw new IOException("FFmpeg exited (" + process.ExitCode + "): " + ErrorText());
         }
         private string ErrorText() { lock (stderr) return stderr.ToString(); }
+
+        internal string DiagnosticReport
+        {
+            get
+            {
+                var report = new StringBuilder();
+                report.AppendLine("Encoder backend: " + (NativeBackend != null ? "native NVENC" : "FFmpeg")
+                    + "; started=" + started + "; disposed=" + disposed);
+                try
+                {
+                    report.AppendLine("FFmpeg command: " + process?.StartInfo.FileName + " " + process?.StartInfo.Arguments);
+                    if (started && process != null)
+                        report.AppendLine("FFmpeg process: " + (process.HasExited ? "exited; code=" + process.ExitCode : "running"));
+                    report.AppendLine("Encoder frames: written=" + WrittenFrames + "; repeated=" + RepeatedFrames
+                        + "; queue=" + QueueDepth + "/" + BufferCapacity + "; peak=" + PeakQueueDepth);
+                }
+                catch (Exception ex) { report.AppendLine("Encoder inspection unavailable: " + ex.Message); }
+                report.AppendLine("Encoder worker error: " + (failure?.ToString() ?? "none"));
+                report.AppendLine("FFmpeg stderr (last 16384 characters):\n" + ErrorText());
+                return report.ToString();
+            }
+        }
         public bool TryRent(out Frame frame) { Check(); return free.TryTake(out frame); }
         internal void EnableNative(NativeNvencEncoder native)
         {
@@ -304,6 +314,14 @@ namespace OrbitRender.Renderer
                 || string.Equals(pixelFormat, "gbrp10le", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// The -pix_fmt FFmpeg gets for <paramref name="pixelFormat"/>. VideoToolbox HEVC takes
+        /// 10-bit frames only as p010le; the same samples, packed differently.
+        /// </summary>
+        internal static string EncoderPixelFormat(string codec, string pixelFormat)
+            => string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
+                && string.Equals(codec, "hevc_videotoolbox", StringComparison.OrdinalIgnoreCase) ? "p010le" : pixelFormat;
+
         internal static string ColorMetadataOptions(bool fullRange)
         {
             // RGB surfaces (Vulkan FFV1 / ProRes alpha) are full range; encoded
@@ -311,6 +329,17 @@ namespace OrbitRender.Renderer
             // for both so players do not have to guess.
             return " -color_range " + (fullRange ? "pc" : "tv")
                 + " -colorspace bt709 -color_primaries bt709 -color_trc bt709";
+        }
+
+        internal static string RateControl(string codec, int bitrateKbps, bool legacyCrf)
+        {
+            // libaom-av1 does not accept x264-style CBR flags. Use a target
+            // bitrate for audio renders and capped CRF for video-only
+            // renders so the existing quality/bitrate intent is retained.
+            if (string.Equals(codec, "libaom-av1", StringComparison.OrdinalIgnoreCase))
+                return legacyCrf ? "-crf 30 -b:v 0" : "-b:v " + bitrateKbps + "k";
+            if (legacyCrf && string.Equals(codec, "libx264", StringComparison.OrdinalIgnoreCase)) return "-crf 18";
+            return "-b:v " + bitrateKbps + "k -maxrate " + bitrateKbps + "k -bufsize " + bitrateKbps * 2 + "k";
         }
 
         internal static string BuildEncoderOptions(string codec, string preset, string rateControl,
@@ -332,9 +361,13 @@ namespace OrbitRender.Renderer
             if (normalized.EndsWith("_vulkan", StringComparison.Ordinal))
                 return "-c:v " + normalized;
             var tenBitHevc = string.Equals(pixelFormat, "yuv420p10le", StringComparison.Ordinal)
-                && (normalized == "libx265" || normalized == "hevc_nvenc"
-                    || normalized == "hevc_qsv" || normalized == "hevc_amf" || normalized == "hevc_vaapi");
+                && (normalized == "libx265" || normalized == "hevc_nvenc" || normalized == "hevc_qsv"
+                    || normalized == "hevc_amf" || normalized == "hevc_vaapi" || normalized == "hevc_videotoolbox");
             var profile = tenBitHevc ? " -profile:v main10" : string.Empty;
+            // VideoToolbox has no presets. -allow_sw 0 refuses Apple's software encoder, so a
+            // Mac without the hardware encoder fails the preflight instead of encoding slowly.
+            if (normalized == "h264_videotoolbox" || normalized == "hevc_videotoolbox")
+                return "-c:v " + normalized + " -allow_sw 0 " + rateControl + profile;
             if (normalized.EndsWith("_vaapi", StringComparison.Ordinal))
                 // Leave driver-specific rate-control/quality selection on auto.
                 // VAAPI does not accept x264/NVENC preset names.
@@ -409,7 +442,7 @@ namespace OrbitRender.Renderer
                 // hardware encoders, including NVENC on supported drivers,
                 // reject tiny 128x128 surfaces before testing any real frame.
                 using (var encoder = new FFmpegEncoder(executable, output, 320, 180, 30,
-                    Math.Max(1, bitrateMbps), preset, legacyCrf, false, codec, pixelFormat,
+                    Math.Max(1, bitrateMbps) * 1000, preset, legacyCrf, false, codec, pixelFormat,
                     RawVideoPixelFormat.Rgba32, proResProfile: proResProfile))
                 {
                     var frame = encoder.Rent();
@@ -511,7 +544,7 @@ namespace OrbitRender.Renderer
         // frame, or earlier when negative (replay renders).
         public static void MuxAudio(string executable, string video, string audio, string output,
             double audioOffsetSeconds = 0.0, double audioGainDb = 0.0, AudioCodec audioCodec = AudioCodec.Auto,
-            double audioDelaySeconds = 0.0)
+            double audioDelaySeconds = 0.0, CancellationToken cancellation = default)
         {
             if (double.IsNaN(audioGainDb) || double.IsInfinity(audioGainDb)
                 || audioGainDb < MinAudioGainDb
@@ -539,17 +572,17 @@ namespace OrbitRender.Renderer
             var audioFilter = filters.Count == 0 ? string.Empty : " -af \"" + string.Join(",", filters) + "\"";
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardError = true,
-                Arguments = "-hide_banner -loglevel error -nostdin -nostats -progress pipe:2 -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
+                RedirectStandardError = true, RedirectStandardOutput = true,
+                Arguments = "-hide_banner -loglevel error -nostdin -progress pipe:1 -nostats -n -i \"" + video + "\" " + audioSeek + "-i \"" + audio
                     + "\" -map 0:v:0 -map 1:a:0 -c:v copy" + audioFilter + AudioCodecCatalog.EncodingArguments(audioCodec)
                     + " " + containerOptions + " -shortest \"" + output + "\""
             }})
             {
-                RunMux(mux);
+                RunMux(mux, cancellation);
             }
         }
         public static void MuxPreencodedAudio(string executable, string video, string audio, string output,
-            AudioCodec audioCodec = AudioCodec.Auto)
+            AudioCodec audioCodec = AudioCodec.Auto, CancellationToken cancellation = default)
         {
             audioCodec = AudioCodecCatalog.Resolve(audioCodec, Path.GetExtension(output));
             // Both inputs already cover the render timeline. Audio packet
@@ -557,60 +590,53 @@ namespace OrbitRender.Renderer
             // including ProRes with AAC. Preserve every rendered frame.
             using (var mux = new Process { StartInfo = new ProcessStartInfo {
                 FileName = executable, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardError = true,
-                Arguments = "-hide_banner -loglevel error -nostdin -nostats -progress pipe:2 -n -i \"" + video + "\" -i \"" + audio
+                RedirectStandardError = true, RedirectStandardOutput = true,
+                Arguments = "-hide_banner -loglevel error -nostdin -progress pipe:1 -nostats -n -i \"" + video + "\" -i \"" + audio
                     + "\" -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy" + ContainerOptions(output) + " \""
                     + output + "\""
             }})
             {
-                RunMux(mux);
+                RunMux(mux, cancellation);
             }
         }
-        private static void RunMux(Process mux)
+        private static void RunMux(Process mux, CancellationToken cancellation)
         {
-            // Muxing and MP4 fast-start can take minutes on large exports.
-            // Bound inactivity instead of imposing a deadline on healthy work.
-            var clock = Stopwatch.StartNew();
-            long lastProgress = 0;
-            var diagnostics = new StringBuilder();
-            mux.ErrorDataReceived += (sender, e) => {
-                if (e.Data == null) return;
-                Interlocked.Exchange(ref lastProgress, clock.ElapsedMilliseconds);
-                lock (diagnostics)
+            var lastProgress = Stopwatch.GetTimestamp();
+            var errors = new StringBuilder();
+            mux.OutputDataReceived += (sender, args) => {
+                if (args.Data != null)
+                    Interlocked.Exchange(ref lastProgress, Stopwatch.GetTimestamp());
+            };
+            mux.ErrorDataReceived += (sender, args) => {
+                if (args.Data == null) return;
+                lock (errors)
                 {
-                    diagnostics.AppendLine(e.Data);
-                    if (diagnostics.Length > 8192)
-                        diagnostics.Remove(0, diagnostics.Length - 8192);
+                    errors.AppendLine(args.Data);
+                    if (errors.Length > 16384) errors.Remove(0, errors.Length - 16384);
                 }
             };
             mux.Start();
+            mux.BeginOutputReadLine();
             mux.BeginErrorReadLine();
-            try
+            // AAC encoding scales with song length, and faststart can spend
+            // minutes moving a large MP4 without emitting progress.
+            while (!mux.WaitForExit(200))
             {
-                while (!mux.WaitForExit(1000))
+                if (cancellation.IsCancellationRequested)
                 {
-                    if (clock.ElapsedMilliseconds - Interlocked.Read(ref lastProgress) < 300000)
-                        continue;
-                    mux.Kill();
+                    // A cancelled render stops here; cleanup deletes the partial output.
+                    try { mux.Kill(); } catch (InvalidOperationException) { }
                     mux.WaitForExit();
-                    lock (diagnostics)
-                        throw new TimeoutException("Audio/video mux made no progress for 5 minutes. FFmpeg diagnostics: "
-                            + diagnostics);
+                    cancellation.ThrowIfCancellationRequested();
                 }
-                mux.WaitForExit(); // Drain asynchronous diagnostics before inspecting the result.
-                if (mux.ExitCode != 0)
-                    lock (diagnostics)
-                        throw new IOException("Audio/video mux failed: " + diagnostics);
+                if ((Stopwatch.GetTimestamp() - Interlocked.Read(ref lastProgress))
+                    / (double)Stopwatch.Frequency < 600) continue;
+                mux.Kill();
+                mux.WaitForExit();
+                throw new TimeoutException("Audio/video mux produced no progress for 10 minutes. " + errors);
             }
-            finally
-            {
-                // Also release input/output handles if waiting fails unexpectedly.
-                if (!mux.HasExited)
-                {
-                    mux.Kill();
-                    mux.WaitForExit();
-                }
-            }
+            mux.WaitForExit(); // Drain redirected output before inspecting errors.
+            if (mux.ExitCode != 0) throw new IOException("Audio/video mux failed: " + errors);
         }
         public void Dispose()
         {

@@ -22,8 +22,11 @@ namespace OrbitRender.Patches
             var getter = AccessTools.PropertyGetter(typeof(Time), nameof(Time.unscaledTime));
             var replacement = AccessTools.Method(typeof(PlanetRendererClockPatch), nameof(UnscaledTime));
             var count = 0;
+            var observedClocks = new HashSet<string>();
             foreach (var instruction in instructions)
             {
+                if (instruction.operand is System.Reflection.MethodInfo called && called.DeclaringType == typeof(Time))
+                    observedClocks.Add(called.ToString());
                 yield return instruction;
                 if (instruction.Calls(getter))
                 {
@@ -31,7 +34,9 @@ namespace OrbitRender.Patches
                     count++;
                 }
             }
-            RenderPatchCompatibility.Report(__originalMethod, count != 0, "unscaled clock call was not found");
+            RenderPatchCompatibility.Report(__originalMethod, count != 0,
+                "expected UnityEngine.Time.get_unscaledTime() was not found; observed UnityEngine.Time calls: "
+                + (observedClocks.Count == 0 ? "none" : string.Join("; ", observedClocks)));
         }
     }
 

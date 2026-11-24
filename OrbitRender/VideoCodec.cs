@@ -82,7 +82,7 @@ namespace OrbitRender
     {
         internal VideoCodecDefinition(VideoCodec codec, string displayName, string softwareEncoder,
             string nvidiaEncoder, string intelEncoder, string amdEncoder, string extension,
-            string vulkanEncoder = null, string appleEncoder = null)
+            string vulkanEncoder = null, string appleEncoder = null, bool appleEncoderEightBitOnly = false)
         {
             Codec = codec;
             DisplayName = displayName;
@@ -93,6 +93,7 @@ namespace OrbitRender
             ContainerExtension = extension;
             VulkanEncoder = vulkanEncoder;
             AppleEncoder = appleEncoder;
+            AppleEncoderEightBitOnly = appleEncoderEightBitOnly;
         }
 
         internal VideoCodec Codec { get; }
@@ -103,13 +104,17 @@ namespace OrbitRender
         internal string AmdEncoder { get; }
         internal string VulkanEncoder { get; }
         internal string AppleEncoder { get; }
+
+        // VideoToolbox H.264 has no 10-bit profile. FFmpeg would quietly encode 8-bit instead.
+        internal bool AppleEncoderEightBitOnly { get; }
         internal string ContainerExtension { get; }
 
         internal string ResolveEncoder(VideoEncoder backend, bool nvidiaGpu, bool intelGpu, bool amdGpu,
-            bool appleVideoToolbox = false)
+            bool appleVideoToolbox = false, VideoBitDepth depth = VideoBitDepth.Eight)
         {
             if ((backend == VideoEncoder.AppleVideoToolbox || (backend == VideoEncoder.Auto && appleVideoToolbox))
-                && !string.IsNullOrEmpty(AppleEncoder)) return AppleEncoder;
+                && !string.IsNullOrEmpty(AppleEncoder)
+                && (depth == VideoBitDepth.Eight || !AppleEncoderEightBitOnly)) return AppleEncoder;
             if (Codec == VideoCodec.ProRes || (Codec == VideoCodec.FFV1 && backend == VideoEncoder.Vaapi)) return SoftwareEncoder;
             if (backend == VideoEncoder.Vulkan)
             {
@@ -145,10 +150,10 @@ namespace OrbitRender
     {
         private static readonly VideoCodecDefinition H264 = new VideoCodecDefinition(
             VideoCodec.H264, "H.264 / AVC", "libx264", "h264_nvenc", "h264_qsv", "h264_amf",
-            ".mp4");
+            ".mp4", appleEncoder: "h264_videotoolbox", appleEncoderEightBitOnly: true);
         private static readonly VideoCodecDefinition H265 = new VideoCodecDefinition(
             VideoCodec.H265, "H.265 / HEVC", "libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf",
-            ".mp4");
+            ".mp4", appleEncoder: "hevc_videotoolbox");
         private static readonly VideoCodecDefinition VP9 = new VideoCodecDefinition(
             VideoCodec.VP9, "VP9", "libvpx-vp9", null, null, null,
             ".webm");

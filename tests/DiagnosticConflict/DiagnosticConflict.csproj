@@ -1,0 +1,24 @@
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)/$(MSBuildToolsVersion)/Microsoft.Common.props" />
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>OrbitRenderDiagnosticConflict</AssemblyName>
+    <OutputPath>bin/Release/</OutputPath>
+    <GameDir Condition="'$(GameDir)' == ''">L:/SteamLibrary/steamapps/common/A Dance of Fire and Ice</GameDir>
+    <ManagedDir>$(GameDir)/A Dance of Fire and Ice_Data/Managed</ManagedDir>
+    <TargetFrameworkRootPath>$(MSBuildProjectDirectory)/../../packages/net48/build/</TargetFrameworkRootPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="0Harmony"><HintPath>../../packages/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityModManager"><HintPath>../../packages/UnityModManager/lib/net35/UnityModManager.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Compile Include="Main.cs" />
+    <Content Include="Info.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="README.txt"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)/Microsoft.CSharp.targets" />
+</Project>

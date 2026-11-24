@@ -19,16 +19,29 @@ namespace OrbitRender
         internal const string MutexName = "Adofai.SharedFFmpeg.Install";
         internal const int MaximumReceiptBytes = 64 * 1024;
 
-        internal static string GetGameDirectory()
+        // Unity's data folder is <game>/<name>_Data, or <game>/<name>.app/Contents on
+        // macOS. The game folder is the one that holds Mods, outside the app bundle.
+        internal static string GetGameDirectory(string dataPath, bool macOS)
         {
-            var dataPath = Path.GetFullPath(UnityEngine.Application.dataPath);
-            var dataDirectory = new DirectoryInfo(dataPath);
-            var platform = UnityEngine.Application.platform;
-            var macOS = platform == UnityEngine.RuntimePlatform.OSXPlayer
-                || platform == UnityEngine.RuntimePlatform.OSXEditor;
-            return macOS && string.Equals(dataDirectory.Name, "Contents", StringComparison.OrdinalIgnoreCase)
-                ? dataDirectory.FullName
+            var dataDirectory = new DirectoryInfo(Path.GetFullPath(dataPath));
+            return IsAppContents(dataDirectory, macOS)
+                ? dataDirectory.Parent.Parent.FullName
                 : dataDirectory.Parent.FullName;
+        }
+
+        // OrbitRender 2.8.0 to 2.8.2 put the shared folder inside the app bundle on
+        // macOS, so TUFReplay never found it there.
+        internal static string GetPreviousMacInstallDirectory(string dataPath, bool macOS, string platformName)
+        {
+            var dataDirectory = new DirectoryInfo(Path.GetFullPath(dataPath));
+            return IsAppContents(dataDirectory, macOS)
+                ? GetInstallDirectory(dataDirectory.FullName, platformName)
+                : null;
+        }
+
+        private static bool IsAppContents(DirectoryInfo dataDirectory, bool macOS)
+        {
+            return macOS && string.Equals(dataDirectory.Name, "Contents", StringComparison.OrdinalIgnoreCase);
         }
 
         internal static string GetSharedRoot(string gameDirectory)

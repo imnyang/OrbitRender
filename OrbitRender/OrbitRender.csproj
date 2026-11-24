@@ -14,7 +14,7 @@
   <FrameworkPathOverride Condition="Exists('../packages/net48/build/.NETFramework/v4.8')">$(MSBuildProjectDirectory)/../packages/net48/build/.NETFramework/v4.8</FrameworkPathOverride>
  </PropertyGroup>
  <ItemGroup>
-  <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Data"/>
+  <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Data"/><Reference Include="System.Xml"/>
   <Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/>
   <Reference Include="$(ManagedDir)/netstandard.dll"><Private>false</Private></Reference>
   <Reference Include="$(ManagedDir)/UnityEngine*.dll"><Private>false</Private></Reference>
@@ -41,7 +41,6 @@
   </Reference>
  <Compile Include="**/*.cs" Exclude="obj/**;bin/**"/>
  <Content Include="Info.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
- <Content Include="TufReplay/NOTICE.txt"><Link>NOTICE_TUFREPLAY.txt</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="LICENSE.md"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  <Content Include="Native/**/*.dll">
   <Link>%(Filename)%(Extension)</Link>
@@ -89,6 +88,12 @@
   <Copy SourceFiles="../ipc/vendor/LICENSE_MANAGED_WEBSOCKET.txt" DestinationFolder="$(TargetDir)" />
   <Copy SourceFiles="@(DistributionContent)" DestinationFiles="@(DistributionContent->'$(DistributionStagingDirectory)/%(Filename)%(Extension)')" />
   <Copy SourceFiles="@(NativeDistributionContent)" DestinationFiles="@(NativeDistributionContent->'$(DistributionStagingDirectory)/%(TargetName)')" />
+  <Copy SourceFiles="../LICENSE.md;../LICENSE-EXCEPTION" DestinationFolder="$(DistributionStagingDirectory)" />
+  <MakeDir Directories="$(DistributionStagingDirectory)/docs" />
+  <ItemGroup>
+   <DistributionLicense Include="$(DistributionStagingDirectory)/*LICENSE*" />
+  </ItemGroup>
+  <Move SourceFiles="@(DistributionLicense)" DestinationFolder="$(DistributionStagingDirectory)/docs" />
   <ZipDirectory SourceDirectory="$(DistributionStagingDirectory)" DestinationFile="$(DistributionZip)" />
   <Message Text="Distribution ZIP: $(DistributionZip)" Importance="high" />
  </Target>

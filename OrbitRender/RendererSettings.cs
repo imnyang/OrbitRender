@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using UnityModManagerNet;
+using UnityEngine;
 
 namespace OrbitRender
 {
@@ -25,13 +26,15 @@ namespace OrbitRender
         public RenderProfile(int width, int height, int targetFps, int videoFps, int bitrateMbps, string ffmpegPreset,
             float endDelaySeconds = 2f, string ffmpegCodec = "libx264", VideoCodec videoCodec = VideoCodec.H264,
             VideoBitDepth bitDepth = VideoBitDepth.Eight, VideoContainer container = VideoContainer.Auto,
-            AudioCodec audioCodec = AudioCodec.Auto, ProResProfile proResProfile = ProResProfile.HQ)
+            AudioCodec audioCodec = AudioCodec.Auto, ProResProfile proResProfile = ProResProfile.HQ,
+            int? bitrateKbps = null)
         {
             Width = width;
             Height = height;
             TargetFps = targetFps;
             VideoFps = videoFps;
-            BitrateMbps = bitrateMbps;
+            BitrateKbps = bitrateKbps ?? bitrateMbps * 1000;
+            BitrateMbps = bitrateKbps.HasValue ? WholeMbps(bitrateKbps.Value) : bitrateMbps;
             FfmpegPreset = ffmpegPreset;
             EndDelaySeconds = endDelaySeconds;
             FfmpegCodec = ffmpegCodec;
@@ -48,7 +51,11 @@ namespace OrbitRender
         public int Height { get; }
         public int TargetFps { get; }
         public int VideoFps { get; }
+        // Whole Mbps for consumers that take nothing finer: the native NVENC
+        // encoder, the {bitrate} file name variable and the settings UI.
         public int BitrateMbps { get; }
+        // The exact rate FFmpeg encodes at.
+        public int BitrateKbps { get; }
         public string FfmpegPreset { get; }
         public float EndDelaySeconds { get; }
         public string FfmpegCodec { get; }
@@ -61,13 +68,39 @@ namespace OrbitRender
         public string ContainerMimeType => OutputFormat.MimeType(ContainerExtension);
         public AudioCodec AudioCodec { get; }
         public string AudioEncoder => AudioCodecCatalog.Encoder(AudioCodec);
+
+        internal static int WholeMbps(int bitrateKbps)
+        {
+            return Math.Max(1, (int)Math.Round(bitrateKbps / 1000.0, MidpointRounding.AwayFromZero));
+        }
     }
 
     public sealed class RendererSettings : UnityModManager.ModSettings, IDrawable
     {
+        private const int CurrentSettingsVersion = 1;
         [Draw(DrawType.Ignore)]
         public System.Collections.Generic.List<UserRenderPreset> UserPresets =
             new System.Collections.Generic.List<UserRenderPreset>();
+
+        [Draw(DrawType.Ignore)]
+        public int SettingsVersion = CurrentSettingsVersion;
+
+        [Draw(DrawType.Ignore)]
+        public KeyCode ExportHotkey = KeyCode.F6;
+
+        [Draw(DrawType.Ignore)]
+        public KeyCode ExportHotkeyModifier = KeyCode.None;
+
+        [Draw(DrawType.Ignore)]
+        public int ExportHotkeyModifiers = -1;
+
+        [System.Xml.Serialization.XmlIgnore]
+        [Draw(DrawType.Ignore)]
+        public bool WaitingForExportHotkey;
+
+        private static readonly KeyCode[] hotkeyCaptureKeys = (KeyCode[])Enum.GetValues(typeof(KeyCode));
+        private int hotkeyCaptureStartFrame;
+        private bool waitForHotkeyRelease;
 
         private const int MinWidth = 320;
         private const int MaxWidth = 3840;
@@ -186,6 +219,9 @@ namespace OrbitRender
 
         public void OnChange()
         {
+            if (!Enum.IsDefined(typeof(KeyCode), ExportHotkey) || ExportHotkey == KeyCode.None)
+                ExportHotkey = KeyCode.F6;
+            if (!Enum.IsDefined(typeof(KeyCode), ExportHotkeyModifier)) ExportHotkeyModifier = KeyCode.None;
             if (!Enum.IsDefined(typeof(OrbitRender.Renderer.FrameBufferPolicy), BufferPolicy))
                 BufferPolicy = OrbitRender.Renderer.FrameBufferPolicy.Balanced;
             // Selecting a built-in preset also copies its resolution and
@@ -207,6 +243,86 @@ namespace OrbitRender
             if (float.IsNaN(EndDelaySeconds) || float.IsInfinity(EndDelaySeconds)) EndDelaySeconds = 2f;
             EndDelaySeconds = Math.Max(0f, EndDelaySeconds);
             AudioGainDb = ClampAudioGainDb(AudioGainDb);
+        }
+
+        internal bool IsExportHotkeyDown()
+        {
+            if (WaitingForExportHotkey) return false;
+            if (waitForHotkeyRelease)
+            {
+                if (!UnityEngine.Input.GetKey(ExportHotkey)) waitForHotkeyRelease = false;
+                return false;
+            }
+            return ReadHotkeyModifiers() == ResolveExportHotkeyModifiers() && UnityEngine.Input.GetKeyDown(ExportHotkey);
+        }
+
+        private static EventModifiers ReadHotkeyModifiers()
+        {
+            var held = EventModifiers.None;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl)) held |= EventModifiers.Control;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift)) held |= EventModifiers.Shift;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftAlt) || UnityEngine.Input.GetKey(KeyCode.RightAlt)) held |= EventModifiers.Alt;
+            if (UnityEngine.Input.GetKey(KeyCode.LeftCommand) || UnityEngine.Input.GetKey(KeyCode.RightCommand)) held |= EventModifiers.Command;
+            return held;
+        }
+
+        internal void BeginExportHotkeyCapture()
+        {
+            hotkeyCaptureStartFrame = Time.frameCount;
+            WaitingForExportHotkey = true;
+        }
+
+        internal void UpdateExportHotkeyCapture()
+        {
+            if (!WaitingForExportHotkey || Time.frameCount <= hotkeyCaptureStartFrame) return;
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
+            {
+                WaitingForExportHotkey = false;
+                return;
+            }
+            foreach (var key in hotkeyCaptureKeys)
+            {
+                if (key <= KeyCode.None || key >= KeyCode.Mouse0 || !UnityEngine.Input.GetKeyDown(key)) continue;
+                CaptureExportHotkey(key, ReadHotkeyModifiers());
+                if (!WaitingForExportHotkey)
+                {
+                    waitForHotkeyRelease = true;
+                    Save(Main.Entry);
+                    return;
+                }
+            }
+        }
+
+        private EventModifiers ResolveExportHotkeyModifiers()
+        {
+            if (ExportHotkeyModifiers >= 0) return (EventModifiers)ExportHotkeyModifiers & HotkeyModifierMask;
+            return ExportHotkeyModifier == KeyCode.LeftControl ? EventModifiers.Control | EventModifiers.Shift
+                : ExportHotkeyModifier == KeyCode.LeftAlt ? EventModifiers.Alt
+                : ExportHotkeyModifier == KeyCode.LeftShift ? EventModifiers.Shift : EventModifiers.None;
+        }
+
+        private const EventModifiers HotkeyModifierMask = EventModifiers.Control | EventModifiers.Shift
+            | EventModifiers.Alt | EventModifiers.Command;
+
+        internal string FormatExportHotkey()
+        {
+            var modifiers = ResolveExportHotkeyModifiers();
+            return ((modifiers & EventModifiers.Control) != 0 ? "Ctrl + " : string.Empty)
+                + ((modifiers & EventModifiers.Alt) != 0 ? "Alt + " : string.Empty)
+                + ((modifiers & EventModifiers.Shift) != 0 ? "Shift + " : string.Empty)
+                + ((modifiers & EventModifiers.Command) != 0 ? "Cmd + " : string.Empty) + ExportHotkey;
+        }
+
+        internal void CaptureExportHotkey(KeyCode key, EventModifiers modifiers)
+        {
+            if (key == KeyCode.None || key == KeyCode.Escape || key == KeyCode.LeftControl
+                || key == KeyCode.RightControl || key == KeyCode.LeftShift || key == KeyCode.RightShift
+                || key == KeyCode.LeftAlt || key == KeyCode.RightAlt
+                || key == KeyCode.LeftCommand || key == KeyCode.RightCommand
+                || key == KeyCode.LeftWindows || key == KeyCode.RightWindows || key == KeyCode.AltGr) return;
+            ExportHotkey = key;
+            ExportHotkeyModifiers = (int)(modifiers & HotkeyModifierMask);
+            WaitingForExportHotkey = false;
         }
 
         internal void ResetToDefaults()
@@ -253,7 +369,8 @@ namespace OrbitRender
             int? heightOverride, int? targetFpsOverride, int? videoFpsOverride, int? bitrateOverride, float? endDelayOverride,
             VideoCodec? codecOverride, VideoBitDepth? bitDepthOverride,
             EncoderSpeed? encodingOverride = null, VideoEncoder? encoderOverride = null, VideoContainer? containerOverride = null,
-            AudioCodec? audioCodecOverride = null, ProResProfile? proResProfileOverride = null)
+            AudioCodec? audioCodecOverride = null, ProResProfile? proResProfileOverride = null,
+            int? bitrateKbpsOverride = null)
         {
             var preset = presetOverride ?? Preset;
             // A target-FPS override does not turn a built-in resolution preset
@@ -261,7 +378,8 @@ namespace OrbitRender
             // preset still use the saved Custom values as their base.
             var useCustomBase = preset == RendererPreset.Custom
                 || (!presetOverride.HasValue
-                    && (widthOverride.HasValue || heightOverride.HasValue || bitrateOverride.HasValue));
+                    && (widthOverride.HasValue || heightOverride.HasValue || bitrateOverride.HasValue
+                        || bitrateKbpsOverride.HasValue));
             var baseProfile = useCustomBase
                 ? new RenderProfile(
                     EvenClamp(Width, MinWidth, MaxWidth),
@@ -298,18 +416,29 @@ namespace OrbitRender
                 bitDepthOverride ?? BitDepth, containerOverride ?? Container,
                 audioCodecOverride ?? AudioCodecCatalog.CompatibleSelection(AudioCodec,
                     OutputFormat.Extension(containerOverride ?? Container, codecOverride ?? Codec)),
-                proResProfileOverride ?? ProResProfile);
+                proResProfileOverride ?? ProResProfile, bitrateKbpsOverride);
         }
 
         public override void Save(UnityModManager.ModEntry modEntry)
         {
             Normalize();
+            SettingsVersion = CurrentSettingsVersion;
             Save(this, modEntry);
         }
 
         public static RendererSettings Load(UnityModManager.ModEntry modEntry)
         {
-            var settings = UnityModManager.ModSettings.Load<RendererSettings>(modEntry) ?? new RendererSettings();
+            var loaded = UnityModManager.ModSettings.Load<RendererSettings>(modEntry);
+            var settings = loaded ?? new RendererSettings();
+            // Existing installs have a settings file but no hotkey fields.
+            // Keep their long-standing F6 binding during the migration.
+            if (loaded != null && settings.SettingsVersion < CurrentSettingsVersion)
+            {
+                settings.ExportHotkey = KeyCode.F6;
+                settings.ExportHotkeyModifier = KeyCode.None;
+                settings.SettingsVersion = CurrentSettingsVersion;
+                settings.Save(modEntry);
+            }
             settings.Normalize();
             return settings;
         }
@@ -389,18 +518,20 @@ namespace OrbitRender
                 if (available.Complete && available.Encoders.Length > 0)
                 {
                     // Prefer the active GPU, or Vulkan for FFV1, among successful probes.
+                    // On macOS that is VideoToolbox, also on Intel Macs.
                     var preferred = codec == VideoCodec.ProRes
                         ? (macOS ? VideoEncoder.AppleVideoToolbox : VideoEncoder.Software)
                         : codec == VideoCodec.FFV1
                         ? (Array.IndexOf(available.Encoders, VideoEncoder.Vulkan) >= 0
                             ? VideoEncoder.Vulkan : VideoEncoder.Software)
+                        : macOS ? VideoEncoder.AppleVideoToolbox
                         : nvidia ? VideoEncoder.NvidiaNvenc : intel ? VideoEncoder.IntelQsv
                         : amd ? VideoEncoder.AmdAmf : VideoEncoder.Software;
                     encoder = Array.IndexOf(available.Encoders, preferred) >= 0
                         ? preferred : available.Encoders[0];
                 }
             }
-            return definition.ResolveEncoder(encoder, nvidia, intel, amd, macOS);
+            return definition.ResolveEncoder(encoder, nvidia, intel, amd, macOS, depth);
         }
 
         private static bool ContainsGpuName(string value, string name)

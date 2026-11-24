@@ -23,15 +23,26 @@ namespace OrbitRender
         internal static bool IsBatchMode { get; private set; }
         private static Harmony harmony;
         private static GameObject host;
-        private static bool replayKeyCompatibilityReady;
-        private static int replayKeyCompatibilityCheckPending;
 
         internal static int MainThreadId { get; private set; } = -1;
         internal static bool IsMainThread => MainThreadId == Thread.CurrentThread.ManagedThreadId;
 
+        internal static bool IsEditorScene
+        {
+            get
+            {
+                var editor = ADOBase.editor;
+                return SceneManager.GetActiveScene().name == "scnEditor"
+                    && editor != null && !editor.playMode
+                    && (ADOBase.controller == null || !ADOBase.controller.isActiveAndEnabled
+                        || ADOBase.controller.playerOne == null);
+            }
+        }
+
         public static bool Load(UnityModManager.ModEntry entry)
         {
             Entry = entry;
+            DiagnosticContext.Start();
             MainThreadId = Thread.CurrentThread.ManagedThreadId;
             IsBatchMode = Application.isBatchMode;
             Localization.Initialize(entry.Path);
@@ -47,9 +58,6 @@ namespace OrbitRender
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.AddComponent<RendererController>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
-                replayKeyCompatibilityReady = false;
-                Interlocked.Exchange(ref replayKeyCompatibilityCheckPending, 1);
-                AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
                 Enabled = true;
                 if (IsBatchMode) RpcEnabled = true;
                 StartRpcServer();
@@ -75,23 +83,17 @@ namespace OrbitRender
                 {
                     entry.OnGUI = mod => ModSettingsWindow.Draw();
                     entry.OnSaveGUI = mod => Settings?.Save(mod);
+                    entry.OnHideGUI = mod => { if (Settings != null) Settings.WaitingForExportHotkey = false; };
                 }
                 entry.OnUpdate = (mod, deltaTime) =>
                 {
                     UpdateManager.PumpMainThread();
-                    if (Enabled && !replayKeyCompatibilityReady
-                        && Interlocked.Exchange(ref replayKeyCompatibilityCheckPending, 0) != 0)
-                    {
-                        try { replayKeyCompatibilityReady = OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.TryInstallWhenAvailable(); }
-                        catch (Exception ex)
-                        {
-                            replayKeyCompatibilityReady = true;
-                            mod.Logger.Error("[Replay] Could not install keyboard compatibility: " + ex);
-                        }
-                    }
+                    if (!IsBatchMode && !PresetSaveModal.IsOpen && !NoticeModal.IsOpen)
+                        Settings?.UpdateExportHotkeyCapture();
                 };
                 entry.OnUnload = mod =>
                 {
+                    DiagnosticContext.Stop();
                     ExportVideoDialog.CloseDialog();
                     NoticeModal.Close();
                     AudioPreview.Stop();
@@ -99,7 +101,6 @@ namespace OrbitRender
                     try
                     {
                         OrbitRender.Patches.RenderTimingPatches.Remove();
-                        OrbitRender.TufReplay.TufReplayKoreanKeyCompatibility.Remove();
                         OrbitRender.Patches.OwnedPatchCleanup.Remove(harmony);
                     }
                     catch (Exception ex)
@@ -109,7 +110,6 @@ namespace OrbitRender
                         entry.Logger.Error("[System] Patch cleanup failed; reload canceled: " + ex);
                         return false;
                     }
-                    AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
                     StopRpcServer();
                     SceneManager.sceneLoaded -= OnSceneLoaded;
                     UnityEngine.Object.Destroy(host);
@@ -122,18 +122,13 @@ namespace OrbitRender
             }
             catch (Exception ex)
             {
-                AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
+                DiagnosticContext.Stop();
                 if (host != null) UnityEngine.Object.Destroy(host);
                 entry.Logger.Error("[System] Load failed: " + ex);
                 try { OrbitRender.Patches.OwnedPatchCleanup.Remove(harmony); }
                 catch (Exception cleanupError) { entry.Logger.Error("[System] Patch cleanup failed: " + cleanupError); }
                 return false;
             }
-        }
-
-        private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
-        {
-            Interlocked.Exchange(ref replayKeyCompatibilityCheckPending, 1);
         }
 
         private static void ReadCommandLineOptions()

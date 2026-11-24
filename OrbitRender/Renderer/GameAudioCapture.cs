@@ -8,10 +8,6 @@ namespace OrbitRender.Renderer
 {
     internal sealed class GameAudioCapture : IDisposable
     {
-        // AudioListener.GetOutputData is documented to require a power-of-two
-        // buffer. Unity 6 macOS players can return an empty history for large
-        // requests, so keep this at one 60 fps frame plus headroom.
-        private const int ListenerHistorySamples = 1024;
         private FileStream stream;
         private ConcurrentAudioEncoder concurrentEncoder;
         private NativeArray<float> samples;
@@ -87,8 +83,9 @@ namespace OrbitRender.Renderer
             }
         }
 
-        public void Begin(string path)
+        public void Begin(string path, int videoFps)
         {
+            if (videoFps <= 0) throw new ArgumentOutOfRangeException(nameof(videoFps));
             SampleRate = AudioSettings.outputSampleRate;
             switch (AudioSettings.speakerMode)
             {
@@ -112,7 +109,7 @@ namespace OrbitRender.Renderer
                     Main.Entry.Logger.Log("[Audio] Unity AudioRenderer could not start; trying the listener output fallback.");
                 }
                 filter?.StartCapture(SampleRate, Channels);
-                InitializeListenerOutputCapture();
+                InitializeListenerOutputCapture(videoFps);
                 useFilterFallback = false;
                 // Live listener polling is only safe when AudioRenderer never started.
                 useListenerOutputFallback = !started && listenerOutputAvailable;
@@ -199,6 +196,8 @@ namespace OrbitRender.Renderer
                     + Peak.ToString("F6") + ".");
             }
             if (useFilterFallback) CaptureFilterSamples(targetSamples - SampleFrames);
+            if (targetSamples > 0 && SampleFrames == 0)
+                throw new IOException("The audio backend returned no samples. No silent replacement audio was created.");
             if (useFilterFallback)
                 Main.Entry.Logger.Log("[Audio] Game audio capture used the AudioListener filter fallback. Dropped interleaved samples: "
                     + (filter != null ? filter.DroppedSamples.ToString() : "0") + ".");
@@ -273,10 +272,15 @@ namespace OrbitRender.Renderer
             }
         }
 
-        private void InitializeListenerOutputCapture()
+        private void InitializeListenerOutputCapture(int videoFps)
         {
-            listenerLeft = new float[ListenerHistorySamples];
-            listenerRight = Channels > 1 ? new float[ListenerHistorySamples] : null;
+            // Allocate before playback: resizing a polling buffer loses its history.
+            // Keep the smallest power of two that holds a full output frame.
+            int historySamples = 1024;
+            long frameSamples = ((long)SampleRate + videoFps - 1) / videoFps;
+            while (historySamples < frameSamples) historySamples = checked(historySamples * 2);
+            listenerLeft = new float[historySamples];
+            listenerRight = Channels > 1 ? new float[historySamples] : null;
             try
             {
                 AudioListener.GetOutputData(listenerLeft, 0);
@@ -293,13 +297,15 @@ namespace OrbitRender.Renderer
         private void CaptureListenerOutput(long sampleFrames)
         {
             if (!listenerOutputAvailable || sampleFrames <= 0) return;
-            int frames = (int)Math.Min(sampleFrames, ListenerHistorySamples);
+            if (sampleFrames > listenerLeft.Length)
+                throw new IOException("Audio listener history is too short for the requested capture interval.");
+            int frames = (int)sampleFrames;
             try
             {
                 AudioListener.GetOutputData(listenerLeft, 0);
                 if (listenerRight != null) AudioListener.GetOutputData(listenerRight, 1);
                 EnsureManagedBuffers(checked(frames * Channels));
-                int start = ListenerHistorySamples - frames;
+                int start = listenerLeft.Length - frames;
                 for (int frame = 0; frame < frames; frame++)
                 {
                     int source = start + frame;
@@ -312,8 +318,7 @@ namespace OrbitRender.Renderer
             catch (Exception ex)
             {
                 listenerOutputAvailable = false;
-                Main.Entry.Logger.Log("[Audio] AudioListener.GetOutputData failed during capture: " + ex.Message);
-                return;
+                throw new IOException("Audio listener output capture failed.", ex);
             }
             WriteManagedSamples(checked(frames * Channels));
         }

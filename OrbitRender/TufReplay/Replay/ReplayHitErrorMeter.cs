@@ -7,10 +7,11 @@ namespace TUFReplayRenderer.Replay;
 
 // The editor does not create/drive the gameplay meter. Use the game's own prefab
 // and AddHit implementation without changing controller.gameworld or score state.
+// Replay renders use the same path: the replay host's hooks put each recorded
+// hit's margin and angles on the player and planet before the game reports it.
 internal static class ReplayHitErrorMeter
 {
     private static readonly Harmony Patches = new("KGH1113.TUFReplayRenderer.HitErrorMeter");
-    private static RecordedReplayDriver owner;
     private static bool active;
     private static scrController controller;
     private static scrHitErrorMeter original;
@@ -18,13 +19,12 @@ internal static class ReplayHitErrorMeter
     private static GameObject meterObject;
     private static bool originalActive;
 
-    internal static void Activate(RecordedReplayDriver driver)
+    internal static void Activate()
     {
         if (active) throw new InvalidOperationException("The hit error meter already belongs to another render.");
         active = true;
-        owner = driver;
         controller = ADOBase.controller;
-        if (controller == null) { Deactivate(driver); throw new InvalidOperationException("The game controller is unavailable for the hit error meter."); }
+        if (controller == null) { Deactivate(); throw new InvalidOperationException("The game controller is unavailable for the hit error meter."); }
         original = controller.errorMeter;
         originalActive = original != null && original.gameObject.activeSelf;
         try {
@@ -45,7 +45,7 @@ internal static class ReplayHitErrorMeter
             Patches.Patch(AccessTools.Method(typeof(scrController), nameof(scrController.UpdateErrorMeterVisibility)),
                 prefix: new HarmonyMethod(typeof(ReplayHitErrorMeter), nameof(UpdateVisibility)) { priority = Priority.First });
         }
-        catch { Deactivate(driver); throw; }
+        catch { Deactivate(); throw; }
     }
 
     internal static IEnumerable<Canvas> CaptureCanvases()
@@ -61,28 +61,13 @@ internal static class ReplayHitErrorMeter
         scrPlayer player, scrPlanet priorChosenPlanet)
     {
         if (!active || __instance != controller) return true;
-        if (owner == null)
-        {
-            if (meter == null || player == null || priorChosenPlanet == null || hitFloor == null || player.midspinInfiniteMargin) return false;
-            HitMargin autoMargin = player.marginTracker.lastAddedHitMargin ?? (HitMargin)4;
-            if (!autoMargin.IsPlayerHitMargin()) return false;
-            float autoAngle = (float)(priorChosenPlanet.cachedAngle - priorChosenPlanet.targetExitAngle);
-            if (hitFloor.isCCW) autoAngle = -autoAngle;
-            bool isAutomatic = RDC.auto && !RDC.useOldAuto;
-            meter.AddHit(isAutomatic ? 0f : autoAngle, autoMargin, isAutomatic ? 1f : (float)hitFloor.marginScale, priorChosenPlanet, hitFloor);
-            return false;
-        }
-        RecordedHitEvent? recorded = owner.ActiveHit;
-        if (meter == null || recorded == null || player == null || priorChosenPlanet == null || hitFloor == null) return false;
-        var hit = recorded.Value;
-        if (hit.MidspinInfiniteMargin) return false;
-        HitMargin margin = (HitMargin)Enum.Parse(typeof(HitMargin), hit.Margin, false);
-        if (!margin.IsPlayerHitMargin()) return false;
-        float angle = (float)(hit.CachedAngle - hit.TargetExitAngle);
-        if (hitFloor.isCCW) angle = -angle;
-        bool automatic = hit.RdcAuto && !RDC.useOldAuto;
-        if (automatic) angle = 0;
-        meter.AddHit(angle, margin, automatic ? 1f : (float)hitFloor.marginScale, priorChosenPlanet, hitFloor);
+        if (meter == null || player == null || priorChosenPlanet == null || hitFloor == null || player.midspinInfiniteMargin) return false;
+        HitMargin autoMargin = player.marginTracker.lastAddedHitMargin ?? (HitMargin)4;
+        if (!autoMargin.IsPlayerHitMargin()) return false;
+        float autoAngle = (float)(priorChosenPlanet.cachedAngle - priorChosenPlanet.targetExitAngle);
+        if (hitFloor.isCCW) autoAngle = -autoAngle;
+        bool isAutomatic = RDC.auto && !RDC.useOldAuto;
+        meter.AddHit(isAutomatic ? 0f : autoAngle, autoMargin, isAutomatic ? 1f : (float)hitFloor.marginScale, priorChosenPlanet, hitFloor);
         return false;
     }
 
@@ -93,16 +78,16 @@ internal static class ReplayHitErrorMeter
         return false;
     }
 
-    internal static void Deactivate(RecordedReplayDriver driver)
+    internal static void Deactivate()
     {
-        if (!active || !ReferenceEquals(owner, driver)) return;
+        if (!active) return;
         try { Patches.UnpatchAll(Patches.Id); }
         finally {
             if (controller != null && controller.errorMeter == meter) controller.errorMeter = original;
             if (original != null) original.gameObject.SetActive(originalActive);
             if (meterObject != null) UnityEngine.Object.Destroy(meterObject);
             meterObject = null;
-            active = false; owner = null; controller = null; original = null; meter = null;
+            active = false; controller = null; original = null; meter = null;
         }
     }
 }

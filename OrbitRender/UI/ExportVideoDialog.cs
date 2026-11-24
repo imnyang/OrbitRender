@@ -43,7 +43,7 @@ namespace OrbitRender.UI
 
         internal static void Open(scnEditor owner)
         {
-            if (owner == null || Main.Settings == null) return;
+            if (!Main.IsEditorScene || owner == null || Main.Settings == null) return;
             Close();
             editor = owner;
             draft = Draft.From(Main.Settings);
@@ -518,7 +518,7 @@ namespace OrbitRender.UI
             if (choices.Length > 0 && showHelp)
                 AddNote(Localization.Format("help-compatibility", SettingsUi.EncoderLabel(choices[selected]),
                     VideoCodecCatalog.PixelFormat(draft.Codec, draft.BitDepth, draft.ProResProfile,
-                        VideoCodecCatalog.Get(draft.Codec).ResolveEncoder(draft.Encoder, false, false, false)),
+                        VideoCodecCatalog.Get(draft.Codec).ResolveEncoder(draft.Encoder, false, false, false, false, draft.BitDepth)),
                     OutputFormat.Extension(draft.Container, draft.Codec)));
         }
 
