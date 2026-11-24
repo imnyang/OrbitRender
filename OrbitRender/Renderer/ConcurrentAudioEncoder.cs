@@ -97,26 +97,31 @@ namespace OrbitRender.Renderer
             pending.CompleteAdding();
         }
 
-        public void Finish()
+        public void Finish(CancellationToken cancellation)
         {
-            CloseInput();
-            var timeout = Stopwatch.StartNew();
-            if (!writer.Wait(30000))
-                throw new TimeoutException("Concurrent audio encoder did not drain its input.");
-            writer.GetAwaiter().GetResult();
-            int remaining = Math.Max(0, 30000 - (int)timeout.ElapsedMilliseconds);
-            if (!process.WaitForExit(remaining))
+            using (cancellation.Register(() => { try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { } }))
             {
-                process.Kill();
-                throw new TimeoutException("Concurrent audio encoder did not finish.");
+                CloseInput();
+                var timeout = Stopwatch.StartNew();
+                if (!writer.Wait(30000))
+                    throw new TimeoutException("Concurrent audio encoder did not drain its input.");
+                cancellation.ThrowIfCancellationRequested();
+                writer.GetAwaiter().GetResult();
+                int remaining = Math.Max(0, 30000 - (int)timeout.ElapsedMilliseconds);
+                if (!process.WaitForExit(remaining))
+                {
+                    process.Kill();
+                    throw new TimeoutException("Concurrent audio encoder did not finish.");
+                }
+                remaining = Math.Max(0, 30000 - (int)timeout.ElapsedMilliseconds);
+                if (!errors.Wait(remaining))
+                    throw new TimeoutException("Concurrent audio encoder did not close its error stream.");
+                cancellation.ThrowIfCancellationRequested();
+                if (process.ExitCode != 0)
+                    throw new IOException("Concurrent audio encoder failed: " + errors.GetAwaiter().GetResult());
+                if (!File.Exists(OutputPath) || new FileInfo(OutputPath).Length == 0)
+                    throw new IOException("Concurrent audio encoder did not create an audio file.");
             }
-            remaining = Math.Max(0, 30000 - (int)timeout.ElapsedMilliseconds);
-            if (!errors.Wait(remaining))
-                throw new TimeoutException("Concurrent audio encoder did not close its error stream.");
-            if (process.ExitCode != 0)
-                throw new IOException("Concurrent audio encoder failed: " + errors.GetAwaiter().GetResult());
-            if (!File.Exists(OutputPath) || new FileInfo(OutputPath).Length == 0)
-                throw new IOException("Concurrent audio encoder did not create an audio file.");
         }
 
         public void Dispose()

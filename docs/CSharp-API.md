@@ -112,6 +112,7 @@ string json = (string)start.Invoke(null, new object[] { request, host });
 | 화면과 프레임 | `preset`, `width`, `height`, `targetFps`, `videoFps`, `endDelaySeconds` |
 | 영상 인코딩 | `bitrateMbps` 또는 `bitrateKbps`, `videoCodec`, `bitDepth`, `audioCodec`, `proResProfile` |
 | 오디오 | `captureAudio`, `audioGainDb` |
+| 랜덤 시드 | `RandomSeed`에 지정한 32비트 정수로 Unity 난수와 자동 시드 파티클을 초기화합니다. 맵에 명시된 파티클 시드가 우선합니다. |
 | 표시 | `bgaMode`, `showPlanetRings`, `showSongTitle`, `showCountdown`, `showResultText`, `showHitJudgments`, `showModOverlay` |
 
 `width`, `height`, `targetFps`, `videoFps`, `bitrateMbps`, `bitrateKbps`, `bitDepth`, `videoCodec`, `audioCodec`는 범위를 벗어나면 `render_options_invalid`로 즉시 거부됩니다. `preset`은 `Custom`, `Preview`, `FullHD`, `QHD`, `UHD4K` 중 하나입니다. 리플레이 렌더는 게임플레이 HUD를 항상 모두 표시합니다.

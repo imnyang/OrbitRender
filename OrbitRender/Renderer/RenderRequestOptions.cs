@@ -11,6 +11,7 @@ namespace OrbitRender.Renderer
         public RendererPreset? Preset;
         public int? Width;
         public int? Height;
+        public int? RandomSeed;
         public int? TargetFps;
         public int? VideoFps;
         public int? BitrateMbps;

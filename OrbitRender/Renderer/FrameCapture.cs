@@ -717,36 +717,27 @@ namespace OrbitRender.Renderer
             }
         }
 
-        public void Capture(long index)
+        public RenderTexture CaptureOutput()
         {
-            // Capture runs after WaitForEndOfFrame. Copy the completed gameplay
-            // feedback image, then composite the isolated HUD before readback.
+            // Capture runs after WaitForEndOfFrame. Save the gameplay and HUD
+            // image before yielding if every encoder buffer is in use.
             RenderOutputFrame();
-            Drain(false);
+            return SelectCaptureSource();
+        }
+
+        public bool TrySubmitCapture(long index, RenderTexture source)
+        {
+            Drain();
             lastPending = null;
-            var source = SelectCaptureSource();
             if (encoder.NativeBackend != null)
             {
                 // Match the existing FFmpeg vflip in GPU memory.
                 Graphics.Blit(source, nativeSource, new Vector2(1f, -1f), new Vector2(0f, 1f));
                 encoder.NativeBackend.Submit(index, false);
                 BackpressureSeconds = encoder.NativeBackend.BufferWaitSeconds + encoder.NativeBackend.RenderEventWaitSeconds;
-                return;
+                return true;
             }
-            if (!encoder.TryRent(out var buffer))
-            {
-                long waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                // Never yield a Unity frame under backpressure: that would advance
-                // tweens/particles while the song clock and output frame stand still.
-                // Release only the oldest readback. Later requests can remain
-                // in flight while the writer returns the next free buffer.
-                Drain(true, 1);
-                var rentStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                buffer = encoder.Rent();
-                encoderBufferWaitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - rentStart;
-                BackpressureSeconds += (System.Diagnostics.Stopwatch.GetTimestamp() - waitStart)
-                    / (double)System.Diagnostics.Stopwatch.Frequency;
-            }
+            if (!encoder.TryRent(out var buffer)) return false;
             buffer.Index = index;
             buffer.RepeatCount = 1;
             if (fallback != null)
@@ -760,7 +751,7 @@ namespace OrbitRender.Renderer
                 }
                 finally { RenderTexture.active = previous; }
                 encoder.Submit(buffer);
-                return;
+                return true;
             }
             var frame = reusable.Count > 0 ? reusable.Pop() : new Pending();
             frame.Reset(buffer, System.Diagnostics.Stopwatch.GetTimestamp());
@@ -793,6 +784,7 @@ namespace OrbitRender.Renderer
             pending.Enqueue(frame);
             lastPending = frame;
             if (pending.Count > peakPending) peakPending = pending.Count;
+            return true;
         }
         public bool TryRepeat(long index)
         {
@@ -847,18 +839,20 @@ namespace OrbitRender.Renderer
             }
             return customFrameHold;
         }
-        public void Drain(bool wait, int maxFrames = int.MaxValue)
+        public bool HasPendingReadbacks => pending.Count != 0;
+
+        public void RecordBackpressure(long elapsedTicks, bool waitingForReadback)
         {
-            while (pending.Count > 0 && maxFrames-- > 0)
+            if (waitingForReadback) readbackWaitTicks += elapsedTicks;
+            else encoderBufferWaitTicks += elapsedTicks;
+            BackpressureSeconds += elapsedTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+        }
+
+        public void Drain()
+        {
+            while (pending.Count > 0)
             {
                 var frame = pending.Peek();
-                if (!frame.Ready && wait)
-                {
-                    var waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                    frame.Request.WaitForCompletion();
-                    frame.Complete(frame.Request);
-                    readbackWaitTicks += System.Diagnostics.Stopwatch.GetTimestamp() - waitStart;
-                }
                 if (!frame.Ready) break;
                 if (frame.Error != null) throw new InvalidOperationException("Capture failed.", frame.Error);
                 readbackCopyTicks += frame.CopyTicks;

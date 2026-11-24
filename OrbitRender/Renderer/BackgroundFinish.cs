@@ -9,6 +9,7 @@ namespace OrbitRender.Renderer
     /// <summary>Where a render's background finish is.</summary>
     internal enum FinishStage
     {
+        Encoding,
         Audio,
         Overlays,
         Composing,
@@ -27,7 +28,7 @@ namespace OrbitRender.Renderer
         private readonly Thread thread;
         private readonly Stopwatch clock = Stopwatch.StartNew();
         // Seconds spent in each stage, for the log.
-        private readonly double[] seconds = new double[3];
+        private readonly double[] seconds = new double[4];
         private double stageStart;
         private FinishStage stage;
         private double? progress;
@@ -86,7 +87,8 @@ namespace OrbitRender.Renderer
         internal string Timings()
         {
             lock (sync)
-                return string.Format(CultureInfo.InvariantCulture, "audio {0:0.0} s, overlays {1:0.0} s, composing {2:0.0} s",
+                return string.Format(CultureInfo.InvariantCulture, "encoding {0:0.000} s, audio {1:0.000} s, overlays {2:0.000} s, composing {3:0.000} s",
+                    seconds[(int)FinishStage.Encoding],
                     seconds[(int)FinishStage.Audio], seconds[(int)FinishStage.Overlays], seconds[(int)FinishStage.Composing]);
         }
 

@@ -107,6 +107,7 @@ namespace OrbitRender.Renderer
         public RendererPreset? Preset;
         public int? Width;
         public int? Height;
+        public int? RandomSeed;
         public int? TargetFps;
         public int? VideoFps;
         public int? BitrateMbps;
@@ -130,7 +131,7 @@ namespace OrbitRender.Renderer
             get
             {
                 return OutputDirectory != null || NoPreview.HasValue || Preset.HasValue || Width.HasValue || Height.HasValue || TargetFps.HasValue || VideoFps.HasValue
-                    || BitrateMbps.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
+                    || BitrateMbps.HasValue || RandomSeed.HasValue || EndDelaySeconds.HasValue || AudioGainDb.HasValue || AudioCodec.HasValue || BgaMode.HasValue
                     || ShowPlanetRings.HasValue
                     || ShowSongTitle.HasValue || ShowCountdown.HasValue || ShowResultText.HasValue
                     || ShowHitJudgments.HasValue || ShowModOverlay.HasValue
@@ -150,6 +151,7 @@ namespace OrbitRender.Renderer
                 fps = VideoFps,
                 bitrateMbps = BitrateMbps,
                 bitrateKbps = BitrateKbps,
+                randomSeed = RandomSeed,
                 endDelaySeconds = EndDelaySeconds,
                 audioGainDb = AudioGainDb,
                 audioCodec = AudioCodec.HasValue ? AudioCodec.Value.ToString() : null,
@@ -215,6 +217,7 @@ namespace OrbitRender.Renderer
         [JsonProperty("width")] public int? Width { get; set; }
         [JsonProperty("height")] public int? Height { get; set; }
         [JsonProperty("fps")] public int? Fps { get; set; }
+        [JsonProperty("randomSeed")] public int? RandomSeed { get; set; }
         [JsonProperty("targetFps")] public int? TargetFps { get; set; }
         [JsonProperty("videoFps")] public int? VideoFps { get; set; }
         [JsonProperty("bitrateMbps")] public int? BitrateMbps { get; set; }
@@ -765,6 +768,7 @@ namespace OrbitRender.Renderer
                 VideoFps = videoFps,
                 BitrateMbps = bitrate,
                 BitrateKbps = bitrateKbps,
+                RandomSeed = payload.RandomSeed,
                 EndDelaySeconds = payload.EndDelaySeconds,
                 AudioGainDb = payload.AudioGainDb,
                 AudioCodec = audioCodec,

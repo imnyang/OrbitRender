@@ -431,6 +431,7 @@ namespace OrbitRender.UI
             else
             {
                 AddInputRow(new[] { new Field("end-delay-seconds", draft.EndDelayText, v => draft.EndDelayText = v) });
+                AddInputRow(new[] { new Field("render-random-seed", draft.RandomSeedText, v => draft.RandomSeedText = v) });
                 AddToggle(Localization.Get("bga-mode-hide-tiles-planets-hit-sounds"), draft.BgaMode, v => draft.BgaMode = v);
                 AddHeading(Localization.Get("visible-components"));
                 AddToggle(Localization.Get("show-planet-rings"), draft.ShowPlanetRings, v => draft.ShowPlanetRings = v);
@@ -846,6 +847,7 @@ namespace OrbitRender.UI
             internal VideoContainer Container;
             internal AudioCodec AudioCodec;
             internal string FileNameFormat;
+            internal string RandomSeedText = string.Empty;
             internal string WidthText, HeightText, FpsText, VideoFpsText, BitrateText, EndDelayText, AudioGainDbText;
             internal float AudioGainDb;
             internal bool UseRustRenderer, CaptureAudio, ShowRenderPreview, BgaMode, ShowPlanetRings, ShowSongTitle, ShowCountdown,
@@ -883,6 +885,9 @@ namespace OrbitRender.UI
             {
                 var errors = ExportValidation.Check(Preset == RendererPreset.Custom, WidthText, HeightText,
                     EffectiveBitrateText, FpsText, VideoFpsText, EndDelayText);
+                if (!string.IsNullOrWhiteSpace(RandomSeedText)
+                    && !int.TryParse(RandomSeedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+                    errors.Add(new ExportFieldError("render-random-seed", "invalid-render-random-seed", -1));
                 var compatibility = ExportValidation.ContainerError(Codec, Container);
                 if (compatibility != null) errors.Add(new ExportFieldError("output-format", compatibility, -1));
                 return errors;
@@ -901,6 +906,8 @@ namespace OrbitRender.UI
                     UseRustRenderer=UseRustRenderer,ShowRenderPreview=ShowRenderPreview,BgaMode=BgaMode,ShowPlanetRings=ShowPlanetRings,ShowSongTitle=ShowSongTitle,ShowCountdown=ShowCountdown,
                     ShowResultText=ShowResultText,ShowHitJudgments=ShowHitJudgments,ShowModOverlay=ShowModOverlay,ShowAllGameplayHud=ShowAllGameplayHud,Encoding=Encoding,Encoder=Encoder,VideoCodec=Codec,BitDepth=BitDepth,
                     ProResProfile=ProResProfile,Container=Container,FileNameFormat=FileNameFormat,OpenOutputFolder=OpenOutputFolder,TargetFps=targetFps,VideoFps=videoFps };
+                if (int.TryParse(RandomSeedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seed))
+                    options.RandomSeed = seed;
                 if(Preset==RendererPreset.Custom){options.Width=width;options.Height=height;options.BitrateMbps=bitrate;} return true; }
             internal void ApplyTo(RendererSettings s, RenderRequestOptions o)
             { s.BufferPolicy=BufferPolicy;s.UseRustRenderer=UseRustRenderer;s.Preset=Preset;s.Fps=o.TargetFps.Value;s.VideoFps=o.VideoFps.Value;if(Preset==RendererPreset.Custom){s.Width=o.Width.Value;s.Height=o.Height.Value;if(Codec!=VideoCodec.ProRes)s.BitrateMbps=o.BitrateMbps.Value;}

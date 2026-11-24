@@ -10,7 +10,7 @@ namespace OrbitRender.Patches
     {
         private static Harmony harmony;
 
-        internal static void Apply()
+        internal static void Apply(bool seedParticles)
         {
             if (harmony != null) throw new InvalidOperationException("Render timing patches are already installed.");
             harmony = new Harmony(Main.Entry.Info.Id + ".RenderTiming");
@@ -24,6 +24,7 @@ namespace OrbitRender.Patches
                 Patch(typeof(scrPlanet), "Update", typeof(PlanetUpdateClockPatch), true);
                 Patch(typeof(scrPlanet), "AutoShouldHitNow", typeof(AutoplayTimingPatch));
                 Patch(typeof(DOTweenComponent), "Update", typeof(TweenClockPatch));
+                if (seedParticles) Patch(typeof(scrParticleDecoration), "ResetParticle", typeof(ParticleSeedPatch));
                 RenderPatchCompatibility.Validate();
             }
             catch

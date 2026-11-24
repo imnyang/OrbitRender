@@ -520,17 +520,23 @@ namespace OrbitRender.Renderer
                     break;
             }
         }
-        public void Finish(long expectedFrames)
+        public void Finish(long expectedFrames, CancellationToken cancellation = default)
         {
             if (NativeBackend != null) { NativeBackend.Finish(expectedFrames, executable, output, fps); return; }
-            Check();
-            work.CompleteAdding();
-            if (!writer.Join(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg input did not finish."); }
-            if (failure != null) throw new IOException("FFmpeg input failed: " + ErrorText(), failure);
-            if (!process.WaitForExit(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg did not finalize the video."); }
-            process.WaitForExit(); // Drain asynchronous stderr events after process exit.
-            if (process.ExitCode != 0) throw new IOException("FFmpeg exited (" + process.ExitCode + "): " + ErrorText());
-            if (WrittenFrames != expectedFrames) throw new IOException("Encoded frame count does not match the render clock.");
+            using (cancellation.Register(AbortProcess))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                Check();
+                work.CompleteAdding();
+                if (!writer.Join(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg input did not finish."); }
+                cancellation.ThrowIfCancellationRequested();
+                if (failure != null) throw new IOException("FFmpeg input failed: " + ErrorText(), failure);
+                if (!process.WaitForExit(30000)) { AbortProcess(); throw new TimeoutException("FFmpeg did not finalize the video."); }
+                process.WaitForExit(); // Drain asynchronous stderr events after process exit.
+                cancellation.ThrowIfCancellationRequested();
+                if (process.ExitCode != 0) throw new IOException("FFmpeg exited (" + process.ExitCode + "): " + ErrorText());
+                if (WrittenFrames != expectedFrames) throw new IOException("Encoded frame count does not match the render clock.");
+            }
         }
         private void AbortProcess() { try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { } }
         internal static string ContainerOptions(string output)

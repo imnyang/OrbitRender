@@ -136,6 +136,7 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `codec` | string | No | Same as `videoCodec` | Compatibility alias for `videoCodec` |
 | `bitDepth` | integer | No | `8` or `10` | Output video bit depth; `10` uses `yuv420p10le`. ProRes uses its profile's format instead. |
 | `proResProfile` | string | No | `Proxy`, `LT`, `Standard`, `HQ`, `4444`, `4444 XQ` | ProRes quality profile; default `HQ`. Also accepted in the `options` of `RenderApi.StartHostedReplay`. 4444 profiles preserve captured alpha. |
+| `randomSeed` | integer | No | Signed 32-bit seed for Unity randomness and auto-seeded map particles |
 | `endDelaySeconds` | number | No | `0..30` | Delay after the music/final-tile end time |
 | `captureAudio` | boolean | No | `true` / `false` | Capture game audio |
 | `audio` | boolean | No | `true` / `false` | Alias for `captureAudio` |
@@ -146,6 +147,8 @@ Exactly one of `levelPath` or the compatibility alias `path` must provide a vali
 | `showCountdown` | boolean | No | `true` / `false` | Include Get Ready, countdown numbers, and Go text |
 | `showResultText` | boolean | No | `true` / `false` | Include only the completion/Pure Perfect message; judgment details remain hidden |
 | `showHitJudgments` | boolean | No | `true` / `false` | Include hit judgment text when tiles are hit |
+
+Omitting `randomSeed` uses the game’s usual random behavior. Explicit particle seeds authored in the map take precedence. A fixed seed does not guarantee identical video pixels across renders.
 
 Omitted options use the Unity Mod Manager settings, including BGA mode and all visible-component options.
 

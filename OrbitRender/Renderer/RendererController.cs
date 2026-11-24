@@ -27,7 +27,7 @@ namespace OrbitRender.Renderer
         // The background finish draws frames too; the render clock stays on the last frame meanwhile.
         public static bool ControlsTime => Instance != null && Instance.saved != null &&
             (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering
-                || (Instance.State == RenderState.Finishing && Instance.backgroundFinish != null));
+                || Instance.State == RenderState.Finishing);
         internal static double InputCalibrationSeconds => Instance != null && Instance.replayDriver != null
             ? scrConductor.calibration_i : 0.0;
         internal static bool ReplayActive => Instance != null && Instance.replayDriver != null && Instance.Busy;
@@ -154,6 +154,8 @@ namespace OrbitRender.Renderer
         private bool captureAudioForRun;
         private float audioGainDbForRun;
         private bool showPreviewForRun;
+        internal int? RandomSeedForRun { get; private set; }
+        private UnityEngine.Random.State? previousRandomState;
         private bool useRustRendererForRun;
         private FrameBufferPolicy bufferPolicyForRun;
         private string outputDirectoryForRun;
@@ -292,6 +294,7 @@ namespace OrbitRender.Renderer
                 ?? settings.ShowResultText;
             showHitJudgmentsForRun = requestOptions?.ShowHitJudgments ?? rpcOptions?.ShowHitJudgments
                 ?? settings.ShowHitJudgments;
+            RandomSeedForRun = requestOptions?.RandomSeed ?? rpcOptions?.RandomSeed;
             showModOverlayForRun = requestOptions?.ShowModOverlay ?? rpcOptions?.ShowModOverlay
                 ?? settings.ShowModOverlay;
             showGameplayHudForRun = replayRequest != null || (requestOptions?.ShowAllGameplayHud ?? settings.ShowAllGameplayHud);
@@ -513,6 +516,7 @@ namespace OrbitRender.Renderer
                 if (finish == null) return null;
                 switch (finish.Stage)
                 {
+                    case FinishStage.Encoding: return "encoding";
                     case FinishStage.Audio: return "audio";
                     case FinishStage.Overlays: return "overlays";
                     default: return "composing";
@@ -527,6 +531,7 @@ namespace OrbitRender.Renderer
             var progress = finish.Progress;
             switch (finish.Stage)
             {
+                case FinishStage.Encoding: Message = Localization.Format("finalizing-container", profile.ContainerExtension.TrimStart('.').ToUpperInvariant()); break;
                 case FinishStage.Audio: Message = Localization.Get("finishing-audio"); break;
                 case FinishStage.Overlays: Message = Localization.Get("finishing-overlays"); break;
                 default: Message = Localization.Get("finishing-composing"); break;
@@ -547,9 +552,11 @@ namespace OrbitRender.Renderer
             backgroundFinish = null;
             if (finish == null || finish.IsCompleted) return;
             finish.Cancel();
-            // FFmpeg is killed at once. Only a host still handing over its videos takes longer;
-            // the work stops by itself when the host returns.
-            if (!finish.Wait(3000))
+            // Encoder and WAV resources are disposed below. Wait for the worker
+            // to release them before cleanup touches them.
+            if (!finish.Wait(3000) && finish.Stage == FinishStage.Encoding)
+                finish.Wait(System.Threading.Timeout.Infinite);
+            if (!finish.IsCompleted)
                 Main.Entry.Logger.Log("[Render] The cancelled finish is still waiting for the host's videos; it stops when they return.");
         }
 
@@ -594,7 +601,13 @@ namespace OrbitRender.Renderer
             // Replay overlays, JRP included, belong to the replay host.
             jrpRenderGuard = replayRequest != null ? null : JrpRenderGuard.Begin();
             diagnosticStage = "installing deterministic timing patches";
-            RenderTimingPatches.Apply();
+            RenderTimingPatches.Apply(RandomSeedForRun.HasValue);
+            if (RandomSeedForRun.HasValue)
+            {
+                previousRandomState = UnityEngine.Random.state;
+                UnityEngine.Random.InitState(RandomSeedForRun.Value);
+                Main.Entry.Logger.Log("[Render] Random seed: " + RandomSeedForRun.Value);
+            }
             diagnosticStage = "validating level and selection";
             editor = ADOBase.editor;
             level = editor != null ? editor.customLevel : ADOBase.customLevel;
@@ -704,6 +717,7 @@ namespace OrbitRender.Renderer
             diagnosticStage = "loading custom sound effects";
             yield return PrepareCustomSoundEffects();
             diagnosticStage = "starting level playback";
+            if (RandomSeedForRun.HasValue) UnityEngine.Random.InitState(RandomSeedForRun.Value);
             if (editor != null)
             {
                 // A single selected floor makes editor.Play use the game's
@@ -881,7 +895,36 @@ namespace OrbitRender.Renderer
                 if (!selectionStartTileForRun.HasValue || timelineFrame >= selectionStartFrameForRun)
                 {
                     if (Clock.FrameIndex != lastCapturedSimulationIndex || !capture.TryRepeat(CapturedFrames))
-                        capture.Capture(CapturedFrames);
+                    {
+                        var source = capture.CaptureOutput();
+                        if (!capture.TrySubmitCapture(CapturedFrames, source))
+                        {
+                            var previousTimeScale = Time.timeScale;
+                            var waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                            overlayRefreshOnly = true;
+                            Time.timeScale = 0;
+                            try
+                            {
+                                do
+                                {
+                                    var waitingForReadback = capture.HasPendingReadbacks;
+                                    var pollStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                                    yield return null;
+                                    yield return EndOfFrame;
+                                    var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                                    capture.RecordBackpressure(now - pollStart, waitingForReadback);
+                                    if (now - waitStart >= 30L * System.Diagnostics.Stopwatch.Frequency)
+                                        throw new TimeoutException("Capture buffers did not become available.");
+                                }
+                                while (!capture.TrySubmitCapture(CapturedFrames, source));
+                            }
+                            finally
+                            {
+                                overlayRefreshOnly = false;
+                                Time.timeScale = previousTimeScale;
+                            }
+                        }
+                    }
                     lastCapturedSimulationIndex = Clock.FrameIndex;
                     CaptureWaitSeconds = capture.BackpressureSeconds;
                     CapturedFrames++;
@@ -953,35 +996,38 @@ namespace OrbitRender.Renderer
             var finalizationStart = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-                capture.Drain(true);
-                if (audio != null) audio.Complete(timelineFramesForRun, profile.VideoFps);
-                StopRenderAudioPlayback();
-                encoder.Finish(CapturedFrames);
-                var hasAudio = audio != null;
-                var preencodedAudio = false;
-                if (hasAudio)
+                capture.Drain();
+                if (capture.HasPendingReadbacks)
                 {
-                    // The video and WAV are complete. Preserve them if any later
-                    // mux/publish operation fails, including after restarting the game.
-                    preserveRecovery = true;
-
-                    preencodedAudio = audio.FinishConcurrentEncoding();
-                    if (audio.ConcurrentWriteSeconds > 0)
-                        Main.Entry.Logger.Log(string.Format("[Render] Concurrent audio: pipe writes={0:F2}s, finish wait={1:F2}s, ready={2}.",
-                            audio.ConcurrentWriteSeconds, audio.ConcurrentFinishSeconds, preencodedAudio));
-                    audio.Dispose();
-                    if (preencodedAudio)
-                        Main.Entry.Logger.Log("[Render] Muxing concurrently encoded " + profile.AudioCodec + " audio (gain="
-                            + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
-                            + " dB).");
-                    if (ReplayAudioDelaySeconds != 0.0)
-                        Main.Entry.Logger.Log("[Replay] Delaying render audio by the recorded input offset: "
-                            + (ReplayAudioDelaySeconds * 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
-                            + " ms.");
+                    var captureTimeScale = Time.timeScale;
+                    Time.timeScale = 0;
+                    try
+                    {
+                        var waitStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                        while (capture.HasPendingReadbacks)
+                        {
+                            var pollStart = System.Diagnostics.Stopwatch.GetTimestamp();
+                            yield return null;
+                            yield return EndOfFrame;
+                            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                            capture.RecordBackpressure(now - pollStart, true);
+                            capture.Drain();
+                            if (capture.HasPendingReadbacks && now - waitStart >= 30L * System.Diagnostics.Stopwatch.Frequency)
+                                throw new TimeoutException("Final GPU readback did not complete.");
+                        }
+                    }
+                    finally { Time.timeScale = captureTimeScale; }
                 }
-                // The mux, the host's overlay videos and the composition can take minutes. They run
-                // off the game thread, so the game keeps drawing their progress instead of freezing.
-                // What they need is read here: cleanup clears these fields when the render is cancelled.
+                var finishingAudio = audio;
+                var finishingEncoder = encoder;
+                var hasAudio = finishingAudio != null;
+                if (hasAudio) finishingAudio.Complete(timelineFramesForRun, profile.VideoFps);
+                StopRenderAudioPlayback();
+                finishingAudio?.StopCapture();
+                if (finishingEncoder.NativeBackend != null)
+                    finishingEncoder.Finish(CapturedFrames);
+                // Capture the finish inputs before starting the worker. Cleanup
+                // clears the controller fields when the render is cancelled.
                 var publisher = new ReplayVideoPublisher(FFmpegPath, replayRequest, replayDriver, profile, ReplayAudioDelaySeconds);
                 var ffmpeg = FFmpegPath;
                 var partial = partialPath;
@@ -997,13 +1043,24 @@ namespace OrbitRender.Renderer
                     ? selectionStartFrameForRun / (double)profile.VideoFps : 0.0;
                 backgroundFinish = BackgroundFinish.Start(finish =>
                 {
+                    finish.Token.ThrowIfCancellationRequested();
+                    if (finishingEncoder.NativeBackend == null)
+                        finishingEncoder.Finish(frames, finish.Token);
                     if (!hasAudio)
                     {
                         publisher.Publish(partial, output, frames, false, finish);
                         return;
                     }
+                    finishingAudio.FinishWav();
+                    Main.Entry.Logger.Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "[Render] WAV: writes={0:F3}s, queue wait={1:F3}s.",
+                        finishingAudio.WavWriteSeconds, finishingAudio.WavQueueWaitSeconds));
+                    preserveRecovery = true;
+                    finish.Token.ThrowIfCancellationRequested();
+                    var preencoded = finishingAudio.FinishConcurrentEncoding(finish.Token);
+                    Main.Entry.Logger.Log(string.Format("[Render] Concurrent audio: pipe writes={0:F2}s, finish wait={1:F2}s, ready={2}.",
+                        finishingAudio.ConcurrentWriteSeconds, finishingAudio.ConcurrentFinishSeconds, preencoded));
                     finish.Report(FinishStage.Audio);
-                    var preencoded = preencodedAudio;
                     if (preencoded)
                     {
                         try { FFmpegEncoder.MuxPreencodedAudio(ffmpeg, partial, encodedAudio, muxed, audioCodec, finish.Token); }
@@ -2276,6 +2333,10 @@ namespace OrbitRender.Renderer
                 if (!preserveRecovery && !string.IsNullOrEmpty(temporary)) TryCleanup(() => { if (File.Exists(temporary)) File.Delete(temporary); });
             ClearQueuedInput();
             TryCleanup(RestoreSkyHook);
+            if (previousRandomState.HasValue)
+                TryCleanup(() => UnityEngine.Random.state = previousRandomState.Value);
+            previousRandomState = null;
+            RandomSeedForRun = null;
             if (editorRecoveryRoutine == null) { TryCleanup(() => jrpRenderGuard?.Dispose()); jrpRenderGuard = null; }
             if (capturedAudio && !shuttingDown)
                 audioDeviceRecovery.Begin(Time.realtimeSinceStartupAsDouble, AudioSettings.dspTime);

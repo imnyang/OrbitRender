@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading;
 using System.Text;
 using Unity.Collections;
 using UnityEngine;
@@ -9,6 +12,13 @@ namespace OrbitRender.Renderer
     internal sealed class GameAudioCapture : IDisposable
     {
         private FileStream stream;
+        private BlockingCollection<ArraySegment<byte>> wavBlocks;
+        private readonly ConcurrentQueue<byte[]> wavBuffers = new ConcurrentQueue<byte[]>();
+        private Thread wavWriter;
+        private Exception wavFailure;
+        private long wavPayloadLength;
+        private long wavQueueWaitTicks;
+        private long wavWriteTicks;
         private ConcurrentAudioEncoder concurrentEncoder;
         private NativeArray<float> samples;
         private float[] managed;
@@ -38,6 +48,8 @@ namespace OrbitRender.Renderer
         }
         public double CaptureSeconds => System.Threading.Interlocked.Read(ref captureTicks)
             / (double)System.Diagnostics.Stopwatch.Frequency;
+        public double WavQueueWaitSeconds => wavQueueWaitTicks / (double)Stopwatch.Frequency;
+        public double WavWriteSeconds => wavWriteTicks / (double)Stopwatch.Frequency;
         public double ConcurrentWriteSeconds => concurrentWriteTicks / (double)System.Diagnostics.Stopwatch.Frequency;
         public double ConcurrentFinishSeconds => concurrentFinishTicks / (double)System.Diagnostics.Stopwatch.Frequency;
 
@@ -64,13 +76,14 @@ namespace OrbitRender.Renderer
             finally { concurrentWriteTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start; }
         }
 
-        public bool FinishConcurrentEncoding()
+        public bool FinishConcurrentEncoding(CancellationToken cancellation = default)
         {
             var encoder = concurrentEncoder;
             concurrentEncoder = null;
             if (encoder == null) return false;
             var start = System.Diagnostics.Stopwatch.GetTimestamp();
-            try { encoder.Finish(); return true; }
+            try { encoder.Finish(cancellation); return true; }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 Main.Entry.Logger.Log("[Audio] Concurrent audio encoding failed; using final mux: " + ex.Message);
@@ -102,6 +115,9 @@ namespace OrbitRender.Renderer
             {
                 stream = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
                 WriteHeader(0);
+                wavBlocks = new BlockingCollection<ArraySegment<byte>>(32);
+                wavWriter = new Thread(WriteWavBlocks) { IsBackground = true, Name = "OrbitRender WAV" };
+                wavWriter.Start();
                 filter = AudioFilterCapture.Attach();
                 started = AudioRenderer.Start();
                 if (!started)
@@ -226,9 +242,7 @@ namespace OrbitRender.Renderer
                 concurrentEncoder.Dispose();
                 concurrentEncoder = null;
             }
-            stream.SetLength(44 + dataLength);
-            stream.Position = 0; WriteHeader(dataLength); stream.Flush();
-            stream.Dispose(); stream = null;
+            wavPayloadLength = dataLength;
             if (concurrentEncoder != null)
             {
                 try { concurrentEncoder.CloseInput(); }
@@ -239,6 +253,16 @@ namespace OrbitRender.Renderer
                     concurrentEncoder = null;
                 }
             }
+        }
+
+        public void FinishWav()
+        {
+            StopWavWriter();
+            if (wavFailure != null) throw new IOException("Writing captured WAV failed.", wavFailure);
+            var dataLength = wavPayloadLength;
+            stream.SetLength(44 + dataLength);
+            stream.Position = 0; WriteHeader(dataLength); stream.Flush();
+            stream.Dispose(); stream = null;
         }
         internal static void ValidateWavDataSize(long size)
         {
@@ -266,7 +290,7 @@ namespace OrbitRender.Renderer
             while (sampleFrames > 0)
             {
                 int frames = (int)Math.Min(chunkFrames, sampleFrames);
-                stream.Write(bytes, 0, checked(frames * Channels * sizeof(float)));
+                QueueWavBlock(checked(frames * Channels * sizeof(float)));
                 WriteConcurrent(bytes, checked(frames * Channels * sizeof(float)));
                 sampleFrames -= frames;
             }
@@ -369,17 +393,55 @@ namespace OrbitRender.Renderer
 
         private void WriteManagedSamples(int sampleValues)
         {
-            ValidateWavDataSize(checked(stream.Length - 44 + (long)sampleValues * sizeof(float)));
+            ValidateWavDataSize(checked((SampleFrames * Channels + sampleValues) * sizeof(float)));
             var peak = Peak;
             for (int i = 0; i < sampleValues; i++) peak = Math.Max(peak, Math.Abs(managed[i]));
             Peak = peak;
             Buffer.BlockCopy(managed, 0, bytes, 0, checked(sampleValues * sizeof(float)));
-            stream.Write(bytes, 0, checked(sampleValues * sizeof(float)));
+            QueueWavBlock(checked(sampleValues * sizeof(float)));
             WriteConcurrent(bytes, checked(sampleValues * sizeof(float)));
             SampleFrames += sampleValues / Channels;
         }
 
-        public void Dispose()
+        private void QueueWavBlock(int count)
+        {
+            var failure = Volatile.Read(ref wavFailure);
+            if (failure != null) throw new IOException("Writing captured WAV failed.", failure);
+            if (!wavBuffers.TryDequeue(out var buffer) || buffer.Length < count)
+                buffer = new byte[count];
+            Buffer.BlockCopy(bytes, 0, buffer, 0, count);
+            var block = new ArraySegment<byte>(buffer, 0, count);
+            if (wavBlocks.TryAdd(block)) return;
+            var waitStart = Stopwatch.GetTimestamp();
+            wavBlocks.Add(block);
+            wavQueueWaitTicks += Stopwatch.GetTimestamp() - waitStart;
+        }
+
+        private void WriteWavBlocks()
+        {
+            foreach (var block in wavBlocks.GetConsumingEnumerable())
+            {
+                if (wavFailure == null)
+                {
+                    var writeStart = Stopwatch.GetTimestamp();
+                    try { stream.Write(block.Array, block.Offset, block.Count); }
+                    catch (Exception ex) { Volatile.Write(ref wavFailure, ex); }
+                    finally { wavWriteTicks += Stopwatch.GetTimestamp() - writeStart; }
+                }
+                wavBuffers.Enqueue(block.Array);
+            }
+        }
+
+        private void StopWavWriter()
+        {
+            if (wavBlocks == null) return;
+            wavBlocks.CompleteAdding();
+            if (wavWriter != null && wavWriter.IsAlive) wavWriter.Join();
+            wavBlocks.Dispose();
+            wavBlocks = null;
+        }
+
+        public void StopCapture()
         {
             try
             {
@@ -391,15 +453,17 @@ namespace OrbitRender.Renderer
             {
                 filter = null;
                 started = false;
-                useFilterFallback = false;
-                useListenerOutputFallback = false;
-                listenerOutputAvailable = false;
-                filterSamplesToDiscard = 0;
-                zeroSampleReads = 0;
-                listenerLeft = null;
-                listenerRight = null;
                 if (samples.IsCreated) samples.Dispose();
+            }
+        }
+
+        public void Dispose()
+        {
+            try { StopCapture(); }
+            finally
+            {
                 concurrentEncoder?.Dispose(); concurrentEncoder = null;
+                StopWavWriter();
                 stream?.Dispose(); stream = null;
             }
         }
