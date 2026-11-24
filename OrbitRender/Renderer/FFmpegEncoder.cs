@@ -544,7 +544,7 @@ namespace OrbitRender.Renderer
         // frame, or earlier when negative (replay renders).
         public static void MuxAudio(string executable, string video, string audio, string output,
             double audioOffsetSeconds = 0.0, double audioGainDb = 0.0, AudioCodec audioCodec = AudioCodec.Auto,
-            double audioDelaySeconds = 0.0)
+            double audioDelaySeconds = 0.0, CancellationToken cancellation = default)
         {
             if (double.IsNaN(audioGainDb) || double.IsInfinity(audioGainDb)
                 || audioGainDb < MinAudioGainDb
@@ -578,11 +578,11 @@ namespace OrbitRender.Renderer
                     + " " + containerOptions + " -shortest \"" + output + "\""
             }})
             {
-                RunMux(mux);
+                RunMux(mux, cancellation);
             }
         }
         public static void MuxPreencodedAudio(string executable, string video, string audio, string output,
-            AudioCodec audioCodec = AudioCodec.Auto)
+            AudioCodec audioCodec = AudioCodec.Auto, CancellationToken cancellation = default)
         {
             audioCodec = AudioCodecCatalog.Resolve(audioCodec, Path.GetExtension(output));
             // Both inputs already cover the render timeline. Audio packet
@@ -596,10 +596,10 @@ namespace OrbitRender.Renderer
                     + output + "\""
             }})
             {
-                RunMux(mux);
+                RunMux(mux, cancellation);
             }
         }
-        private static void RunMux(Process mux)
+        private static void RunMux(Process mux, CancellationToken cancellation)
         {
             var lastProgress = Stopwatch.GetTimestamp();
             var errors = new StringBuilder();
@@ -620,8 +620,15 @@ namespace OrbitRender.Renderer
             mux.BeginErrorReadLine();
             // AAC encoding scales with song length, and faststart can spend
             // minutes moving a large MP4 without emitting progress.
-            while (!mux.WaitForExit(1000))
+            while (!mux.WaitForExit(200))
             {
+                if (cancellation.IsCancellationRequested)
+                {
+                    // A cancelled render stops here; cleanup deletes the partial output.
+                    try { mux.Kill(); } catch (InvalidOperationException) { }
+                    mux.WaitForExit();
+                    cancellation.ThrowIfCancellationRequested();
+                }
                 if ((Stopwatch.GetTimestamp() - Interlocked.Read(ref lastProgress))
                     / (double)Stopwatch.Frequency < 600) continue;
                 mux.Kill();
