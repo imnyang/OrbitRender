@@ -1,6 +1,8 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace OrbitRender.Renderer
 {
@@ -23,16 +25,22 @@ namespace OrbitRender.Renderer
         }
 
         // The finished video becomes the output as it is, or composed with the replay's webcam
-        // and microphone and the host's overlay videos. Finalization: no Unity yields here.
-        internal void Publish(string input, string output, long capturedFrames, bool hasGameAudio)
+        // and microphone and the host's overlay videos. Runs off the game thread (BackgroundFinish):
+        // no Unity calls here, and the host's GetOverlayVideos is called from this thread too.
+        internal void Publish(string input, string output, long capturedFrames, bool hasGameAudio,
+            BackgroundFinish finish = null)
         {
+            var cancellation = finish?.Token ?? CancellationToken.None;
+            finish?.Report(FinishStage.Overlays);
             var overlays = driver != null ? driver.OverlayVideos()
                 : new System.Collections.Generic.List<TUFReplayRenderer.Media.MediaOverlay>();
+            // The host may take minutes to hand its videos over; a render cancelled meanwhile stops here.
+            cancellation.ThrowIfCancellationRequested();
             if (overlays.Count > 0)
             {
                 try
                 {
-                    ComposeReplayMedia(input, output, capturedFrames, hasGameAudio, overlays);
+                    ComposeReplayMedia(input, output, capturedFrames, hasGameAudio, overlays, finish);
                     return;
                 }
                 catch (IOException exception)
@@ -43,12 +51,14 @@ namespace OrbitRender.Renderer
                 }
             }
             if (request?.HasMedia == true)
-                ComposeReplayMedia(input, output, capturedFrames, hasGameAudio, new System.Collections.Generic.List<TUFReplayRenderer.Media.MediaOverlay>());
+                ComposeReplayMedia(input, output, capturedFrames, hasGameAudio,
+                    new System.Collections.Generic.List<TUFReplayRenderer.Media.MediaOverlay>(), finish);
             else File.Move(input, output);
         }
 
         private void ComposeReplayMedia(string input, string output, long capturedFrames, bool hasGameAudio,
-            System.Collections.Generic.IReadOnlyList<TUFReplayRenderer.Media.MediaOverlay> overlays)
+            System.Collections.Generic.IReadOnlyList<TUFReplayRenderer.Media.MediaOverlay> overlays,
+            BackgroundFinish finish)
         {
             var webcam = request.MediaEntry("webcam");
             var microphone = request.MediaEntry("microphone");
@@ -92,20 +102,63 @@ namespace OrbitRender.Renderer
                     ? new[] { "-c:a", "flac" }
                     : new[] { "-c:a", AudioCodecCatalog.Encoder(codec), "-b:a", AudioCodecCatalog.Bitrate(codec) });
             }
+            var cancellation = finish?.Token ?? CancellationToken.None;
+            double durationUs = capturedFrames * 1000000d / profile.VideoFps;
+            finish?.Report(FinishStage.Composing, 0);
             using (var process = new System.Diagnostics.Process { StartInfo = new System.Diagnostics.ProcessStartInfo {
                 FileName = ffmpegPath, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardError = true, RedirectStandardOutput = true,
                 Arguments = string.Join(" ", plan.Arguments.Select(QuoteFfmpegArgument))
             } })
             {
+                var errors = new System.Text.StringBuilder();
+                process.ErrorDataReceived += (sender, args) =>
+                {
+                    if (args.Data == null) return;
+                    lock (errors)
+                    {
+                        errors.AppendLine(args.Data);
+                        if (errors.Length > 16384) errors.Remove(0, errors.Length - 16384);
+                    }
+                };
+                // -progress pipe:1 writes out_time_us as it goes: the share of the video composed.
+                process.OutputDataReceived += (sender, args) =>
+                {
+                    var fraction = CompositionProgress(args.Data, durationUs);
+                    if (fraction.HasValue) finish?.Report(FinishStage.Composing, fraction);
+                };
                 process.Start();
-                var errors = process.StandardError.ReadToEndAsync();
-                var progressOutput = process.StandardOutput.ReadToEndAsync();
-                process.WaitForExit();
-                progressOutput.GetAwaiter().GetResult();
-                if (process.ExitCode != 0) { RenderRecovery.DeleteTemporary(composedPath); throw new IOException("Replay media composition failed: " + errors.GetAwaiter().GetResult()); }
+                process.BeginErrorReadLine();
+                process.BeginOutputReadLine();
+                while (!process.WaitForExit(200))
+                {
+                    if (!cancellation.IsCancellationRequested) continue;
+                    try { process.Kill(); } catch (InvalidOperationException) { }
+                    process.WaitForExit();
+                    RenderRecovery.DeleteTemporary(composedPath);
+                    cancellation.ThrowIfCancellationRequested();
+                }
+                process.WaitForExit(); // Drain redirected output before reading the errors.
+                if (process.ExitCode != 0)
+                {
+                    RenderRecovery.DeleteTemporary(composedPath);
+                    string message;
+                    lock (errors) message = errors.ToString();
+                    throw new IOException("Replay media composition failed: " + message);
+                }
+                cancellation.ThrowIfCancellationRequested();
                 File.Move(composedPath, output);
             }
+        }
+
+        /// <summary>The share of the video composed, from one line of FFmpeg's -progress output.</summary>
+        internal static double? CompositionProgress(string line, double durationUs)
+        {
+            const string Key = "out_time_us=";
+            if (line == null || durationUs <= 0 || !line.StartsWith(Key, StringComparison.Ordinal)) return null;
+            if (!long.TryParse(line.Substring(Key.Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out var us)
+                || us < 0) return null;
+            return Math.Min(1, us / durationUs);
         }
 
         private static string QuoteFfmpegArgument(string value)

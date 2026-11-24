@@ -193,6 +193,9 @@ namespace OrbitRender.Renderer
         [JsonProperty("message")] public string Message { get; set; }
         [JsonProperty("warnings")] public string[] Warnings { get; set; }
         [JsonProperty("waitingForGameFocus")] public bool WaitingForGameFocus { get; set; }
+        // While finishing: "audio", "overlays" or "composing", and that stage's progress (0 to 1, or null).
+        [JsonProperty("finishingStage", NullValueHandling = NullValueHandling.Ignore)] public string FinishingStage { get; set; }
+        [JsonProperty("finishingProgress", NullValueHandling = NullValueHandling.Ignore)] public double? FinishingProgress { get; set; }
         // Kept alongside errorMessage so older HTTP clients keep working.
         [JsonProperty("error")] public string Error { get; set; }
         [JsonProperty("errorMessage")] public string ErrorMessage { get; set; }
@@ -246,6 +249,8 @@ namespace OrbitRender.Renderer
         private string outputPath;
         private long totalFrames;
         private long capturedFrames;
+        private string finishingStage;
+        private double? finishingProgress;
         private DateTime updatedUtc = DateTime.UtcNow;
 
         public RpcRenderJob(string id, string levelPath, bool captureAudio, RpcRenderOptions options)
@@ -290,6 +295,17 @@ namespace OrbitRender.Renderer
                 capturedFrames = captured;
                 totalFrames = total;
                 if (!string.IsNullOrEmpty(output)) outputPath = output;
+                updatedUtc = DateTime.UtcNow;
+            }
+        }
+
+        /// <summary>The background finish's stage and its progress, while the job is finishing.</summary>
+        internal void SetFinishing(string stage, double? progress)
+        {
+            lock (sync)
+            {
+                finishingStage = stage;
+                finishingProgress = progress;
                 updatedUtc = DateTime.UtcNow;
             }
         }
@@ -371,6 +387,8 @@ namespace OrbitRender.Renderer
                     Message = message,
                     Warnings = warnings,
                     WaitingForGameFocus = state == RpcJobState.AwaitingConfirmation,
+                    FinishingStage = state == RpcJobState.Finishing ? finishingStage : null,
+                    FinishingProgress = state == RpcJobState.Finishing ? finishingProgress : null,
                     Error = errorMessage ?? message,
                     ErrorMessage = errorMessage,
                     ErrorCode = errorDetails?.Code,

@@ -24,8 +24,10 @@ namespace OrbitRender.Renderer
         private const int RenderTargetFrameRate = 6000;
         private static readonly WaitForEndOfFrame EndOfFrame = new WaitForEndOfFrame();
         public static RendererController Instance { get; private set; }
+        // The background finish draws frames too; the render clock stays on the last frame meanwhile.
         public static bool ControlsTime => Instance != null && Instance.saved != null &&
-            (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering);
+            (Instance.State == RenderState.Preparing || Instance.State == RenderState.Rendering
+                || (Instance.State == RenderState.Finishing && Instance.backgroundFinish != null));
         internal static double InputCalibrationSeconds => Instance != null && Instance.replayDriver != null
             ? scrConductor.calibration_i : 0.0;
         internal static bool ReplayActive => Instance != null && Instance.replayDriver != null && Instance.Busy;
@@ -494,6 +496,63 @@ namespace OrbitRender.Renderer
                 || (State != RenderState.Completed && !Busy && !FfmpegInstaller.IsInstallPromptVisible)))
                 OrbitRender.UI.NoticeModal.Open(ToastText, State == RenderState.Failed, (preserveRecovery || recoveryManifest != null) ? (Action)(() => RetryAudioMux(recoveryManifest ?? OutputPath + RenderRecovery.Suffix)) : null);
         }
+        // While the background finish runs, the game draws its progress at this rate.
+        private const int FinishFrameRate = 30;
+        private const float FinishPollSeconds = 0.1f;
+        private BackgroundFinish backgroundFinish;
+
+        /// <summary>How far the background finish's current stage is, 0 to 1; null when it cannot tell.</summary>
+        internal double? FinishingProgress => backgroundFinish?.Progress;
+
+        /// <summary>The background finish's stage for RPC clients, or null outside it.</summary>
+        internal string FinishingStageName
+        {
+            get
+            {
+                var finish = backgroundFinish;
+                if (finish == null) return null;
+                switch (finish.Stage)
+                {
+                    case FinishStage.Audio: return "audio";
+                    case FinishStage.Overlays: return "overlays";
+                    default: return "composing";
+                }
+            }
+        }
+
+        private void ShowFinishProgress()
+        {
+            var finish = backgroundFinish;
+            if (finish == null) return;
+            var progress = finish.Progress;
+            switch (finish.Stage)
+            {
+                case FinishStage.Audio: Message = Localization.Get("finishing-audio"); break;
+                case FinishStage.Overlays: Message = Localization.Get("finishing-overlays"); break;
+                default: Message = Localization.Get("finishing-composing"); break;
+            }
+            ProgressPercentText = progress.HasValue
+                ? Localization.FormatWithCurrentCulture("progress-percent", progress.Value * 100.0)
+                : string.Empty;
+            // The render's ETA ended with the last frame; the finish has no estimate, only its time so far.
+            EtaText = Localization.FormatWithCurrentCulture("finishing-elapsed", FormatDuration(finish.ElapsedSeconds));
+            // Keeps the progress window up; ShowToast would also post a game notification.
+            ToastText = Message;
+            toastUntil = Time.unscaledTime + 1.0f;
+        }
+
+        private void StopBackgroundFinish()
+        {
+            var finish = backgroundFinish;
+            backgroundFinish = null;
+            if (finish == null || finish.IsCompleted) return;
+            finish.Cancel();
+            // FFmpeg is killed at once. Only a host still handing over its videos takes longer;
+            // the work stops by itself when the host returns.
+            if (!finish.Wait(3000))
+                Main.Entry.Logger.Log("[Render] The cancelled finish is still waiting for the host's videos; it stops when they return.");
+        }
+
         private void ShowProgressToast()
         {
             if (TotalFrames <= 0) return;
@@ -895,56 +954,108 @@ namespace OrbitRender.Renderer
             try
             {
                 capture.Drain(true);
-                // No Unity yields during finalization; gameplay must not progress further.
                 if (audio != null) audio.Complete(timelineFramesForRun, profile.VideoFps);
                 StopRenderAudioPlayback();
                 encoder.Finish(CapturedFrames);
-                if (audio != null)
+                var hasAudio = audio != null;
+                var preencodedAudio = false;
+                if (hasAudio)
                 {
                     // The video and WAV are complete. Preserve them if any later
                     // mux/publish operation fails, including after restarting the game.
                     preserveRecovery = true;
 
-                    var preencodedAudio = audio.FinishConcurrentEncoding();
+                    preencodedAudio = audio.FinishConcurrentEncoding();
                     if (audio.ConcurrentWriteSeconds > 0)
                         Main.Entry.Logger.Log(string.Format("[Render] Concurrent audio: pipe writes={0:F2}s, finish wait={1:F2}s, ready={2}.",
                             audio.ConcurrentWriteSeconds, audio.ConcurrentFinishSeconds, preencodedAudio));
                     audio.Dispose();
                     if (preencodedAudio)
-                    {
                         Main.Entry.Logger.Log("[Render] Muxing concurrently encoded " + profile.AudioCodec + " audio (gain="
                             + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB).");
-                        try { FFmpegEncoder.MuxPreencodedAudio(FFmpegPath, partialPath, audioEncodedPath, muxPath, profile.AudioCodec); }
+                    if (ReplayAudioDelaySeconds != 0.0)
+                        Main.Entry.Logger.Log("[Replay] Delaying render audio by the recorded input offset: "
+                            + (ReplayAudioDelaySeconds * 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                            + " ms.");
+                }
+                // The mux, the host's overlay videos and the composition can take minutes. They run
+                // off the game thread, so the game keeps drawing their progress instead of freezing.
+                // What they need is read here: cleanup clears these fields when the render is cancelled.
+                var publisher = new ReplayVideoPublisher(FFmpegPath, replayRequest, replayDriver, profile, ReplayAudioDelaySeconds);
+                var ffmpeg = FFmpegPath;
+                var partial = partialPath;
+                var wav = audioPath;
+                var encodedAudio = audioEncodedPath;
+                var muxed = muxPath;
+                var output = OutputPath;
+                var frames = CapturedFrames;
+                var audioCodec = profile.AudioCodec;
+                var gainDb = audioGainDbForRun;
+                var audioDelay = ReplayAudioDelaySeconds;
+                var audioOffset = selectionStartTileForRun.HasValue
+                    ? selectionStartFrameForRun / (double)profile.VideoFps : 0.0;
+                backgroundFinish = BackgroundFinish.Start(finish =>
+                {
+                    if (!hasAudio)
+                    {
+                        publisher.Publish(partial, output, frames, false, finish);
+                        return;
+                    }
+                    finish.Report(FinishStage.Audio);
+                    var preencoded = preencodedAudio;
+                    if (preencoded)
+                    {
+                        try { FFmpegEncoder.MuxPreencodedAudio(ffmpeg, partial, encodedAudio, muxed, audioCodec, finish.Token); }
+                        catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
                         {
                             Main.Entry.Logger.Log("[Render] Concurrent audio mux failed; retrying from WAV: " + ex.Message);
-                            if (File.Exists(muxPath)) File.Delete(muxPath);
-                            preencodedAudio = false;
+                            if (File.Exists(muxed)) File.Delete(muxed);
+                            preencoded = false;
                         }
                     }
-                    if (!preencodedAudio)
+                    if (!preencoded)
                     {
-                        var audioOffset = selectionStartTileForRun.HasValue
-                            ? selectionStartFrameForRun / (double)profile.VideoFps : 0.0;
                         Main.Entry.Logger.Log("[Render] Applying audio gain "
-                            + audioGainDbForRun.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                            + gainDb.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                             + " dB during final audio mux.");
-                        if (ReplayAudioDelaySeconds != 0.0)
-                            Main.Entry.Logger.Log("[Replay] Delaying render audio by the recorded input offset: "
-                                + (ReplayAudioDelaySeconds * 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
-                                + " ms.");
-                        FFmpegEncoder.MuxAudio(FFmpegPath, partialPath, audioPath, muxPath, audioOffset,
-                            audioGainDbForRun, profile.AudioCodec, ReplayAudioDelaySeconds);
+                        FFmpegEncoder.MuxAudio(ffmpeg, partial, wav, muxed, audioOffset, gainDb, audioCodec, audioDelay, finish.Token);
                     }
-                    PublishReplayVideo(muxPath, true);
+                    publisher.Publish(muxed, output, frames, true, finish);
+                });
+                // Gameplay stays on the last frame: the render clock does not advance and the
+                // frames drawn meanwhile run at timeScale 0, as the overlay refresh frames do.
+                // A modest frame rate leaves the CPU to FFmpeg.
+                var previousTimeScale = Time.timeScale;
+                var previousFrameRate = Application.targetFrameRate;
+                Time.timeScale = 0;
+                Application.targetFrameRate = FinishFrameRate;
+                try
+                {
+                    while (!backgroundFinish.IsCompleted)
+                    {
+                        ShowFinishProgress();
+                        yield return new WaitForSecondsRealtime(FinishPollSeconds);
+                    }
+                }
+                finally
+                {
+                    Time.timeScale = previousTimeScale;
+                    Application.targetFrameRate = previousFrameRate;
+                }
+                var finished = backgroundFinish;
+                backgroundFinish = null;
+                Main.Entry.Logger.Log("[Render] Background finish: " + finished.Timings() + ".");
+                finished.ThrowIfFailed();
+                if (hasAudio)
+                {
                     RenderRecovery.DeleteTemporary(muxPath);
                     RenderRecovery.DeleteTemporary(partialPath); RenderRecovery.DeleteTemporary(audioPath);
                     RenderRecovery.DeleteTemporary(audioEncodedPath);
                     RenderRecovery.DeleteTemporary(OutputPath + RenderRecovery.Suffix);
                     preserveRecovery = false;
                 }
-                else PublishReplayVideo(partialPath, false);
             }
             finally { finalizationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - finalizationStart; }
             totalRenderTicks = System.Diagnostics.Stopwatch.GetTimestamp() - totalRenderStartTicks;
@@ -1208,13 +1319,6 @@ namespace OrbitRender.Renderer
             ? replayRequest.GameInputOffsetMs / 1000d : 0.0;
 
         private bool HasReplayMedia() => replayRequest?.HasMedia == true;
-
-        private void PublishReplayVideo(string input, bool hasGameAudio)
-        {
-            var publisher = new ReplayVideoPublisher(FFmpegPath, replayRequest, replayDriver,
-                profile, ReplayAudioDelaySeconds);
-            publisher.Publish(input, OutputPath, CapturedFrames, hasGameAudio);
-        }
 
         private static string QuoteProcessArgument(string value)
         {
@@ -2008,7 +2112,11 @@ namespace OrbitRender.Renderer
             else if (State == RenderState.AwaitingConfirmation) job.SetState(RpcJobState.AwaitingConfirmation, EncoderFallbackReason);
             else if (State == RenderState.Preparing) job.SetState(RpcJobState.Preparing);
             else if (State == RenderState.Rendering) job.SetState(RpcJobState.Rendering);
-            else if (State == RenderState.Finishing) job.SetState(RpcJobState.Finishing);
+            else if (State == RenderState.Finishing)
+            {
+                job.SetState(RpcJobState.Finishing);
+                job.SetFinishing(FinishingStageName, FinishingProgress);
+            }
             else if (State == RenderState.Completed)
             {
                 job.SetState(RpcJobState.Completed);
@@ -2101,6 +2209,8 @@ namespace OrbitRender.Renderer
         }
         private void Cleanup()
         {
+            // First: a cancelled finish must stop its FFmpeg before the files it uses are deleted.
+            TryCleanup(StopBackgroundFinish);
             var capturedAudio = audio != null;
             useGUILayout = true;
             TryCleanup(() => replaySession?.End(State));
